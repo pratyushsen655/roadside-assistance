@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "Roadside Assist (Mechanic)",
+    "slug": "roadside-mechanic-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#121212"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "bundleIdentifier": "com.rescueme.mechanic",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "This app requires GPS location access to identify nearby vehicle breakdown requests and direct navigation steps to customer locations.",
+        "NSCameraUsageDescription": "Camera access is needed for taking photos of the vehicle condition during a job.",
+        "NSMicrophoneUsageDescription": "Microphone access is needed for voice messages in the in‑app chat."
+      }
+    },
+    "android": {
+      "package": "com.rescueme.mechanic",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "INTERNET",
+        "CAMERA",
+        "RECORD_AUDIO",
+        "POST_NOTIFICATIONS"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}

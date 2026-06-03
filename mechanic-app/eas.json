@@ -1,0 +1,49 @@
+{
+  "cli": {
+    "version": ">= 3.0.0"
+  },
+  "build": {
+    "development": {
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleDebug"
+      },
+      "ios": {
+        "simulator": true,
+        "buildConfiguration": "Debug"
+      }
+    },
+    "preview": {
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleRelease",
+        "gradleProperties": {
+          "EXPO_APPLICATION_ID": "com.rescueme.mechanic",
+          "EXPO_SDK_VERSION": "49.0.0"
+        }
+      },
+      "ios": {
+        "simulator": false,
+        "buildConfiguration": "Release",
+        "enterpriseProvisioning": "none"
+      }
+    },
+    "production": {
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleRelease",
+        "credentialsSource": "remote",
+        "gradleProperties": {
+          "EXPO_APPLICATION_ID": "com.rescueme.mechanic",
+          "EXPO_SDK_VERSION": "49.0.0"
+        }
+      },
+      "ios": {
+        "simulator": false,
+        "buildConfiguration": "Release",
+        "autoIncrement": true,
+        "credentialsSource": "remote"
+      }
+    }
+  }
+}

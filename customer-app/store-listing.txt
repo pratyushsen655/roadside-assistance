@@ -1,0 +1,7 @@
+Title: RescueMe – Roadside Assistance
+Short Description: On‑demand roadside help, connect customers with nearby mechanics.
+
+Full Description:
+RescueMe connects drivers in need of emergency assistance with vetted, nearby mechanics in real time. Features include OTP login, live location tracking, in‑app chat, instant payment via Razorpay, and rating system. Our service ensures quick response, transparent pricing, and 24/7 support.
+
+Keywords: roadside, assistance, tow, mechanic, emergency, car, repair, live‑track, payment, chat

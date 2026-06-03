@@ -1,0 +1,73 @@
+{
+  "cli": {
+    "version": ">= 3.0.0"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": {
+        "gradleCommand": ":app:assembleDebug",
+        "buildType": "apk"
+      },
+      "ios": {
+        "simulator": true,
+        "buildConfiguration": "Debug"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://dev.api.rescueme.com",
+        "EXPO_PUBLIC_SOCKET_URL": "https://dev.api.rescueme.com",
+        "ENVIRONMENT": "development"
+      }
+    },
+    "preview": {
+      "android": {
+        "gradleCommand": ":app:assembleRelease",
+        "buildType": "apk"
+      },
+      "ios": {
+        "simulator": false,
+        "buildConfiguration": "Release"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://preview.api.rescueme.com",
+        "EXPO_PUBLIC_SOCKET_URL": "https://preview.api.rescueme.com",
+        "ENVIRONMENT": "preview"
+      }
+    },
+    "production": {
+      "android": {
+        "gradleCommand": ":app:bundleRelease",
+        "buildType": "app-bundle"
+      },
+      "ios": {
+        "simulator": false,
+        "buildConfiguration": "Release",
+        "autoIncrement": true
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.rescueme.com",
+        "EXPO_PUBLIC_SOCKET_URL": "https://api.rescueme.com",
+        "ENVIRONMENT": "production"
+      }
+    }
+  },
+  "android": {
+    "keystore": {
+      "keystorePath": "./keystore.jks",
+      "keystorePassword": "YOUR_KEYSTORE_PASSWORD",
+      "keyAlias": "YOUR_KEY_ALIAS",
+      "keyPassword": "YOUR_KEY_PASSWORD"
+    }
+  },
+  "hooks": {
+    "postPublish": [
+      {
+        "file": "scripts/setEnv.js",
+        "config": {
+          "profile": "${PROFILE}"
+        }
+      }
+    ]
+  }
+}
