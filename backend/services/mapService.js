@@ -1,4 +1,4 @@
-const axios = require('axios');
+const { Client } = require("@googlemaps/google-maps-services-js");
 const dotenv = require('dotenv');
 dotenv.config();
 
@@ -32,8 +32,14 @@ const getRouteDetails = async (origin, destination) => {
 
   if (MAPS_API_KEY) {
     try {
-      const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${originLat},${originLon}&destination=${destLat},${destLon}&key=${MAPS_API_KEY}`;
-      const response = await axios.get(url);
+      const client = new Client({});
+      const response = await client.directions({
+        params: {
+          origin: `${originLat},${originLon}`,
+          destination: `${destLat},${destLon}`,
+          key: MAPS_API_KEY,
+        },
+      });
 
       if (response.data.status === 'OK') {
         const route = response.data.routes[0];

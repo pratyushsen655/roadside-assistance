@@ -3,6 +3,7 @@ const http = require('http');
 const socketio = require('socket.io');
 const cors = require('cors');
 const dotenv = require('dotenv');
+dotenv.config();
 const connectDB = require('./config/db');
 const socketHandler = require('./sockets/socketHandler');
 const errorHandler = require('./middleware/errorMiddleware');
@@ -11,6 +12,7 @@ const rateLimiter = require('./middleware/rateLimiter');
 const apiKeyRotation = require('./middleware/apiKeyRotation');
 const mongoSanitize = require('express-mongo-sanitize');
 const xssClean = require('xss-clean');
+const mongoose = require('mongoose');
 
 // Load configurations
 dotenv.config();
@@ -36,21 +38,7 @@ socketHandler.initSocketServer(io);
 
 // Global Middleware
 // CORS configuration with whitelist for production
-const corsOptions = {
-  origin: function (origin, callback) {
-    const whitelist = process.env.NODE_ENV === 'production' ? [
-      'https://yourdomain.com',
-      'https://www.yourdomain.com'
-    ] : ['*'];
-    if (whitelist.includes(origin) || !origin) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true
-};
-app.use(cors(corsOptions));
+app.use(cors({ origin: '*', credentials: true, methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'] }));
 
 // Security middlewares
 app.use(securityHeaders);
@@ -72,12 +60,13 @@ if (process.env.NODE_ENV === 'development') {
 }
 
 // Health Check Endpoint
-app.get('/health', (req, res) => {
+app.get('/api/health', (req, res) => {
   res.status(200).json({
-    success: true,
-    status: 'Operational',
-    timestamp: new Date(),
-    environment: process.env.NODE_ENV || 'development'
+    status: 'ok',
+    message: 'Server is running',
+    port: process.env.PORT,
+    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    timestamp: new Date()
   });
 });
 
@@ -110,10 +99,8 @@ app.use((req, res, next) => {
 // Global Centralized Error Middleware
 app.use(errorHandler);
 
-// Define running port
 const PORT = process.env.PORT || 5000;
 
-// Listen to port
 const serverInstance = server.listen(PORT, () => {
   console.log(`\n==================================================`);
   console.log(`[API Server] Running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
@@ -121,15 +108,43 @@ const serverInstance = server.listen(PORT, () => {
   console.log(`==================================================\n`);
 });
 
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (err, promise) => {
+serverInstance.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`[CRITICAL] Port ${PORT} is already in use. Run: taskkill /IM node.exe /F then restart`);
+    process.exit(1);
+  } else {
+    console.error('[CRITICAL] Server error:', err);
+    process.exit(1);
+  }
+});
+
+// Graceful shutdown handling
+function gracefulShutdown() {
+  console.log('[API Server] Shutting down gracefully...');
+  // Stop accepting new connections
+  serverInstance.close(() => {
+    console.log('[API Server] HTTP server closed.');
+    // Close Socket.io
+    if (io) io.close();
+    // Close MongoDB connection
+    mongoose.connection.close(false, () => {
+      console.log('[API Server] MongoDB connection closed.');
+      process.exit(0);
+    });
+  });
+}
+
+// Handle process termination signals
+process.on('SIGINT', gracefulShutdown);
+process.on('SIGTERM', gracefulShutdown);
+
+// Handle unexpected errors
+process.on('unhandledRejection', (err) => {
   console.error(`[CRITICAL] Unhandled Rejection: ${err.message}`);
-  // Close server & exit process
-  // serverInstance.close(() => process.exit(1));
+  gracefulShutdown();
 });
 
 process.on('uncaughtException', (err) => {
   console.error(`[CRITICAL] Uncaught Exception: ${err.message}`);
-  // Close server & exit process
-  // process.exit(1);
+  gracefulShutdown();
 });

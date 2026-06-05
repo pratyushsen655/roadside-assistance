@@ -1,32 +1,27 @@
-const admin = require('firebase-admin');
+let admin = null;
 const dotenv = require('dotenv');
+
 dotenv.config();
 
-const projectId = process.env.FIREBASE_PROJECT_ID;
-const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-const privateKey = process.env.FIREBASE_PRIVATE_KEY;
-
+// Attempt to load and initialize Firebase Admin SDK (optional)
 let firebaseInitialized = false;
-
-if (projectId && clientEmail && privateKey) {
-  try {
-    // Process private key linebreaks
+try {
+  admin = require('firebase-admin');
+  const projectId = process.env.FIREBASE_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+  if (projectId && clientEmail && privateKey) {
     const formattedPrivateKey = privateKey.replace(/\\n/g, '\n');
-
     admin.initializeApp({
-      credential: admin.credential.cert({
-        projectId,
-        clientEmail,
-        privateKey: formattedPrivateKey,
-      }),
+      credential: admin.credential.cert({ projectId, clientEmail, privateKey: formattedPrivateKey })
     });
     firebaseInitialized = true;
     console.log('[FCM Service] Firebase Admin SDK initialized successfully.');
-  } catch (error) {
-    console.warn('[FCM Service] Failed to initialize Firebase Admin SDK:', error.message);
+  } else {
+    console.log('[FCM Service] Firebase credentials missing. Running in mock mode.');
   }
-} else {
-  console.log('[FCM Service] Firebase credentials missing. Running in mock mode.');
+} catch (error) {
+  console.warn('[FCM Service] Firebase initialization failed, proceeding without Firebase:', error.message);
 }
 
 /**
@@ -45,7 +40,7 @@ const sendPushNotification = async (token, title, body, data = {}) => {
     stringifiedData[key] = String(data[key]);
   });
 
-  if (firebaseInitialized) {
+  if (firebaseInitialized && admin) {
     try {
       const message = {
         notification: { title, body },
@@ -86,7 +81,7 @@ const sendMulticastNotification = async (tokens, title, body, data = {}) => {
     stringifiedData[key] = String(data[key]);
   });
 
-  if (firebaseInitialized) {
+  if (firebaseInitialized && admin) {
     try {
       const response = await admin.messaging().sendEachForMulticast({
         tokens: validTokens,
