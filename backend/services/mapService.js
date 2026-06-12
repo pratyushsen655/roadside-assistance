@@ -1,6 +1,7 @@
-const { Client } = require("@googlemaps/google-maps-services-js");
-const dotenv = require('dotenv');
-dotenv.config();
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+/** @type {import('axios').AxiosStatic} */
+const axios = /** @type {any} */ (require('axios'));
+// dotenv already loaded by entry point (server.js)
 
 const MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
 
@@ -24,7 +25,7 @@ function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
  * Fetch directions and ETA from Google Maps API, with mathematical fallbacks.
  * @param {number[]} origin - [longitude, latitude]
  * @param {number[]} destination - [longitude, latitude]
- * @returns {Promise<{distanceKm: number, durationMins: number, polyline: string}>}
+ * @returns {Promise<{distanceKm: number, durationMins: number, polyline: string, address: string}>}
  */
 const getRouteDetails = async (origin, destination) => {
   const [originLon, originLat] = origin;
@@ -32,19 +33,12 @@ const getRouteDetails = async (origin, destination) => {
 
   if (MAPS_API_KEY) {
     try {
-      const client = new Client({});
-      const response = await client.directions({
-        params: {
-          origin: `${originLat},${originLon}`,
-          destination: `${destLat},${destLon}`,
-          key: MAPS_API_KEY,
-        },
-      });
+      const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${originLat},${originLon}&destination=${destLat},${destLon}&key=${MAPS_API_KEY}`;
+      const response = await axios.get(url);
 
       if (response.data.status === 'OK') {
         const route = response.data.routes[0];
         const leg = route.legs[0];
-        
         return {
           distanceKm: parseFloat((leg.distance.value / 1000).toFixed(2)),
           durationMins: Math.ceil(leg.duration.value / 60),
@@ -52,11 +46,10 @@ const getRouteDetails = async (origin, destination) => {
           address: leg.end_address || ''
         };
       } else {
-        console.warn(`[Map Service] Google API returned status: ${response.data.status}. Falling back to Haversine.`);
+        process.stderr.write(`[Map Service] Google API status: ${response.data.status}. Using Haversine fallback.\n`);
       }
     } catch (error) {
-      console.error('[Map Service] Google API request failed:', error.message);
-      // Fallback
+      process.stderr.write(`[Map Service] Google API error: ${error.message}\n`);
     }
   }
 

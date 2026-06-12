@@ -1,6 +1,11 @@
 {
   "dependencies": {
-    "express-rate-limit": "^8.5.2"
+    "axios": "^1.17.0",
+    "chalk": "^4.1.2",
+    "dotenv": "^17.4.2",
+    "express-mongo-sanitize": "^2.2.0",
+    "express-rate-limit": "^8.5.2",
+    "xss-clean": "^0.1.4"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

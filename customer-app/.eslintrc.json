@@ -1,0 +1,25 @@
+{
+  "env": {
+    "browser": false,
+    "es2022": true,
+    "react-native/react-native": true
+  },
+  "extends": ["plugin:react/recommended"],
+  "parserOptions": {
+    "ecmaVersion": 2022,
+    "sourceType": "module",
+    "ecmaFeatures": { "jsx": true }
+  },
+  "plugins": ["react", "react-native", "@typescript-eslint"],
+  "rules": {
+    "no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }],
+    "no-console": ["warn", { "allow": ["warn", "error"] }],
+    "react/prop-types": "off",
+    "react/react-in-jsx-scope": "off",
+    "no-var": "error",
+    "prefer-const": "warn",
+    "no-duplicate-imports": "error"
+  },
+  "settings": { "react": { "version": "detect" } },
+  "ignorePatterns": ["node_modules/", "android/", "ios/", ".expo/"]
+}

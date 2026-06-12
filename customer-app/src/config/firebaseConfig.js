@@ -25,11 +25,9 @@ export const messaging = getMessaging(app);
 // Emulator configuration for local development
 if (process.env.FIREBASE_EMULATOR_HOST) {
   // Firestore emulator (default port 8080)
-  try { db.useEmulator('localhost', 8080); } catch (e) {}
+  try { db.useEmulator('localhost', 8080); } catch (_e) { /* already configured */ }
   // Auth emulator (default port 9099)
-  try { auth.useEmulator('http://localhost:9099'); } catch (e) {}
-  // Messaging emulator (if needed)
-  // try { messaging.useEmulator('localhost', 9090); } catch (e) {}
+  try { auth.useEmulator('http://localhost:9099'); } catch (_e) { /* already configured */ }
 }
 
 export default app;

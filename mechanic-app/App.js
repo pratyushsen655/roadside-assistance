@@ -1,82 +1,112 @@
-import React, { useContext } from 'react';
+// App.js - Root component for the Mechanic Expo app
+import React, { useEffect, useRef } from 'react';
+import { LogBox, InteractionManager } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { AuthProvider } from './src/context/AuthContext';
+import AppNavigator from './src/navigation/AppNavigator';
+import { createNavigationContainerRef } from '@react-navigation/native';
+import Constants from 'expo-constants';
+import ErrorBoundary from './src/components/ErrorBoundary';
+import OfflineBanner from './src/components/OfflineBanner';
 
-import { AuthProvider, AuthContext } from './src/context/AuthContext';
-import { SocketProvider } from './src/context/SocketContext';
-import LoginScreen from './src/screens/LoginScreen';
-import KYCScreen from './src/screens/KYCScreen';
-import DashboardScreen from './src/screens/DashboardScreen';
-import ChatScreen from './src/screens/ChatScreen';
+export const navigationRef = createNavigationContainerRef();
 
-const Stack = createNativeStackNavigator();
+// Detect if running inside Expo Go (SDK 53+ removed push notification support from Expo Go)
+const isExpoGo = Constants.appOwnership === 'expo';
 
-function NavigationWrapper() {
-  const { token, mechanic, loading } = useContext(AuthContext);
-
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#ffcc00" />
-      </View>
-    );
+// Only import and configure Notifications when NOT in Expo Go to avoid the SDK 53 crash
+let Notifications = null;
+if (!isExpoGo) {
+  try {
+    Notifications = require('expo-notifications');
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: true,
+        shouldSetBadge: true,
+      }),
+    });
+  } catch (e) {
+    console.log('[App] expo-notifications not available:', e.message);
   }
-
-  // Redirect logic: If logged in but KYC not approved, default to KYC portal. Otherwise, dashboard.
-  const isKycApproved = mechanic?.kycStatus === 'approved';
-
-  return (
-    <NavigationContainer>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {token ? (
-          // Authenticated Stack
-          <>
-            {!isKycApproved ? (
-              <>
-                <Stack.Screen name="KYC" component={KYCScreen} />
-                <Stack.Screen name="Dashboard" component={DashboardScreen} />
-              </>
-            ) : (
-              <>
-                <Stack.Screen name="Dashboard" component={DashboardScreen} />
-                <Stack.Screen name="KYC" component={KYCScreen} />
-              </>
-            )}
-            <Stack.Screen name="Chat" component={ChatScreen} />
-          </>
-        ) : (
-          // Auth flow Stack
-          <Stack.Screen name="Login" component={LoginScreen} />
-        )}
-      </Stack.Navigator>
-    </NavigationContainer>
-  );
 }
+
+// Polyfill InteractionManager using requestIdleCallback to support third-party libraries
+if (InteractionManager) {
+  const originalRunAfterInteractions = InteractionManager.runAfterInteractions;
+  InteractionManager.runAfterInteractions = (task) => {
+    let handle;
+    if (typeof requestIdleCallback !== 'undefined') {
+      handle = requestIdleCallback(() => {
+        if (task) task();
+      });
+      return { cancel: () => cancelIdleCallback(handle) };
+    }
+    return originalRunAfterInteractions ? originalRunAfterInteractions(task) : {
+      cancel: () => clearTimeout(handle)
+    };
+  };
+}
+
+LogBox.ignoreLogs([
+  'InteractionManager has been deprecated',
+  'expo-notifications: Android Push notifications',
+  'warnOfExpoGoPushUsage',
+]);
 
 export default function App() {
+  const notificationListener = useRef();
+  const responseListener = useRef();
+
+  useEffect(() => {
+    if (!Notifications) {
+      console.log('[App] Running in Expo Go — push notifications disabled. Use a dev build for full support.');
+      return;
+    }
+
+    try {
+      notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
+        console.log('Notification received in foreground:', notification);
+      });
+
+      responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
+        try {
+          const data = response.notification.request.content.data;
+          if (data && data.screen) {
+            let params = data.params;
+            if (typeof params === 'string') {
+              try { params = JSON.parse(params); } catch (e) {}
+            }
+            if (navigationRef.isReady()) {
+              navigationRef.navigate(data.screen, params);
+            }
+          }
+        } catch (err) {
+          console.log('[Notification Tap Error]', err.message);
+        }
+      });
+    } catch (err) {
+      console.log('[App] Notification listener setup failed:', err.message);
+    }
+
+    return () => {
+      try {
+        if (notificationListener.current) Notifications.removeNotificationSubscription(notificationListener.current);
+        if (responseListener.current) Notifications.removeNotificationSubscription(responseListener.current);
+      } catch (e) {}
+    };
+  }, []);
+
   return (
-    <AuthProvider>
-      <SocketProvider>
-        <View style={styles.container}>
-          <NavigationWrapper />
+    <SafeAreaProvider>
+      <ErrorBoundary>
+        <AuthProvider>
           <StatusBar style="light" />
-        </View>
-      </SocketProvider>
-    </AuthProvider>
+          <AppNavigator navigationRef={navigationRef} />
+          <OfflineBanner />
+        </AuthProvider>
+      </ErrorBoundary>
+    </SafeAreaProvider>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#121212',
-  },
-  loadingContainer: {
-    flex: 1,
-    backgroundColor: '#121212',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});

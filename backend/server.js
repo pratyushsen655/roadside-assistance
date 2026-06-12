@@ -1,6 +1,6 @@
 const express = require('express');
 const http = require('http');
-const socketio = require('socket.io');
+const { Server: SocketServer } = require('socket.io');
 const cors = require('cors');
 const dotenv = require('dotenv');
 dotenv.config();
@@ -12,10 +12,8 @@ const rateLimiter = require('./middleware/rateLimiter');
 const apiKeyRotation = require('./middleware/apiKeyRotation');
 const mongoSanitize = require('express-mongo-sanitize');
 const xssClean = require('xss-clean');
-const mongoose = require('mongoose');
 
-// Load configurations
-dotenv.config();
+// Load configurations (already called above; removed duplicate dotenv.config() call)
 
 // Connect to MongoDB Database
 connectDB();
@@ -24,7 +22,7 @@ const app = express();
 const server = http.createServer(app);
 
 // Configure Socket.io
-const io = socketio(server, {
+const io = new SocketServer(server, {
   cors: {
     origin: '*', // Allow all origins for dev mobility. Lock down in production.
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
@@ -37,8 +35,20 @@ const io = socketio(server, {
 socketHandler.initSocketServer(io);
 
 // Global Middleware
-// CORS configuration with whitelist for production
-app.use(cors({ origin: '*', credentials: true, methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'] }));
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+];
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin) || origin.includes('vercel.app') || origin.includes('railway.app')) {
+      callback(null, true);
+    } else {
+      callback(null, true);
+    }
+  },
+  credentials: true
+}));
 
 // Security middlewares
 app.use(securityHeaders);
@@ -47,46 +57,69 @@ app.use(mongoSanitize());
 app.use(xssClean());
 app.use(apiKeyRotation);
 
+app.use((req, res, next) => {
+  /** @type {any} */ (req).io = io;
+  next();
+});
+
 // Body parsers with size limit
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Log incoming REST requests in development
+// Log incoming REST requests in development only
 if (process.env.NODE_ENV === 'development') {
-  app.use((req, res, next) => {
-    console.log(`[REST Request] ${req.method} ${req.path}`);
-    next();
-  });
+  const morgan = require('morgan');
+  app.use(morgan('dev'));
 }
+
+// Welcome Endpoint
+app.get('/', (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: 'RescueMe Roadside Assistance API Server is running',
+    version: '1.0.0',
+    status: 'online'
+  });
+});
 
 // Health Check Endpoint
 app.get('/api/health', (req, res) => {
   res.status(200).json({
     status: 'ok',
-    message: 'Server is running',
-    port: process.env.PORT,
-    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-    timestamp: new Date()
+    timestamp: Date.now()
   });
 });
 
 // Import API Routers
 const authRoutes = require('./routes/authRoutes');
+const mechanicAuthRoutes = require('./routes/mechanicAuthRoutes');
 const userRoutes = require('./routes/userRoutes');
 const mechanicRoutes = require('./routes/mechanicRoutes');
 const requestRoutes = require('./routes/requestRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const chatRoutes = require('./routes/chatRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
+const referralRoutes = require('./routes/referralRoutes');
+const ratingRoutes = require('./routes/ratingRoutes');
+const invoiceRoutes = require('./routes/invoiceRoutes');
 
 // Mount API Routers
 app.use('/api/auth', authRoutes);
+app.use('/api/mechanic/auth', mechanicAuthRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/mechanics', mechanicRoutes);
+app.use('/api/mechanic', mechanicRoutes);
 app.use('/api/requests', requestRoutes);
+app.use('/api/servicerequests', requestRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/chats', chatRoutes);
+app.use('/api/chat', chatRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/referrals', referralRoutes);
+app.use('/api/ratings', ratingRoutes);
+app.use('/api/invoices', invoiceRoutes);
 
 // Catch-all route handler for 404
 app.use((req, res, next) => {
@@ -99,52 +132,32 @@ app.use((req, res, next) => {
 // Global Centralized Error Middleware
 app.use(errorHandler);
 
+// Define running port
 const PORT = process.env.PORT || 5000;
 
-const serverInstance = server.listen(PORT, () => {
-  console.log(`\n==================================================`);
-  console.log(`[API Server] Running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
-  console.log(`[Realtime WSS] Listening for WebSockets connections`);
-  console.log(`==================================================\n`);
-});
-
-serverInstance.on('error', (err) => {
-  if (err.code === 'EADDRINUSE') {
-    console.error(`[CRITICAL] Port ${PORT} is already in use. Run: taskkill /IM node.exe /F then restart`);
-    process.exit(1);
-  } else {
-    console.error('[CRITICAL] Server error:', err);
-    process.exit(1);
-  }
-});
-
-// Graceful shutdown handling
-function gracefulShutdown() {
-  console.log('[API Server] Shutting down gracefully...');
-  // Stop accepting new connections
-  serverInstance.close(() => {
-    console.log('[API Server] HTTP server closed.');
-    // Close Socket.io
-    if (io) io.close();
-    // Close MongoDB connection
-    mongoose.connection.close(false, () => {
-      console.log('[API Server] MongoDB connection closed.');
-      process.exit(0);
-    });
+// Only bind to port when run directly (not when imported by tests)
+let serverInstance;
+if (require.main === module) {
+  serverInstance = server.listen(PORT, () => {
+    if (process.env.NODE_ENV !== 'production') {
+      process.stdout.write(`\n[API Server] ${process.env.NODE_ENV || 'development'} mode · port ${PORT}\n`);
+    }
   });
 }
 
-// Handle process termination signals
-process.on('SIGINT', gracefulShutdown);
-process.on('SIGTERM', gracefulShutdown);
-
-// Handle unexpected errors
+// Handle unhandled promise rejections
 process.on('unhandledRejection', (err) => {
-  console.error(`[CRITICAL] Unhandled Rejection: ${err.message}`);
-  gracefulShutdown();
+  const message = err instanceof Error ? err.message : String(err);
+  process.stderr.write(`[CRITICAL] Unhandled Rejection: ${message}\n`);
+  if (serverInstance) serverInstance.close(() => process.exit(1));
 });
 
 process.on('uncaughtException', (err) => {
-  console.error(`[CRITICAL] Uncaught Exception: ${err.message}`);
-  gracefulShutdown();
+  process.stderr.write(`[CRITICAL] Uncaught Exception: ${err.message}\n`);
+  process.exit(1);
 });
+
+// Export app and server for testing
+module.exports = app;
+module.exports.server = server;
+

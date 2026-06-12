@@ -51,23 +51,5 @@
         "ENVIRONMENT": "production"
       }
     }
-  },
-  "android": {
-    "keystore": {
-      "keystorePath": "./keystore.jks",
-      "keystorePassword": "YOUR_KEYSTORE_PASSWORD",
-      "keyAlias": "YOUR_KEY_ALIAS",
-      "keyPassword": "YOUR_KEY_PASSWORD"
-    }
-  },
-  "hooks": {
-    "postPublish": [
-      {
-        "file": "scripts/setEnv.js",
-        "config": {
-          "profile": "${PROFILE}"
-        }
-      }
-    ]
   }
 }

@@ -4,45 +4,48 @@
   },
   "build": {
     "development": {
+      "developmentClient": true,
+      "distribution": "internal",
       "android": {
-        "buildType": "apk",
-        "gradleCommand": ":app:assembleDebug"
+        "gradleCommand": ":app:assembleDebug",
+        "buildType": "apk"
       },
       "ios": {
         "simulator": true,
         "buildConfiguration": "Debug"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "http://localhost:5000",
+        "ENVIRONMENT": "development"
       }
     },
     "preview": {
       "android": {
-        "buildType": "apk",
         "gradleCommand": ":app:assembleRelease",
-        "gradleProperties": {
-          "EXPO_APPLICATION_ID": "com.rescueme.mechanic",
-          "EXPO_SDK_VERSION": "49.0.0"
-        }
+        "buildType": "apk"
       },
       "ios": {
         "simulator": false,
-        "buildConfiguration": "Release",
-        "enterpriseProvisioning": "none"
+        "buildConfiguration": "Release"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "http://localhost:5000",
+        "ENVIRONMENT": "preview"
       }
     },
     "production": {
       "android": {
-        "buildType": "apk",
-        "gradleCommand": ":app:assembleRelease",
-        "credentialsSource": "remote",
-        "gradleProperties": {
-          "EXPO_APPLICATION_ID": "com.rescueme.mechanic",
-          "EXPO_SDK_VERSION": "49.0.0"
-        }
+        "gradleCommand": ":app:bundleRelease",
+        "buildType": "app-bundle"
       },
       "ios": {
         "simulator": false,
         "buildConfiguration": "Release",
-        "autoIncrement": true,
-        "credentialsSource": "remote"
+        "autoIncrement": true
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "http://localhost:5000",
+        "ENVIRONMENT": "production"
       }
     }
   }

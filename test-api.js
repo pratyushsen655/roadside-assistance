@@ -123,6 +123,9 @@ function logStep(step, success, details = '') {
   } catch (err) {
     const step = err.config?.url?.split('/').pop() || 'unknown';
     logStep(`Error during ${step}`, false, err.message);
+    if (err.response?.data) {
+      console.log('Response data:', err.response.data);
+    }
     process.exit(1);
   }
 })();

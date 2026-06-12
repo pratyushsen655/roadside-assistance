@@ -25,3 +25,7 @@ yarn-error.log
 # OS files
 .DS_Store
 Thumbs.db
+
+# Local DB and duplicate apps
+mongodb-data/
+customer-app/my-app/

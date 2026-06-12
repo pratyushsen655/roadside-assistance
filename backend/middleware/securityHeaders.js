@@ -1,19 +1,17 @@
-const helmet = require('helmet');
+const helmet = require('helmet').default;
 
-/**
- * Apply Helmet security headers with sensible defaults.
- * In production we enable CSP, HSTS, DNS prefetch control, etc.
- */
-module.exports = helmet({
-  contentSecurityPolicy: process.env.NODE_ENV === 'production' ? {
+const securityHeaders = helmet({
+  contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'"] ,
-      styleSrc: ["'self'", 'https:'],
-      imgSrc: ["'self'", 'data:', 'https:'],
-      connectSrc: ["'self'", 'wss:']
-    }
-  } : false,
-  referrerPolicy: { policy: 'no-referrer' },
-  hidePoweredBy: true,
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+    },
+  },
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  frameguard: { action: 'deny' },
+  noSniff: true,
+  xssFilter: true,
 });
+
+module.exports = securityHeaders;
