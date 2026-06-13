@@ -116,15 +116,46 @@ const HomeScreen = ({ navigation }) => {
 
   useEffect(() => {
     let interval;
+    let socket;
     if (mechanicToken && isOnline) {
       fetchPendingRequests();
+      
+      socket = getSocket(mechanicToken);
+      if (socket) {
+        socket.emit('join:mechanics:room');
+        
+        socket.on('request:price_updated', (data) => {
+          console.log('[Socket] Request price updated in real-time, reloading...', data);
+          fetchPendingRequests();
+        });
+
+        socket.on('request:price_updated_global', (data) => {
+          console.log('[Socket] Global request price updated in real-time, reloading...', data);
+          fetchPendingRequests();
+        });
+
+        socket.on('request_claimed', () => {
+          fetchPendingRequests();
+        });
+      }
+
       interval = setInterval(() => {
         fetchPendingRequests();
       }, 10000);
     } else {
       setRequests([]);
+      if (socket) {
+        socket.off('request:price_updated');
+        socket.off('request:price_updated_global');
+      }
     }
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      if (socket) {
+        socket.off('request:price_updated');
+        socket.off('request:price_updated_global');
+      }
+    };
   }, [isOnline, mechanicToken]);
 
   const fetchProfileOnlineStatus = async () => {
@@ -319,7 +350,12 @@ const HomeScreen = ({ navigation }) => {
           <View key={req._id} style={styles.requestCard}>
             <View style={styles.reqHeader}>
               <Text style={styles.reqCustomer}>{req.customerName}</Text>
-              <Text style={styles.reqDistance}>{req.distance}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <View style={styles.priceBadge}>
+                  <Text style={styles.priceBadgeText}>₹{req.price}</Text>
+                </View>
+                <Text style={styles.reqDistance}>{req.distance}</Text>
+              </View>
             </View>
             <Text style={styles.reqDetails}>
               {req.vehicleMake} {req.vehicleModel} • {req.issueType.replace('_', ' ')}
@@ -542,6 +578,17 @@ const styles = StyleSheet.create({
     color: '#aaaaaa',
     fontSize: 13,
     textAlign: 'center',
+  },
+  priceBadge: {
+    backgroundColor: '#00BFA5',
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+  },
+  priceBadgeText: {
+    color: '#ffffff',
+    fontWeight: 'bold',
+    fontSize: 14,
   },
 });
 

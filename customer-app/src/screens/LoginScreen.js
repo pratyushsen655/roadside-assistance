@@ -279,6 +279,11 @@ export default function LoginScreen({ navigation }) {
                 <Text style={styles.errorText}>{otpError}</Text>
               ) : null}
 
+              {/* Debug API URL */}
+              <Text style={{ fontSize: 11, color: '#C4A99A', textAlign: 'center', marginBottom: 10 }}>
+                Server URL: {API_URL}
+              </Text>
+
               {/* Send OTP button */}
               <TouchableOpacity
                 style={[

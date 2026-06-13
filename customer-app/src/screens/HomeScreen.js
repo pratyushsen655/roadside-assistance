@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, TouchableOpacity,
-  StyleSheet, Alert
+  StyleSheet, Alert, ScrollView
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Animated, { FadeInUp, FadeInDown } from 'react-native-reanimated';
+import * as Location from 'expo-location';
 import Skeleton from '../components/Skeleton';
 
 export default function HomeScreen({ navigation }) {
@@ -18,14 +19,67 @@ export default function HomeScreen({ navigation }) {
       fetchUnreadCount();
     });
     fetchUnreadCount();
+
+    // Request location permission on mount
+    (async () => {
+      try {
+        await Location.requestForegroundPermissionsAsync();
+      } catch (err) {
+        console.log('Error requesting location permission on mount:', err);
+      }
+    })();
+
     return unsubscribe;
   }, [navigation]);
+
+  const handleSOSPress = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'Location permission is required to send SOS');
+        return;
+      }
+
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const lat = loc.coords.latitude;
+      const lng = loc.coords.longitude;
+
+      const token = await AsyncStorage.getItem('token');
+      if (!token) {
+        Alert.alert('Error', 'Please log in to use SOS');
+        navigation.replace('Login');
+        return;
+      }
+
+      const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://roadside-assistance-production-ddaf.up.railway.app';
+      const response = await fetch(`${API_URL}/api/sos`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ lat, lng })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        Alert.alert('SOS Sent!', 'A mechanic will be with you shortly.');
+        navigation.navigate('SOSConfirmation', { sosId: data._id, lat, lng });
+      } else {
+        const data = await response.json();
+        Alert.alert('Failed to send SOS', data.message || 'Something went wrong.');
+      }
+    } catch (error) {
+      console.log('Error triggering SOS:', error);
+      Alert.alert('Failed to send SOS', 'Cannot connect to server.');
+    }
+  };
 
   const fetchUnreadCount = async () => {
     try {
       const token = await AsyncStorage.getItem('userToken') || await AsyncStorage.getItem('token');
       if (!token) return;
-      const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://10.104.223.76:5000';
+      const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://roadside-assistance-production-ddaf.up.railway.app';
       const response = await fetch(`${API_URL}/api/notifications`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -48,7 +102,7 @@ export default function HomeScreen({ navigation }) {
         navigation.replace('Login');
         return;
       }
-      const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://10.104.223.76:5000';
+      const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://roadside-assistance-production-ddaf.up.railway.app';
       const response = await fetch(`${API_URL}/api/auth/profile`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -118,46 +172,54 @@ export default function HomeScreen({ navigation }) {
         </TouchableOpacity>
       </Animated.View>
 
-      <Animated.Text entering={FadeInDown.delay(200).duration(500)} style={styles.title}>
-        🚗 Roadside Assistance
-      </Animated.Text>
-
-      {user && (
-        <Animated.Text entering={FadeInDown.delay(300).duration(500)} style={styles.welcome}>
-          Welcome, {user.name}!
-        </Animated.Text>
-      )}
-
-      <Animated.View entering={FadeInDown.delay(400).duration(600)} style={styles.card}>
-        <Text style={styles.cardTitle}>Need Help?</Text>
-        <Text style={styles.cardText}>Request a mechanic near you</Text>
-        <TouchableOpacity style={styles.button} onPress={() => navigation.navigate('Request')}>
-          <Text style={styles.buttonText}>🔧 Request Mechanic</Text>
-        </TouchableOpacity>
-      </Animated.View>
-
-      <Animated.View entering={FadeInDown.delay(450).duration(600)} style={styles.card}>
-        <Text style={styles.cardTitle}>Service History</Text>
-        <Text style={styles.cardText}>View your past requests and invoices</Text>
-        <TouchableOpacity style={[styles.button, { backgroundColor: '#00BFA5' }]} onPress={() => navigation.navigate('ServiceHistory')}>
-          <Text style={styles.buttonText}>📋 View History</Text>
-        </TouchableOpacity>
-      </Animated.View>
-
-      <Animated.View entering={FadeInDown.delay(500).duration(600)} style={styles.card}>
-        <Text style={styles.cardTitle}>Refer & Earn</Text>
-        <Text style={styles.cardText}>Invite friends and earn rewards</Text>
-        <TouchableOpacity style={[styles.button, { backgroundColor: '#FFB300' }]} onPress={() => navigation.navigate('Referral')}>
-          <Text style={styles.buttonText}>🎁 Refer a Friend</Text>
-        </TouchableOpacity>
-      </Animated.View>
-
       <Animated.View entering={FadeInUp.delay(100).duration(400)} style={styles.topRightIcons}>
         <TouchableOpacity onPress={() => navigation.navigate('EditProfile')} style={{ marginRight: 15 }}>
           <Text style={{ fontSize: 24 }}>⚙️</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={handleLogout}>
           <Text style={styles.logoutText}>Logout</Text>
+        </TouchableOpacity>
+      </Animated.View>
+
+      <Animated.Text entering={FadeInDown.delay(200).duration(500)} style={styles.title}>
+        🚗 Roadside Assistance
+      </Animated.Text>
+
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 110 }}>
+        {user && (
+          <Animated.Text entering={FadeInDown.delay(300).duration(500)} style={styles.welcome}>
+            Welcome, {user.name}!
+          </Animated.Text>
+        )}
+
+        <Animated.View entering={FadeInDown.delay(400).duration(600)} style={styles.card}>
+          <Text style={styles.cardTitle}>Need Help?</Text>
+          <Text style={styles.cardText}>Request a mechanic near you</Text>
+          <TouchableOpacity style={styles.button} onPress={() => navigation.navigate('Request')}>
+            <Text style={styles.buttonText}>🔧 Request Mechanic</Text>
+          </TouchableOpacity>
+        </Animated.View>
+
+        <Animated.View entering={FadeInDown.delay(450).duration(600)} style={styles.card}>
+          <Text style={styles.cardTitle}>Service History</Text>
+          <Text style={styles.cardText}>View your past requests and invoices</Text>
+          <TouchableOpacity style={[styles.button, { backgroundColor: '#00BFA5' }]} onPress={() => navigation.navigate('ServiceHistory')}>
+            <Text style={styles.buttonText}>📋 View History</Text>
+          </TouchableOpacity>
+        </Animated.View>
+
+        <Animated.View entering={FadeInDown.delay(500).duration(600)} style={styles.card}>
+          <Text style={styles.cardTitle}>Refer & Earn</Text>
+          <Text style={styles.cardText}>Invite friends and earn rewards</Text>
+          <TouchableOpacity style={[styles.button, { backgroundColor: '#FFB300' }]} onPress={() => navigation.navigate('Referral')}>
+            <Text style={styles.buttonText}>🎁 Refer a Friend</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      </ScrollView>
+
+      <Animated.View entering={FadeInDown.delay(550).duration(600)} style={styles.sosContainer}>
+        <TouchableOpacity style={styles.sosButton} onPress={handleSOSPress} activeOpacity={0.8}>
+          <Text style={styles.sosButtonText}>SOS</Text>
         </TouchableOpacity>
       </Animated.View>
     </View>
@@ -181,6 +243,31 @@ const styles = StyleSheet.create({
   cardText: { fontSize: 14, color: '#666', marginBottom: 15 },
   button: { backgroundColor: '#FF6B00', padding: 15, borderRadius: 8, alignItems: 'center' },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
-  topRightIcons: { position: 'absolute', top: 50, right: 20, flexDirection: 'row', alignItems: 'center' },
-  logoutText: { color: '#FF6B00', fontSize: 14 }
+  topRightIcons: { position: 'absolute', top: 50, right: 20, flexDirection: 'row', alignItems: 'center', zIndex: 1 },
+  logoutText: { color: '#FF6B00', fontSize: 14 },
+  sosContainer: {
+    position: 'absolute',
+    bottom: 25,
+    alignSelf: 'center',
+    zIndex: 100,
+  },
+  sosButton: {
+    backgroundColor: '#D32F2F',
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#D32F2F',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  sosButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
 });

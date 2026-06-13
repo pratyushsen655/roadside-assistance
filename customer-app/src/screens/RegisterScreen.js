@@ -15,7 +15,7 @@ export default function RegisterScreen({ navigation }) {
     }
     setLoading(true);
     try {
-      const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://10.104.223.76:5000';
+      const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://roadside-assistance-production-ddaf.up.railway.app';
       const response = await fetch(`${API_URL}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

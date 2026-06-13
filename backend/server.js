@@ -106,6 +106,7 @@ const invoiceRoutes = require('./routes/invoiceRoutes');
 
 // Mount API Routers
 app.use('/api/auth', authRoutes);
+app.use('/api/sos', require('./routes/sos'));
 app.use('/api/mechanic/auth', mechanicAuthRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/mechanics', mechanicRoutes);

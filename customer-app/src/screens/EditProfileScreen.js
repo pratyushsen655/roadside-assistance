@@ -7,7 +7,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL ? `${process.env.EXPO_PUBLIC_API_URL}/api/auth/profile` : 'http://10.104.223.76:5000/api/auth/profile';
+const API_URL = process.env.EXPO_PUBLIC_API_URL ? `${process.env.EXPO_PUBLIC_API_URL}/api/auth/profile` : 'https://roadside-assistance-production-ddaf.up.railway.app/api/auth/profile';
 
 export default function EditProfileScreen({ navigation }) {
   const [loading, setLoading] = useState(false);

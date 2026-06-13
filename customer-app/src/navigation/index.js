@@ -13,6 +13,7 @@ import AddressBookScreen from '../screens/AddressBookScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
 import ReferralScreen from '../screens/ReferralScreen';
 import SOSScreen from '../screens/SOSScreen';
+import SOSConfirmationScreen from '../screens/SOSConfirmationScreen';
 import TrackingScreen from '../screens/TrackingScreen';
 import PaymentScreen from '../screens/PaymentScreen';
 import ServiceHistoryScreen from '../screens/ServiceHistoryScreen';
@@ -45,6 +46,7 @@ export default function RootNavigator() {
       <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Referral" component={ReferralScreen} options={{ headerShown: false }} />
       <Stack.Screen name="SOS" component={SOSScreen} />
+      <Stack.Screen name="SOSConfirmation" component={SOSConfirmationScreen} />
       <Stack.Screen name="Tracking" component={TrackingScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Payment" component={PaymentScreen} options={{ headerShown: false }} />
       <Stack.Screen name="ServiceHistory" component={ServiceHistoryScreen} options={{ headerShown: false }} />

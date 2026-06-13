@@ -45,6 +45,8 @@ router.post('/', authMiddleware, async (req, res) => {
       };
     }
 
+    const initialPriceVal = Number(req.body.initialPrice) || 350;
+
     const newRequest = await ServiceRequest.create({
       customer: req.user.id,
       serviceType: finalServiceType || 'breakdown',
@@ -52,6 +54,11 @@ router.post('/', authMiddleware, async (req, res) => {
       vehicleType: vehicleType || 'car',
       customerLocation: geoJsonLocation,
       customerAddress: customerAddress || '',
+      initial_price: initialPriceVal,
+      current_price: initialPriceVal,
+      last_price_update_time: new Date(),
+      pricing: { baseFare: initialPriceVal, totalAmount: initialPriceVal },
+      amount: initialPriceVal,
     });
 
     // Link customer activeRequestId
@@ -87,6 +94,28 @@ router.post('/', authMiddleware, async (req, res) => {
       success: false,
       message: error.message,
     });
+  }
+});
+
+// 1.5 Get bidding settings (must be registered before /:id)
+router.get('/bidding-settings', authMiddleware, async (req, res) => {
+  try {
+    const Setting = require('../models/Setting');
+    let autoPromptDelay = await Setting.findOne({ key: 'autoPromptDelay' });
+    if (!autoPromptDelay) autoPromptDelay = { value: 120 };
+
+    let maxPriceIncrease = await Setting.findOne({ key: 'maxPriceIncrease' });
+    if (!maxPriceIncrease) maxPriceIncrease = { value: 1000 };
+
+    res.status(200).json({
+      success: true,
+      settings: {
+        autoPromptDelay: Number(autoPromptDelay.value),
+        maxPriceIncrease: Number(maxPriceIncrease.value)
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
@@ -128,7 +157,11 @@ const acceptJob = async (req, res) => {
     request.status = 'accepted';
     if (!request.pricing || request.pricing.totalAmount === 0) {
       request.pricing = { baseFare: 150, totalAmount: 350 };
+      request.amount = 350;
+      request.current_price = 350;
     }
+    request.accepted_price = request.current_price || request.amount || (request.pricing ? request.pricing.totalAmount : 350);
+    request.accepted_mechanic_id = req.user.id;
     await request.save();
 
     const mechanic = await Mechanic.findByIdAndUpdate(
@@ -294,6 +327,82 @@ const cancelJob = async (req, res) => {
 // 6. Cancel request
 router.post('/:id/cancel', authMiddleware, cancelJob);
 router.put('/:id/cancel', authMiddleware, cancelJob);
+
+// 6.5 Increase request price (bidding system)
+
+router.put('/:id/increase-price', authMiddleware, async (req, res) => {
+  try {
+    const { incrementAmount } = req.body;
+    if (!incrementAmount || Number(incrementAmount) <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid increment amount' });
+    }
+
+    const request = await ServiceRequest.findById(req.params.id);
+    if (!request) {
+      return res.status(404).json({ success: false, message: 'Request not found' });
+    }
+
+    if (request.status !== 'pending') {
+      return res.status(400).json({ success: false, message: 'Pricing is locked because a mechanic has already accepted or the request is no longer pending.' });
+    }
+
+    // Load max allowed price increase limit from Settings model
+    const Setting = require('../models/Setting');
+    const maxLimitSetting = await Setting.findOne({ key: 'maxPriceIncrease' });
+    const maxLimit = maxLimitSetting ? Number(maxLimitSetting.value) : 1000; // default to 1000
+
+    const currentTotalIncrease = (request.current_price || request.amount || 0) - (request.initial_price || 0) + Number(incrementAmount);
+    if (currentTotalIncrease > maxLimit) {
+      return res.status(400).json({ success: false, message: `Price increase limit exceeded. Maximum total increase allowed is ₹${maxLimit}.` });
+    }
+
+    const newPrice = (request.current_price || 0) + Number(incrementAmount);
+
+    request.current_price = newPrice;
+    request.price_increase_count = (request.price_increase_count || 0) + 1;
+    request.last_price_update_time = new Date();
+    request.pricing = { baseFare: newPrice, totalAmount: newPrice };
+    request.amount = newPrice;
+
+    request.price_history.push({
+      price: newPrice,
+      increased_by: Number(incrementAmount),
+      timestamp: new Date()
+    });
+
+    await request.save();
+
+    // Notify all eligible mechanics and the customer in real-time
+    if (req.io) {
+      // Notify customer room
+      req.io.to(`job:${request._id}`).emit('request:price_updated', {
+        jobId: request._id,
+        current_price: newPrice,
+        price_increase_count: request.price_increase_count
+      });
+
+      // Broadcast to mechanics room
+      req.io.to('mechanics').emit('request:price_updated', {
+        jobId: request._id,
+        current_price: newPrice
+      });
+
+      // Also emit a general event
+      req.io.emit('request:price_updated_global', {
+        jobId: request._id,
+        current_price: newPrice
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Price increased successfully',
+      request
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
 
 // 7. General updates / customer-app update status
 router.put('/:id', authMiddleware, async (req, res) => {

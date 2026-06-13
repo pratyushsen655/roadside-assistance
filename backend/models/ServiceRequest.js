@@ -25,7 +25,19 @@ const ServiceRequestSchema = new mongoose.Schema({
   mechanicLocationAtAcceptance: {
     type: { type: String, enum: ['Point'], default: 'Point' },
     coordinates: { type: [Number], default: [0, 0] }
-  }
+  },
+  // Bidding System Fields
+  initial_price: { type: Number, default: 0 },
+  current_price: { type: Number, default: 0 },
+  price_increase_count: { type: Number, default: 0 },
+  price_history: [{
+    price: { type: Number },
+    increased_by: { type: Number },
+    timestamp: { type: Date, default: Date.now }
+  }],
+  last_price_update_time: { type: Date, default: Date.now },
+  accepted_price: { type: Number, default: null },
+  accepted_mechanic_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Mechanic', default: null }
 }, { timestamps: true });
 ServiceRequestSchema.index({ customerLocation: '2dsphere' });
 module.exports = mongoose.model('ServiceRequest', ServiceRequestSchema);

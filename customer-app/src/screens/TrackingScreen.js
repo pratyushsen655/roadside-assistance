@@ -42,7 +42,7 @@ export default function TrackingScreen({ route, navigation }) {
     if (!mechanicId) return;
     const fetchRating = async () => {
       try {
-        const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://10.104.223.76:5000';
+        const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://roadside-assistance-production-ddaf.up.railway.app';
         const res = await fetch(`${API_URL}/api/ratings/mechanic/${mechanicId}`);
         const data = await res.json();
         if (res.ok && data && data.ratings) {
@@ -154,7 +154,7 @@ export default function TrackingScreen({ route, navigation }) {
           style: 'destructive',
           onPress: async () => {
             try {
-              const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://10.104.223.76:5000';
+              const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://roadside-assistance-production-ddaf.up.railway.app';
               const response = await fetch(`${API_URL}/api/requests/${jobId}`, {
                 method: 'PUT',
                 headers: {

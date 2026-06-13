@@ -6,48 +6,29 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "android": {
-        "gradleCommand": ":app:assembleDebug",
-        "buildType": "apk"
-      },
-      "ios": {
-        "simulator": true,
-        "buildConfiguration": "Debug"
-      },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://dev.api.rescueme.com",
-        "EXPO_PUBLIC_SOCKET_URL": "https://dev.api.rescueme.com",
+        "EXPO_PUBLIC_API_URL": "http://10.104.223.76:5000",
+        "EXPO_PUBLIC_SOCKET_URL": "http://10.104.223.76:5000",
         "ENVIRONMENT": "development"
       }
     },
     "preview": {
       "android": {
-        "gradleCommand": ":app:assembleRelease",
         "buildType": "apk"
       },
-      "ios": {
-        "simulator": false,
-        "buildConfiguration": "Release"
-      },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://preview.api.rescueme.com",
-        "EXPO_PUBLIC_SOCKET_URL": "https://preview.api.rescueme.com",
+        "EXPO_PUBLIC_API_URL": "http://10.104.223.76:5000",
+        "EXPO_PUBLIC_SOCKET_URL": "http://10.104.223.76:5000",
         "ENVIRONMENT": "preview"
       }
     },
     "production": {
       "android": {
-        "gradleCommand": ":app:bundleRelease",
         "buildType": "app-bundle"
       },
-      "ios": {
-        "simulator": false,
-        "buildConfiguration": "Release",
-        "autoIncrement": true
-      },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://api.rescueme.com",
-        "EXPO_PUBLIC_SOCKET_URL": "https://api.rescueme.com",
+        "EXPO_PUBLIC_API_URL": "http://10.104.223.76:5000",
+        "EXPO_PUBLIC_SOCKET_URL": "http://10.104.223.76:5000",
         "ENVIRONMENT": "production"
       }
     }

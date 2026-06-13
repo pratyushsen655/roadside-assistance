@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 
 const SOS_NUMBER = '112'; // India emergency / roadside
-const API = process.env.EXPO_PUBLIC_API_URL || 'http://10.104.223.76:5000/api';
+const API = process.env.EXPO_PUBLIC_API_URL || 'https://roadside-assistance-production-ddaf.up.railway.app/api';
 
 export default function SOSScreen({ navigation }) {
   const pulseAnim = useRef(new Animated.Value(1)).current;

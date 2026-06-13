@@ -1,13 +1,14 @@
 {
   "expo": {
-    "name": "Roadside Assist (Customer)",
+    "name": "Roadside Assist",
     "slug": "roadside-customer-app",
     "version": "1.0.0",
-    "orientation": "portrait",
-    "userInterfaceStyle": "automatic",
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
     "ios": {
       "bundleIdentifier": "com.rescueme.customer",
       "supportsTablet": true,
@@ -18,14 +19,12 @@
       }
     },
     "android": {
-      "package": "com.roadsideassistance.customer",
+      "package": "com.praty.roadsideassist",
+      "versionCode": 1,
       "permissions": [
-        "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
-        "INTERNET",
-        "CAMERA",
-        "RECORD_AUDIO",
-        "POST_NOTIFICATIONS"
+        "ACCESS_COARSE_LOCATION",
+        "INTERNET"
       ]
     },
     "web": {
@@ -35,6 +34,11 @@
       "expo-font",
       "expo-status-bar",
       "expo-sharing"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "79e345f5-fcf4-443b-a206-8a32c9105394"
+      }
+    }
   }
 }

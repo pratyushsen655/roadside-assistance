@@ -13,14 +13,14 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-async-storage/async-storage": "1.24.0",
     "@react-native-community/netinfo": "^12.0.1",
     "@react-navigation/bottom-tabs": "^6.6.0",
     "@react-navigation/native": "^6.1.8",
     "@react-navigation/native-stack": "^6.11.0",
     "abort-controller": "^3.0.0",
     "axios": "^1.7.2",
-    "expo": "^56.0.9",
+    "expo": "^56.0.11",
     "expo-blur": "~56.0.3",
     "expo-constants": "~56.0.18",
     "expo-device": "~56.0.4",
@@ -45,7 +45,9 @@
     "react-native-screens": "4.25.2",
     "react-native-skeleton-placeholder": "^5.0.0",
     "react-native-vector-icons": "^10.2.0",
+    "react-native-worklets": "^0.8.3",
     "socket.io-client": "^4.7.5",
+    "ws": "^8.21.0",
     "zustand": "^4.5.0"
   },
   "devDependencies": {

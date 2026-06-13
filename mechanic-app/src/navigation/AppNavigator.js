@@ -15,6 +15,7 @@ import ProfileScreen from '../screens/ProfileScreen';
 import ActiveJobScreen from '../screens/ActiveJobScreen';
 import ChatScreen from '../screens/ChatScreen';
 import ReviewsScreen from '../screens/ReviewsScreen';
+import SOSAlertsScreen from '../screens/SOSAlertsScreen';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -53,6 +54,14 @@ const MainTabs = () => (
       component={JobsScreen} 
       options={{ 
         tabBarIcon: ({color}) => <Text style={{color, fontSize: 20}}>🔧</Text> 
+      }} 
+    />
+    <Tab.Screen 
+      name="SOSAlerts" 
+      component={SOSAlertsScreen} 
+      options={{ 
+        title: "SOS Alerts",
+        tabBarIcon: ({color, focused}) => <Text style={{color: focused ? '#FF3B30' : color, fontSize: 20}}>🚨</Text> 
       }} 
     />
     <Tab.Screen 

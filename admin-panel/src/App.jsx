@@ -17,6 +17,8 @@ export default function App() {
   const [mechanicsList, setMechanicsList] = useState([]);
   const [paymentsLog, setPaymentsLog] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [biddingSettings, setBiddingSettings] = useState({ autoPromptDelay: 120, maxPriceIncrease: 1000, maxRetries: 3 });
+  const [savingSettings, setSavingSettings] = useState(false);
 
   // Manual dispatch override state
   const [selectedRequest, setSelectedRequest] = useState('');
@@ -43,6 +45,7 @@ export default function App() {
     fetchLiveMapData();
     fetchMechanics();
     fetchPayments();
+    fetchBiddingSettings();
 
     // Setup Socket
     const socketInstance = io(SOCKET_URL, {
@@ -142,6 +145,32 @@ export default function App() {
     }
   };
 
+  const fetchBiddingSettings = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/admin/settings`);
+      if (res.data.success) {
+        setBiddingSettings(res.data.settings);
+      }
+    } catch (err) {
+      console.error('Failed fetching bidding settings:', err.message);
+    }
+  };
+
+  const handleSaveSettings = async (e) => {
+    e.preventDefault();
+    setSavingSettings(true);
+    try {
+      const res = await axios.put(`${API_URL}/admin/settings`, biddingSettings);
+      if (res.data.success) {
+        alert('Bidding settings saved successfully!');
+      }
+    } catch (err) {
+      alert('Failed to save settings: ' + err.message);
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
   const handleVerifyKYC = async (id, status) => {
     setLoading(true);
     try {
@@ -230,6 +259,9 @@ export default function App() {
           <li className={`menu-item ${activeTab === 'payments' && 'active'}`} onClick={() => setActiveTab('payments')}>
             💳 Transactions Ledger
           </li>
+          <li className={`menu-item ${activeTab === 'settings' && 'active'}`} onClick={() => setActiveTab('settings')}>
+            ⚙️ Bidding Settings
+          </li>
         </ul>
         <div style={{ marginTop: 'auto' }}>
           <button className="btn btn-danger" style={{ width: '100%' }} onClick={() => setIsLoggedIn(false)}>
@@ -247,6 +279,7 @@ export default function App() {
             {activeTab === 'kyc' && 'Mechanics KYC Verification Portal'}
             {activeTab === 'requests' && 'Breakdown Service Records'}
             {activeTab === 'payments' && 'Payments Audit Ledger'}
+            {activeTab === 'settings' && 'Bidding & Dynamic Pricing Config'}
           </div>
           <div className="admin-profile">
             <span style={{ fontSize: '14px', color: '#a0aec0' }}>Administrator</span>
@@ -429,7 +462,26 @@ export default function App() {
                         <td><strong>{r.customer?.name || 'User'}</strong></td>
                         <td>{r.vehicleType.toUpperCase()} ({r.vehicleModel || 'unspecified'})</td>
                         <td>{r.issueDescription}</td>
-                        <td>₹{r.pricing?.totalAmount}</td>
+                        <td>
+                          <div>
+                            <strong>₹{r.current_price || r.amount || r.pricing?.totalAmount || 0}</strong>
+                            <div style={{ fontSize: '11px', color: '#718096', marginTop: '4px' }}>
+                              Initial: ₹{r.initial_price || r.pricing?.totalAmount || 350}
+                            </div>
+                            {r.price_history && r.price_history.length > 0 && (
+                              <details style={{ fontSize: '11px', color: '#ff9500', marginTop: '4px', cursor: 'pointer' }}>
+                                <summary style={{ outline: 'none' }}>History ({r.price_history.length})</summary>
+                                <ul style={{ listStyleType: 'none', paddingLeft: '6px', margin: '4px 0 0 0', borderLeft: '1px solid #ff9500' }}>
+                                  {r.price_history.map((h, i) => (
+                                    <li key={i} style={{ margin: '2px 0' }}>
+                                      +{i+1}: +₹{h.increased_by} (₹{h.price})
+                                    </li>
+                                  ))}
+                                </ul>
+                              </details>
+                            )}
+                          </div>
+                        </td>
                         <td>
                           <span className={`badge badge-${r.status}`}>
                             {r.status.replace('_', ' ')}
@@ -503,6 +555,63 @@ export default function App() {
                   )}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {/* TAB 6: BIDDING SETTINGS */}
+          {activeTab === 'settings' && (
+            <div className="data-table-container" style={{ padding: '24px' }}>
+              <div className="table-header-bar" style={{ marginBottom: '20px' }}>Bidding & Dynamic Pricing Settings</div>
+              <form onSubmit={handleSaveSettings} style={{ maxWidth: '500px' }}>
+                <div style={{ marginBottom: '20px' }}>
+                  <label style={{ display: 'block', fontSize: '13px', color: '#a0aec0', marginBottom: '8px', fontWeight: 'bold' }}>
+                    Auto Prompt Delay (seconds)
+                  </label>
+                  <input
+                    type="number"
+                    value={biddingSettings.autoPromptDelay}
+                    onChange={(e) => setBiddingSettings({ ...biddingSettings, autoPromptDelay: Number(e.target.value) })}
+                    style={{ width: '100%', padding: '10px', backgroundColor: '#1a1a22', border: '1px solid #26262f', color: '#fff', borderRadius: '8px' }}
+                  />
+                  <span style={{ fontSize: '11px', color: '#718096', marginTop: '4px', display: 'block' }}>
+                    How long (in seconds) a customer request remains unanswered before prompting them to raise their offer.
+                  </span>
+                </div>
+
+                <div style={{ marginBottom: '20px' }}>
+                  <label style={{ display: 'block', fontSize: '13px', color: '#a0aec0', marginBottom: '8px', fontWeight: 'bold' }}>
+                    Maximum Price Increase Limit (₹)
+                  </label>
+                  <input
+                    type="number"
+                    value={biddingSettings.maxPriceIncrease}
+                    onChange={(e) => setBiddingSettings({ ...biddingSettings, maxPriceIncrease: Number(e.target.value) })}
+                    style={{ width: '100%', padding: '10px', backgroundColor: '#1a1a22', border: '1px solid #26262f', color: '#fff', borderRadius: '8px' }}
+                  />
+                  <span style={{ fontSize: '11px', color: '#718096', marginTop: '4px', display: 'block' }}>
+                    The maximum cumulative bid increment amount a customer can add to their request.
+                  </span>
+                </div>
+
+                <div style={{ marginBottom: '28px' }}>
+                  <label style={{ display: 'block', fontSize: '13px', color: '#a0aec0', marginBottom: '8px', fontWeight: 'bold' }}>
+                    Max Retries Before Expiration
+                  </label>
+                  <input
+                    type="number"
+                    value={biddingSettings.maxRetries}
+                    onChange={(e) => setBiddingSettings({ ...biddingSettings, maxRetries: Number(e.target.value) })}
+                    style={{ width: '100%', padding: '10px', backgroundColor: '#1a1a22', border: '1px solid #26262f', color: '#fff', borderRadius: '8px' }}
+                  />
+                  <span style={{ fontSize: '11px', color: '#718096', marginTop: '4px', display: 'block' }}>
+                    Maximum times a price increase can occur before the request is marked expired/cancelled.
+                  </span>
+                </div>
+
+                <button className="btn btn-primary" type="submit" disabled={savingSettings}>
+                  {savingSettings ? 'Saving...' : 'Save Settings'}
+                </button>
+              </form>
             </div>
           )}
         </div>

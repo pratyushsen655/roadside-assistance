@@ -5,7 +5,7 @@ import {
   KeyboardAvoidingView, Platform
 } from 'react-native';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL ? `${process.env.EXPO_PUBLIC_API_URL}/api/auth` : 'http://10.104.223.76:5000/api/auth';
+const API_URL = process.env.EXPO_PUBLIC_API_URL ? `${process.env.EXPO_PUBLIC_API_URL}/api/auth` : 'https://roadside-assistance-production-ddaf.up.railway.app/api/auth';
 
 export default function ForgotPasswordScreen({ navigation }) {
   const [step, setStep] = useState(1);

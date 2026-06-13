@@ -9,6 +9,12 @@ const socketHandler = {
         console.log(`[Socket] Socket ${socket.id} joined room job:${jobId}`);
       });
 
+      // Join mechanics room
+      socket.on('join:mechanics:room', () => {
+        socket.join('mechanics');
+        console.log(`[Socket] Socket ${socket.id} joined room: mechanics`);
+      });
+
       // Mechanic broadcasts location
       socket.on('mechanic:location', ({ jobId, lat, lng }) => {
         console.log(`[Socket] Mechanic location for job:${jobId} -> ${lat}, ${lng}`);

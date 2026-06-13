@@ -58,7 +58,9 @@ router.get('/requests/pending', authMiddleware, async (req, res) => {
       return res.status(200).json([]);
     }
 
-    const requests = await ServiceRequest.find(query).populate('customer', 'name phone');
+    const requests = await ServiceRequest.find(query)
+      .populate('customer', 'name phone')
+      .sort({ last_price_update_time: -1, createdAt: -1 });
 
     const getDistanceInKm = (lat1, lon1, lat2, lon2) => {
       const R = 6371;
@@ -93,7 +95,8 @@ router.get('/requests/pending', authMiddleware, async (req, res) => {
         issueDescription: reqItem.issueDescription || '',
         distance: `${distanceVal.toFixed(1)} km`,
         location: reqItem.customerAddress || 'Nearby',
-        customerLocation: reqItem.customerLocation
+        customerLocation: reqItem.customerLocation,
+        price: reqItem.current_price || reqItem.amount || (reqItem.pricing?.totalAmount) || 350
       };
     });
 
@@ -118,7 +121,11 @@ router.put('/requests/:id/accept', authMiddleware, async (req, res) => {
     request.status = 'accepted';
     if (!request.pricing || request.pricing.totalAmount === 0) {
       request.pricing = { baseFare: 150, totalAmount: 350 };
+      request.amount = 350;
+      request.current_price = 350;
     }
+    request.accepted_price = request.current_price || request.amount || (request.pricing ? request.pricing.totalAmount : 350);
+    request.accepted_mechanic_id = /** @type {any} */ (req.user.id);
     await request.save();
 
     const mechanic = await Mechanic.findOneAndUpdate(

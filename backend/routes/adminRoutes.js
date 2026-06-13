@@ -69,6 +69,59 @@ router.post('/login', async (req, res) => {
 // Protected routes past this point
 router.use(adminMiddleware);
 
+// GET /api/admin/settings
+router.get('/settings', async (req, res) => {
+  try {
+    const Setting = require('../models/Setting');
+    
+    // Find or initialize defaults
+    let autoPromptDelay = await Setting.findOne({ key: 'autoPromptDelay' });
+    if (!autoPromptDelay) autoPromptDelay = await Setting.create({ key: 'autoPromptDelay', value: 120 });
+
+    let maxPriceIncrease = await Setting.findOne({ key: 'maxPriceIncrease' });
+    if (!maxPriceIncrease) maxPriceIncrease = await Setting.create({ key: 'maxPriceIncrease', value: 1000 });
+
+    let maxRetries = await Setting.findOne({ key: 'maxRetries' });
+    if (!maxRetries) maxRetries = await Setting.create({ key: 'maxRetries', value: 3 });
+
+    res.status(200).json({
+      success: true,
+      settings: {
+        autoPromptDelay: Number(autoPromptDelay.value),
+        maxPriceIncrease: Number(maxPriceIncrease.value),
+        maxRetries: Number(maxRetries.value)
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// PUT /api/admin/settings
+router.put('/settings', async (req, res) => {
+  try {
+    const Setting = require('../models/Setting');
+    const { autoPromptDelay, maxPriceIncrease, maxRetries } = req.body;
+
+    if (autoPromptDelay !== undefined) {
+      await Setting.findOneAndUpdate({ key: 'autoPromptDelay' }, { value: Number(autoPromptDelay) }, { upsert: true });
+    }
+    if (maxPriceIncrease !== undefined) {
+      await Setting.findOneAndUpdate({ key: 'maxPriceIncrease' }, { value: Number(maxPriceIncrease) }, { upsert: true });
+    }
+    if (maxRetries !== undefined) {
+      await Setting.findOneAndUpdate({ key: 'maxRetries' }, { value: Number(maxRetries) }, { upsert: true });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Settings updated successfully'
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // GET /api/admin/stats
 router.get('/stats', async (req, res) => {
   try {
@@ -326,7 +379,11 @@ router.get('/jobs', async (req, res) => {
         paymentStatus: j.paymentStatus || 'pending',
         amount: `₹${j.pricing?.totalAmount || 0}`,
         date: new Date(j.createdAt).toLocaleDateString(),
-        createdAt: j.createdAt
+        createdAt: j.createdAt,
+        initialPrice: j.initial_price || 0,
+        currentPrice: j.current_price || j.amount || 0,
+        priceHistory: j.price_history || [],
+        acceptedPrice: j.accepted_price || null
       };
     });
 

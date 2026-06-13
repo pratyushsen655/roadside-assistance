@@ -2,7 +2,7 @@ import React, { createContext, useState, useEffect, useContext } from 'react';
 import { getItem, setItem, removeItem } from '../utils/storage';
 import { registerForPushNotifications, savePushToken } from '../services/notificationService';
 
-export const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://10.104.223.76:5000';
+export const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://roadside-assistance-production-ddaf.up.railway.app';
 
 export const AuthContext = createContext({
   user: null,
