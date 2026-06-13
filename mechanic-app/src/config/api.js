@@ -1,3 +1,3 @@
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://10.104.223.76:5000';
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://roadside-rescue-pratyush.loca.lt';
 export default API_URL;
 export const MECHANIC_API = `${API_URL}/api/mechanic`;

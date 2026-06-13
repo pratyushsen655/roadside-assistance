@@ -19,6 +19,7 @@ const xssClean = require('xss-clean');
 connectDB();
 
 const app = express();
+app.set('trust proxy', 1); // trust first proxy
 const server = http.createServer(app);
 
 // Configure Socket.io
