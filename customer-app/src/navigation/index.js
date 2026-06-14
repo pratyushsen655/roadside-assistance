@@ -19,6 +19,8 @@ import PaymentScreen from '../screens/PaymentScreen';
 import ServiceHistoryScreen from '../screens/ServiceHistoryScreen';
 import RateJobScreen from '../screens/RateJobScreen';
 import MechanicProfileScreen from '../screens/MechanicProfileScreen';
+import AccountScreen from '../screens/AccountScreen';
+import HelpScreen from '../screens/HelpScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -45,6 +47,8 @@ export default function RootNavigator() {
       <Stack.Screen name="AddressBook" component={AddressBookScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Referral" component={ReferralScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="Help" component={HelpScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="Account" component={AccountScreen} options={{ headerShown: false }} />
       <Stack.Screen name="SOS" component={SOSScreen} />
       <Stack.Screen name="SOSConfirmation" component={SOSConfirmationScreen} />
       <Stack.Screen name="Tracking" component={TrackingScreen} options={{ headerShown: false }} />

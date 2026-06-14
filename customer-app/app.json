@@ -4,11 +4,6 @@
     "slug": "roadside-customer-app",
     "version": "1.0.0",
     "icon": "./assets/icon.png",
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
     "ios": {
       "bundleIdentifier": "com.rescueme.customer",
       "supportsTablet": true,
