@@ -241,7 +241,7 @@ export default function LoginScreen({ navigation }) {
             <>
               <Text style={styles.sheetTitle}>Enter your mobile number</Text>
               <Text style={styles.sheetSub}>
-                We'll send a 6-digit OTP to verify your number
+                {"We'll send a 6-digit OTP to verify your number"}
               </Text>
 
               {/* Phone row */}

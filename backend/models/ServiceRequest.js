@@ -2,8 +2,9 @@ const mongoose = require('mongoose');
 const ServiceRequestSchema = new mongoose.Schema({
   customer: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   mechanic: { type: mongoose.Schema.Types.ObjectId, ref: 'Mechanic', default: null },
-  vehicleType: { type: String, enum: ['car', 'bike'], required: true },
+  vehicleType: { type: String, enum: ['car', 'bike', 'auto', 'e-vehicle', 'other'], required: true },
   vehicleModel: { type: String, default: '' },
+  vehicleNumber: { type: String, default: '' },
   serviceType: { type: String, enum: ['flat_tire', 'battery_jump', 'towing', 'fuel_delivery', 'engine_repair', 'puncture_repair', 'breakdown', 'oil_change', 'other'], default: 'breakdown' },
   issueDescription: { type: String, required: true },
   customerLocation: { type: { type: String, enum: ['Point'], default: 'Point' }, coordinates: { type: [Number], required: true } },

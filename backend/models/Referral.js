@@ -14,7 +14,7 @@ const referralSchema = new mongoose.Schema(
     },
     earnings: {
       type: Number,
-      default: 50,
+      default: 1000,
     },
     status: {
       type: String,

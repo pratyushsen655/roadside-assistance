@@ -1,6 +1,8 @@
+/* eslint-disable no-console */
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { getItem, setItem, removeItem } from '../utils/storage';
 import { registerForPushNotifications, savePushToken } from '../services/notificationService';
+import { AppState } from 'react-native';
 
 export const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://roadside-assistance-production-ddaf.up.railway.app';
 
@@ -19,8 +21,33 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const checkSessionTimeout = async () => {
+      try {
+        const lastBackgroundTime = await getItem('lastBackgroundTime');
+        if (lastBackgroundTime) {
+          const elapsed = Date.now() - Number(lastBackgroundTime);
+          if (elapsed >= 120000) {
+            await removeItem('user');
+            await removeItem('token');
+            await removeItem('lastBackgroundTime');
+            return true;
+          }
+          await removeItem('lastBackgroundTime');
+        }
+      } catch (e) {
+        console.error('Session timeout check error:', e.message);
+      }
+      return false;
+    };
+
     const loadAuth = async () => {
       try {
+        const timedOut = await checkSessionTimeout();
+        if (timedOut) {
+          setLoading(false);
+          return;
+        }
+
         const storedUser = await getItem('user');
         const storedToken = await getItem('token');
 
@@ -52,6 +79,32 @@ export const AuthProvider = ({ children }) => {
       }
     };
     loadAuth();
+  }, []);
+
+  useEffect(() => {
+    const handleAppStateChange = async (nextAppState) => {
+      if (nextAppState === 'background' || nextAppState === 'inactive') {
+        await setItem('lastBackgroundTime', Date.now().toString());
+      } else if (nextAppState === 'active') {
+        try {
+          const lastBackgroundTime = await getItem('lastBackgroundTime');
+          if (lastBackgroundTime) {
+            const elapsed = Date.now() - Number(lastBackgroundTime);
+            if (elapsed >= 120000) {
+              await logout();
+            }
+            await removeItem('lastBackgroundTime');
+          }
+        } catch (e) {
+          console.error('[AuthContext] AppState active check error:', e.message);
+        }
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => {
+      subscription.remove();
+    };
   }, []);
 
   /**

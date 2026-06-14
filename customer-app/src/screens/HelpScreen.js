@@ -124,20 +124,7 @@ export default function HelpScreen({ navigation }) {
           <Text style={styles.sosNavText}>SOS</Text>
         </TouchableOpacity>
 
-        {/* GoStore */}
-        <TouchableOpacity
-          style={styles.navTab}
-          onPress={() => {
-            Alert.alert(
-              'GoStore Marketplace',
-              'Buy genuine spare parts, premium engine oils, high-quality car mats, and detailing accessories. Coming soon in next update!',
-              [{ text: 'Notify Me' }, { text: 'Cancel', style: 'cancel' }]
-            );
-          }}
-        >
-          <Ionicons name="basket-outline" size={24} color="#6B7280" />
-          <Text style={styles.navText}>GoStore</Text>
-        </TouchableOpacity>
+
 
         {/* Account */}
         <TouchableOpacity

@@ -5,7 +5,7 @@ const Referral = require('../models/Referral');
 const getMyReferralInfo = async (req, res, next) => {
   try {
     const user = await User.findById(req.user.id).select(
-      'referralCode referralEarnings'
+      'referralCode referralEarnings referredBy'
     );
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
@@ -28,6 +28,7 @@ const getMyReferralInfo = async (req, res, next) => {
     res.status(200).json({
       success: true,
       referralCode: user.referralCode,
+      referredBy: user.referredBy,
       totalReferrals,
       totalEarnings,
       pendingEarnings,
@@ -82,13 +83,13 @@ const applyReferralCode = async (req, res, next) => {
     await Referral.create({
       referrerId: referrer._id,
       referredUserId: req.user.id,
-      earnings: 50,
+      earnings: 1000,
       status: 'pending',
     });
 
     // Credit the referrer
     await User.findByIdAndUpdate(referrer._id, {
-      $inc: { referralEarnings: 50 },
+      $inc: { referralEarnings: 1000 },
     });
 
     // Link referredBy on current user
@@ -98,7 +99,7 @@ const applyReferralCode = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      message: `Referral applied! ₹50 has been credited to ${referrer.name}'s account.`,
+      message: `Referral applied! ₹1000 has been credited to ${referrer.name}'s account.`,
     });
   } catch (error) {
     next(error);

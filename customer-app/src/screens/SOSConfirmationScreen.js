@@ -124,7 +124,7 @@ export default function SOSConfirmationScreen({ route, navigation }) {
               <Text style={styles.tipsTitle}>⚠️ Emergency Safety Tips</Text>
               <View style={styles.tipItem}>
                 <Text style={styles.tipEmoji}>🔆</Text>
-                <Text style={styles.tipText}>Turn on your vehicle's hazard/warning lights</Text>
+                <Text style={styles.tipText}>{"Turn on your vehicle's hazard/warning lights"}</Text>
               </View>
               <View style={styles.tipItem}>
                 <Text style={styles.tipEmoji}>🚧</Text>

@@ -14,6 +14,8 @@ router.post('/', authMiddleware, async (req, res) => {
       description,
       issueDescription,
       vehicleType,
+      vehicleModel,
+      vehicleNumber,
       location,
       customerLocation,
       customerAddress
@@ -52,6 +54,8 @@ router.post('/', authMiddleware, async (req, res) => {
       serviceType: finalServiceType || 'breakdown',
       issueDescription: finalIssueDescription || 'No description provided',
       vehicleType: vehicleType || 'car',
+      vehicleModel: vehicleModel || '',
+      vehicleNumber: vehicleNumber || '',
       customerLocation: geoJsonLocation,
       customerAddress: customerAddress || '',
       initial_price: initialPriceVal,
@@ -416,6 +420,7 @@ router.put('/:id', authMiddleware, async (req, res) => {
     const allowedFields = [
       'vehicleType',
       'vehicleModel',
+      'vehicleNumber',
       'serviceType',
       'issueDescription',
       'customerAddress',

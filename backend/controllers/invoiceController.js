@@ -55,7 +55,7 @@ const generateInvoice = async (req, res, next) => {
     doc.fontSize(11).fillColor('#333');
     const serviceName = String(job.serviceType || 'breakdown').replace(/_/g, ' ').toUpperCase();
     doc.text(`Issue Type: ${serviceName}`);
-    doc.text(`Vehicle: ${String(job.vehicleType || 'car').toUpperCase()} ${job.vehicleModel || ''}`);
+    doc.text(`Vehicle: ${String(job.vehicleType || 'car').toUpperCase()} ${job.vehicleModel || ''} ${job.vehicleNumber ? '[' + job.vehicleNumber + ']' : ''}`);
     doc.text(`Service Date: ${new Date(job.createdAt).toLocaleDateString('en-IN')}`);
     doc.text(`Status: ${job.paymentStatus === 'paid' ? '✓ PAID' : 'PENDING'}`);
     doc.moveDown();
@@ -102,8 +102,8 @@ const getHistory = async (req, res, next) => {
       return {
         id: job._id.toString(),
         serviceType: job.serviceType,
-        vehicleMake: job.vehicleType === 'car' ? 'Car' : 'Bike',
-        vehicleModel: job.vehicleModel || '',
+        vehicleMake: job.vehicleType ? (job.vehicleType.charAt(0).toUpperCase() + job.vehicleType.slice(1)) : 'Vehicle',
+        vehicleModel: job.vehicleModel ? `${job.vehicleModel} [${job.vehicleNumber || 'N/A'}]` : (job.vehicleNumber || ''),
         mechanicName: mechanic?.name || 'Mechanic',
         mechanicRating: mechanic?.rating || mechanic?.averageRating || 5.0,
         createdAt: job.createdAt,

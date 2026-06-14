@@ -1,107 +1,276 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  StatusBar, Linking, Alert, Animated, Vibration,
+  StatusBar, Alert, Vibration, Dimensions, ActivityIndicator
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import MapView, { Marker } from 'react-native-maps';
+import * as Location from 'expo-location';
+import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 
-const SOS_NUMBER = '112'; // India emergency / roadside
-const API = process.env.EXPO_PUBLIC_API_URL || 'https://roadside-assistance-production-ddaf.up.railway.app/api';
+const { height } = Dimensions.get('window');
 
 export default function SOSScreen({ navigation }) {
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  const [calling, setCalling] = useState(false);
+  const [latitude, setLatitude] = useState(28.6139);
+  const [longitude, setLongitude] = useState(77.2090);
+  const [address, setAddress] = useState('Fetching your location...');
+  const [loading, setLoading] = useState(false);
+  const mapRef = useRef(null);
 
-  /* Continuous pulse animation on the SOS button */
+  // Fetch current address/location on mount
   useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1.15, duration: 800, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
-      ])
-    ).start();
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          setLatitude(loc.coords.latitude);
+          setLongitude(loc.coords.longitude);
+          
+          const [geo] = await Location.reverseGeocodeAsync({
+            latitude: loc.coords.latitude,
+            longitude: loc.coords.longitude
+          });
+          if (geo) {
+            const displayAddress = `${geo.name || geo.street || ''}, ${geo.city || geo.district || ''}`;
+            setAddress(displayAddress || 'HSR Layout, Bengaluru');
+          } else {
+            setAddress('HSR Layout, Bengaluru');
+          }
+
+          // Center map on user location
+          if (mapRef.current) {
+            mapRef.current.animateToRegion({
+              latitude: loc.coords.latitude,
+              longitude: loc.coords.longitude,
+              latitudeDelta: 0.005,
+              longitudeDelta: 0.005,
+            }, 1000);
+          }
+        } else {
+          setAddress('Location permission denied');
+        }
+      } catch (err) {
+        console.log('Error fetching current address:', err);
+        setAddress('HSR Layout, Bengaluru');
+      }
+    })();
   }, []);
 
-  const triggerSOS = async () => {
-    Vibration.vibrate([0, 200, 100, 200]);
-
-    /* Notify backend – dispatch push to nearby mechanics */
+  const handleLocateMe = async () => {
     try {
-      await fetch(`${API}/sos/request`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-    } catch {
-      // best-effort – still open phone dialer
-    }
-
-    const url = `tel:${SOS_NUMBER}`;
-    const canCall = await Linking.canOpenURL(url);
-    if (canCall) {
-      setCalling(true);
-      await Linking.openURL(url);
-      setCalling(false);
-    } else {
-      Alert.alert('Error', 'Your device cannot make phone calls.');
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      setLatitude(loc.coords.latitude);
+      setLongitude(loc.coords.longitude);
+      
+      if (mapRef.current) {
+        mapRef.current.animateToRegion({
+          latitude: loc.coords.latitude,
+          longitude: loc.coords.longitude,
+          latitudeDelta: 0.005,
+          longitudeDelta: 0.005,
+          }, 800);
+      }
+    } catch (err) {
+      console.log('Locate me failed:', err);
     }
   };
 
-  const TIPS = [
-    { emoji: '🔆', text: 'Turn on hazard lights' },
-    { emoji: '🚧', text: 'Move to road shoulder' },
-    { emoji: '🛑', text: 'Place warning triangle' },
-    { emoji: '📍', text: 'Share your location' },
+  const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://roadside-assistance-production-ddaf.up.railway.app';
+
+  const services = [
+    { label: 'Tyre\nPuncture', value: 'tire_repair', icon: 'car-tire-alert', library: 'MaterialCommunityIcons', bg: '#FFF0F0', iconColor: '#E8192C' },
+    { label: 'Fuel\nAssistance', value: 'fuel_delivery', icon: 'gas-station', library: 'MaterialCommunityIcons', bg: '#FFF7ED', iconColor: '#F97316' },
+    { label: 'Battery\nJumpstart', value: 'battery', icon: 'flash', library: 'Ionicons', bg: '#FEF08A', iconColor: '#CA8A04' },
+    { label: 'Car Fluid\nLeakage', value: 'other', icon: 'water', library: 'Ionicons', bg: '#ECFDF5', iconColor: '#059669' },
+    { label: 'Car Engine\nScanning', value: 'engine_repair', icon: 'engine-outline', library: 'MaterialCommunityIcons', bg: '#EEF2F6', iconColor: '#4B5563' },
+    { label: 'Wheel-Lift\nTow (20 Kms)', value: 'towing', icon: 'truck', library: 'FontAwesome5', bg: '#EEF2FF', iconColor: '#4F46E5' },
   ];
+
+  const renderServiceIcon = (service) => {
+    const size = 26;
+    if (service.library === 'MaterialCommunityIcons') {
+      return <MaterialCommunityIcons name={service.icon} size={size} color={service.iconColor} />;
+    } else if (service.library === 'FontAwesome5') {
+      return <FontAwesome5 name={service.icon} size={22} color={service.iconColor} />;
+    } else {
+      return <Ionicons name={service.icon} size={size} color={service.iconColor} />;
+    }
+  };
+
+  const handleServiceSelect = async (service) => {
+    Vibration.vibrate([0, 200, 100, 200]);
+    setLoading(true);
+    try {
+      const token = await AsyncStorage.getItem('token');
+      if (!token) {
+        Alert.alert('Error', 'Please log in to use SOS');
+        navigation.replace('Login');
+        return;
+      }
+
+      const response = await fetch(`${API_URL}/api/sos`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          lat: latitude,
+          lng: longitude,
+          serviceType: service.value,
+          description: `SOS: ${service.label.replace('\n', ' ')}`
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        Alert.alert('SOS Broadcasting 🚨', `Emergency request for ${service.label.replace('\n', ' ')} has been sent!`);
+        navigation.navigate('SOSConfirmation', { sosId: data._id, lat: latitude, lng: longitude });
+      } else {
+        const data = await response.json();
+        Alert.alert('SOS Failed', data.message || 'Something went wrong.');
+      }
+    } catch (err) {
+      console.log('Error triggering SOS:', err);
+      Alert.alert('SOS Failed', 'Cannot connect to server.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <View style={styles.root}>
-      <StatusBar barStyle="light-content" backgroundColor="#0E0E0E" />
+      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Text style={styles.backIcon}>←</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Emergency SOS</Text>
-        <View style={{ width: 40 }} />
+      {/* 1. Top Location Bar */}
+      <View style={styles.locationBar}>
+        <Ionicons name="location-sharp" size={18} color="#1F2937" style={{ marginRight: 6 }} />
+        <Text style={styles.locationText} numberOfLines={1}>
+          {address}
+        </Text>
       </View>
 
-      <View style={styles.content}>
-        {/* Subtitle */}
-        <Text style={styles.subtitle}>
-          Press the button below to immediately call roadside emergency services and alert nearby mechanics.
-        </Text>
+      {/* 2. Map Section with Floating Buttons */}
+      <View style={styles.mapContainer}>
+        <MapView
+          ref={mapRef}
+          style={styles.map}
+          initialRegion={{
+            latitude: latitude,
+            longitude: longitude,
+            latitudeDelta: 0.005,
+            longitudeDelta: 0.005,
+          }}
+        >
+          <Marker coordinate={{ latitude, longitude }}>
+            <View style={styles.markerContainer}>
+              <View style={styles.markerPin} />
+            </View>
+          </Marker>
+        </MapView>
 
-        {/* Animated SOS button */}
-        <View style={styles.sosWrapper}>
-          {/* Outer pulse rings */}
-          <Animated.View style={[styles.ring, styles.ring3, { transform: [{ scale: pulseAnim }] }]} />
-          <Animated.View style={[styles.ring, styles.ring2]} />
-          <TouchableOpacity style={styles.sosBtn} onPress={triggerSOS} activeOpacity={0.85}>
-            <Text style={styles.sosBtnIcon}>📞</Text>
-            <Text style={styles.sosBtnText}>{calling ? 'Calling...' : 'SOS'}</Text>
-            <Text style={styles.sosBtnSub}>Hold for emergency</Text>
-          </TouchableOpacity>
-        </View>
+        {/* Floating Back Button */}
+        <TouchableOpacity
+          style={styles.mapFloatBtnLeft}
+          onPress={() => navigation.goBack()}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="arrow-back" size={22} color="#1F2937" />
+        </TouchableOpacity>
 
-        {/* Safety tips */}
-        <View style={styles.tipsCard}>
-          <Text style={styles.tipsTitle}>While you wait</Text>
-          <View style={styles.tipsGrid}>
-            {TIPS.map((tip, i) => (
-              <View key={i} style={styles.tipItem}>
-                <Text style={styles.tipEmoji}>{tip.emoji}</Text>
-                <Text style={styles.tipText}>{tip.text}</Text>
-              </View>
+        {/* Floating Locate Me Button */}
+        <TouchableOpacity
+          style={styles.mapFloatBtnRight}
+          onPress={handleLocateMe}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="locate" size={22} color="#1F2937" />
+        </TouchableOpacity>
+      </View>
+
+      {/* 3. Emergency Services List */}
+      <View style={styles.servicesContainer}>
+        <Text style={styles.servicesTitle}>Choose your Emergency Service</Text>
+
+        {loading ? (
+          <View style={styles.loaderContainer}>
+            <ActivityIndicator size="large" color="#E8192C" />
+            <Text style={styles.loaderText}>Broadcasting Emergency Signal...</Text>
+          </View>
+        ) : (
+          <View style={styles.grid}>
+            {services.map((service, index) => (
+              <TouchableOpacity
+                key={index}
+                style={styles.card}
+                onPress={() => handleServiceSelect(service)}
+                activeOpacity={0.85}
+              >
+                <View style={[styles.iconContainer, { backgroundColor: service.bg }]}>
+                  {renderServiceIcon(service)}
+                </View>
+                <Text style={styles.cardLabel}>{service.label}</Text>
+              </TouchableOpacity>
             ))}
           </View>
+        )}
+
+        {/* Pagination Dots */}
+        <View style={styles.dotsRow}>
+          <View style={[styles.dot, styles.activeDot]} />
+          <View style={[styles.dot, styles.inactiveDot]} />
+          <View style={[styles.dot, styles.inactiveDot]} />
         </View>
 
-        {/* Alternative – call mechanic */}
+        {/* Assisted Label */}
+        <View style={styles.assistedContainer}>
+          <View style={styles.assistedLine} />
+          <Text style={styles.assistedText}>465 Customers Assisted Today</Text>
+          <View style={styles.assistedLine} />
+        </View>
+      </View>
+
+      {/* 4. Bottom Navigation Bar */}
+      <View style={styles.bottomNavBar}>
+        {/* Home */}
         <TouchableOpacity
-          style={styles.altBtn}
-          onPress={() => navigation.navigate('Request')}
+          style={styles.navTab}
+          onPress={() => navigation.navigate('Home')}
         >
-          <Text style={styles.altBtnText}>🔧 Book a Mechanic Instead</Text>
+          <Ionicons name="home-outline" size={24} color="#6B7280" />
+          <Text style={styles.navText}>Home</Text>
+        </TouchableOpacity>
+
+        {/* Help */}
+        <TouchableOpacity
+          style={styles.navTab}
+          onPress={() => navigation.navigate('Help')}
+        >
+          <Ionicons name="help-circle-outline" size={24} color="#6B7280" />
+          <Text style={styles.navText}>Help</Text>
+        </TouchableOpacity>
+
+        {/* SOS - Active Siren */}
+        <TouchableOpacity
+          style={styles.sosNavButton}
+          activeOpacity={1}
+        >
+          <View style={styles.sosNavCircle}>
+            <Ionicons name="notifications" size={28} color="#FFF" />
+          </View>
+          <Text style={[styles.navText, styles.activeNavText]}>SOS</Text>
+        </TouchableOpacity>
+
+
+
+        {/* Account / Settings */}
+        <TouchableOpacity
+          style={styles.navTab}
+          onPress={() => navigation.navigate('Account')}
+        >
+          <Ionicons name="person-outline" size={24} color="#6B7280" />
+          <Text style={styles.navText}>Account</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -109,47 +278,212 @@ export default function SOSScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#0E0E0E' },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingTop: 56, paddingBottom: 16,
-    borderBottomWidth: 1, borderBottomColor: '#1A1A1A',
+  root: {
+    flex: 1,
+    backgroundColor: '#fff',
   },
-  backBtn: { width: 40, height: 40, justifyContent: 'center' },
-  backIcon: { fontSize: 22, color: '#FF6B00' },
-  headerTitle: { fontSize: 18, fontWeight: '700', color: '#FF3B30' },
-  content: { flex: 1, alignItems: 'center', paddingHorizontal: 24, paddingTop: 24 },
-  subtitle: { fontSize: 14, color: '#888', textAlign: 'center', lineHeight: 22, marginBottom: 40 },
-  sosWrapper: { justifyContent: 'center', alignItems: 'center', marginBottom: 40, width: 240, height: 240 },
-  ring: {
-    position: 'absolute', borderRadius: 120, borderWidth: 2,
+  locationBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+    marginTop: 40,
   },
-  ring3: { width: 230, height: 230, borderColor: 'rgba(255,59,48,0.15)', backgroundColor: 'rgba(255,59,48,0.05)' },
-  ring2: { width: 180, height: 180, borderColor: 'rgba(255,59,48,0.25)', backgroundColor: 'rgba(255,59,48,0.08)' },
-  sosBtn: {
-    width: 140, height: 140, borderRadius: 70,
-    backgroundColor: '#FF3B30',
-    justifyContent: 'center', alignItems: 'center',
-    shadowColor: '#FF3B30', shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.6, shadowRadius: 24, elevation: 16,
+  locationText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    flex: 1,
   },
-  sosBtnIcon: { fontSize: 32, marginBottom: 4 },
-  sosBtnText: { color: '#fff', fontSize: 22, fontWeight: '900', letterSpacing: 2 },
-  sosBtnSub: { color: 'rgba(255,255,255,0.7)', fontSize: 10, marginTop: 2 },
-  tipsCard: {
-    width: '100%', backgroundColor: '#1A1A1A',
-    borderRadius: 18, padding: 20, marginBottom: 16,
-    borderWidth: 1, borderColor: '#2A2A2A',
+  mapContainer: {
+    height: height * 0.35,
+    position: 'relative',
   },
-  tipsTitle: { fontSize: 15, fontWeight: '700', color: '#fff', marginBottom: 16 },
-  tipsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  tipItem: { width: '45%', flexDirection: 'row', alignItems: 'center', gap: 8 },
-  tipEmoji: { fontSize: 22 },
-  tipText: { fontSize: 13, color: '#aaa', flex: 1, lineHeight: 18 },
-  altBtn: {
-    width: '100%', backgroundColor: 'transparent',
-    borderWidth: 1, borderColor: '#FF6B00', borderRadius: 14,
-    paddingVertical: 15, alignItems: 'center',
+  map: {
+    ...StyleSheet.absoluteFillObject,
   },
-  altBtnText: { color: '#FF6B00', fontWeight: '700', fontSize: 15 },
+  markerContainer: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(31, 41, 55, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  markerPin: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: '#1F2937',
+    borderWidth: 2,
+    borderColor: '#ffffff',
+  },
+  mapFloatBtnLeft: {
+    position: 'absolute',
+    top: 15,
+    left: 15,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#ffffff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  mapFloatBtnRight: {
+    position: 'absolute',
+    top: 15,
+    right: 15,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#ffffff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  servicesContainer: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 15,
+  },
+  servicesTitle: {
+    fontSize: 17,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    rowGap: 24,
+  },
+  card: {
+    width: '30%',
+    alignItems: 'center',
+  },
+  iconContainer: {
+    width: 60,
+    height: 60,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
+  },
+  cardLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#374151',
+    textAlign: 'center',
+    lineHeight: 16,
+  },
+  dotsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 25,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  activeDot: {
+    backgroundColor: '#E8192C',
+    width: 14,
+  },
+  inactiveDot: {
+    backgroundColor: '#D1D5DB',
+  },
+  assistedContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 25,
+    gap: 10,
+  },
+  assistedLine: {
+    height: 1,
+    backgroundColor: '#86EFAC',
+    width: 30,
+  },
+  assistedText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#16A34A',
+  },
+  loaderContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  loaderText: {
+    fontSize: 14,
+    color: '#E8192C',
+    fontWeight: '700',
+    marginTop: 15,
+  },
+  bottomNavBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    height: 70,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+    paddingBottom: 10,
+  },
+  navTab: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
+  },
+  navText: {
+    fontSize: 10,
+    color: '#6B7280',
+    marginTop: 4,
+    fontWeight: '600',
+  },
+  activeNavText: {
+    color: '#E8192C',
+  },
+  sosNavButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: -20,
+    flex: 1,
+  },
+  sosNavCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#E8192C',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#E8192C',
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
 });
