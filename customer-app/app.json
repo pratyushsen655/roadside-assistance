@@ -4,11 +4,17 @@
     "slug": "roadside-customer-app",
     "version": "1.0.0",
     "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#B34700"
+    },
     "ios": {
       "bundleIdentifier": "com.rescueme.customer",
       "supportsTablet": true,
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "This app requires GPS access to detect your vehicle breakdown coordinates automatically and track the assigned mechanic.",
+        "NSLocationWhenInUseUsageDescription": "We need your location to find nearby mechanics and auto-fill your address.",
+        "NSLocationAlwaysUsageDescription": "We need your location to track your mechanic in real time.",
         "NSCameraUsageDescription": "Camera access is needed for capturing photos of the vehicle condition.",
         "NSMicrophoneUsageDescription": "Microphone access is needed for voice messages in the in‑app chat."
       }
@@ -19,6 +25,7 @@
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
         "INTERNET"
       ]
     },
@@ -32,7 +39,7 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "79e345f5-fcf4-443b-a206-8a32c9105394"
+        "projectId": "a2e4c63a-cec5-407b-9b0f-4450d985ad39"
       }
     }
   }
