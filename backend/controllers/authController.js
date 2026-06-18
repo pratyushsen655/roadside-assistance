@@ -5,7 +5,7 @@ const generateToken = (userId, role) => {
   return jwt.sign(
     { id: userId, role },
     /** @type {string} */ (process.env.JWT_SECRET || 'fallback_secret_change_in_env'),
-    { expiresIn: /** @type {import('jsonwebtoken').SignOptions['expiresIn']} */ (process.env.JWT_EXPIRY || '7d') }
+    { expiresIn: /** @type {import('jsonwebtoken').SignOptions['expiresIn']} */ (process.env.JWT_EXPIRY || '90d') }
   );
 };
 

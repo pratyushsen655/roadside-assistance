@@ -25,6 +25,9 @@ const getMyReferralInfo = async (req, res, next) => {
       .filter((r) => r.status === 'paid')
       .reduce((sum, r) => sum + r.earnings, 0);
 
+    const appLink = `https://play.google.com/store/apps/details?id=com.praty.roadsideassist&referral=${user.referralCode}`;
+    const shareMessage = `🚗 Stranded on the road? Get instant mechanic help!\n\n📲 Download RescueMe app:\n${appLink}\n\n🎁 Use my referral code *${user.referralCode}* at signup to get ₹30 off your first service!\n\n🔧 Fast • Reliable • 24/7 Roadside Assistance`;
+
     res.status(200).json({
       success: true,
       referralCode: user.referralCode,
@@ -34,6 +37,8 @@ const getMyReferralInfo = async (req, res, next) => {
       pendingEarnings,
       paidEarnings,
       referrals,
+      shareMessage,
+      appLink
     });
   } catch (error) {
     next(error);

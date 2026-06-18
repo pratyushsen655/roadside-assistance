@@ -42,5 +42,8 @@
         "projectId": "a2e4c63a-cec5-407b-9b0f-4450d985ad39"
       }
     }
+  },
+  "cli": {
+    "appVersionSource": "native"
   }
 }

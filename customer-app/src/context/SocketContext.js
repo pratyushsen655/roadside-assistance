@@ -7,12 +7,12 @@ export const SocketContext = createContext();
 const SOCKET_URL = 'http://10.0.2.2:5000'; // Host loopback for emulator. Match server port.
 
 export const SocketProvider = ({ children }) => {
-  const { token } = useContext(AuthContext);
+  const { user, token } = useContext(AuthContext);
   const [socket, setSocket] = useState(null);
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    if (!token) {
+    if (!user || !token) {
       if (socket) {
         socket.disconnect();
         setSocket(null);
@@ -41,7 +41,7 @@ export const SocketProvider = ({ children }) => {
     return () => {
       socketInstance.disconnect();
     };
-  }, [token]);
+  }, [user, token]);
 
   return (
     <SocketContext.Provider value={{ socket, connected }}>

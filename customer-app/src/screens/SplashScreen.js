@@ -1,29 +1,43 @@
 import React, { useEffect, useRef } from 'react';
-import {
-  View,
-  Text,
-  Animated,
-  StyleSheet,
-  Dimensions,
-  StatusBar,
-} from 'react-native';
+import { View, Text, Image, Animated, StyleSheet, Dimensions, StatusBar } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width, height } = Dimensions.get('window');
 
-const SplashScreen = ({ navigation }) => {
+export default function AppSplashScreen({ onFinish, navigation }) {
   const logoScale = useRef(new Animated.Value(0)).current;
   const logoOpacity = useRef(new Animated.Value(0)).current;
   const textOpacity = useRef(new Animated.Value(0)).current;
   const taglineOpacity = useRef(new Animated.Value(0)).current;
+  const dotsOpacity = useRef(new Animated.Value(0)).current;
+
+  const dot1Anim = useRef(new Animated.Value(0.4)).current;
+  const dot2Anim = useRef(new Animated.Value(0.4)).current;
+  const dot3Anim = useRef(new Animated.Value(0.4)).current;
+
+  const animateDots = () => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(dot1Anim, { toValue: 1, duration: 300, useNativeDriver: true }),
+        Animated.timing(dot2Anim, { toValue: 1, duration: 300, useNativeDriver: true }),
+        Animated.timing(dot3Anim, { toValue: 1, duration: 300, useNativeDriver: true }),
+        Animated.parallel([
+          Animated.timing(dot1Anim, { toValue: 0.4, duration: 300, useNativeDriver: true }),
+          Animated.timing(dot2Anim, { toValue: 0.4, duration: 300, useNativeDriver: true }),
+          Animated.timing(dot3Anim, { toValue: 0.4, duration: 300, useNativeDriver: true }),
+        ]),
+      ])
+    ).start();
+  };
 
   useEffect(() => {
     Animated.sequence([
-      // Step 1: Logo pops in
+      // Logo appears with bounce
       Animated.parallel([
         Animated.spring(logoScale, {
           toValue: 1,
-          friction: 4,
-          tension: 80,
+          tension: 50,
+          friction: 7,
           useNativeDriver: true,
         }),
         Animated.timing(logoOpacity, {
@@ -32,63 +46,93 @@ const SplashScreen = ({ navigation }) => {
           useNativeDriver: true,
         }),
       ]),
-      // Step 2: App name fades in
+      // App name fades in
       Animated.timing(textOpacity, {
         toValue: 1,
         duration: 500,
         useNativeDriver: true,
       }),
-      // Step 3: Tagline fades in
+      // Tagline fades in
       Animated.timing(taglineOpacity, {
         toValue: 1,
         duration: 400,
         useNativeDriver: true,
       }),
-      // Step 4: Hold for a moment
-      Animated.delay(1200),
-    ]).start(() => {
-      // Navigate to Onboarding
-      navigation.replace('Onboarding');
+      // Loading dots appear
+      Animated.timing(dotsOpacity, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      // Hold for 1 second
+      Animated.delay(1000),
+    ]).start(async () => {
+      if (typeof onFinish === 'function') {
+        onFinish();
+      } else if (navigation) {
+        try {
+          const savedLanguage = await AsyncStorage.getItem('appLanguage');
+          if (!savedLanguage) {
+            // First launch — show language selection
+            navigation.replace('LanguageSelection');
+          } else {
+            navigation.replace('Onboarding');
+          }
+        } catch {
+          navigation.replace('Onboarding');
+        }
+      }
     });
+
+    animateDots();
   }, []);
 
   return (
     <View style={styles.container}>
-      <StatusBar backgroundColor="#B34700" barStyle="light-content" />
+      <StatusBar barStyle="light-content" backgroundColor="#B34700" />
+      
+      {/* Background gradient effect */}
+      <View style={styles.topHalf} />
+      <View style={styles.bottomHalf} />
 
       {/* Logo */}
-      <Animated.View
-        style={[
-          styles.logoContainer,
-          {
-            opacity: logoOpacity,
-            transform: [{ scale: logoScale }],
-          },
-        ]}
-      >
-        <Text style={styles.logoEmoji}>🚗</Text>
-        <View style={styles.wrenchBadge}>
-          <Text style={styles.wrenchEmoji}>🔧</Text>
+      <Animated.View style={[styles.logoContainer, {
+        transform: [{ scale: logoScale }],
+        opacity: logoOpacity,
+      }]}>
+        <View style={styles.logoCircle}>
+          <Image
+            source={require('../../assets/icon.png')}
+            style={styles.logo}
+            resizeMode="contain"
+          />
         </View>
       </Animated.View>
 
       {/* App Name */}
       <Animated.Text style={[styles.appName, { opacity: textOpacity }]}>
-        Roadside Assistance
+        RescueMe
       </Animated.Text>
 
       {/* Tagline */}
       <Animated.Text style={[styles.tagline, { opacity: taglineOpacity }]}>
-        Help is just a tap away
+        Fast help, wherever you are 🔧
       </Animated.Text>
 
-      {/* Bottom branding */}
-      <Animated.View style={[styles.bottomBar, { opacity: taglineOpacity }]}>
-        <Text style={styles.bottomText}>MECHANIC ON DEMAND</Text>
+      {/* Loading dots */}
+      <Animated.View style={[styles.dotsContainer, { opacity: dotsOpacity }]}>
+        <Animated.View style={[styles.dot, { opacity: dot1Anim }]} />
+        <Animated.View style={[styles.dot, styles.dotMiddle, { opacity: dot2Anim }]} />
+        <Animated.View style={[styles.dot, { opacity: dot3Anim }]} />
       </Animated.View>
+
+      {/* Bottom tagline */}
+      <Animated.Text style={[styles.madeIn, { opacity: taglineOpacity }]}>
+        Made with ❤️ in India
+      </Animated.Text>
     </View>
   );
-};
+}
 
 const styles = StyleSheet.create({
   container: {
@@ -97,59 +141,80 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  topHalf: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: height * 0.6,
+    backgroundColor: '#B34700',
+  },
+  bottomHalf: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: height * 0.4,
+    backgroundColor: '#8B3300',
+  },
   logoContainer: {
+    marginBottom: 24,
+  },
+  logoCircle: {
     width: 120,
     height: 120,
-    backgroundColor: '#fff',
     borderRadius: 60,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderWidth: 3,
+    borderColor: 'rgba(255,255,255,0.4)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
-    elevation: 10,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.3,
-    shadowRadius: 6,
+    shadowRadius: 16,
+    elevation: 12,
   },
-  logoEmoji: {
-    fontSize: 56,
-  },
-  wrenchBadge: {
-    position: 'absolute',
-    bottom: 4,
-    right: 4,
-    backgroundColor: '#B34700',
-    borderRadius: 14,
-    width: 28,
-    height: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  wrenchEmoji: {
-    fontSize: 14,
+  logo: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
   },
   appName: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#fff',
+    fontSize: 36,
+    fontWeight: '900',
+    color: '#FFFFFF',
     letterSpacing: 1,
     marginBottom: 8,
   },
   tagline: {
-    fontSize: 15,
-    color: 'rgba(255,255,255,0.8)',
-    letterSpacing: 0.5,
+    fontSize: 16,
+    color: 'rgba(255,255,255,0.85)',
+    letterSpacing: 0.3,
+    marginBottom: 48,
   },
-  bottomBar: {
+  dotsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 48,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255,255,255,0.6)',
+  },
+  dotMiddle: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#FFFFFF',
+  },
+  madeIn: {
     position: 'absolute',
     bottom: 40,
-    alignItems: 'center',
-  },
-  bottomText: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.5)',
-    letterSpacing: 1.5,
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.6)',
   },
 });
-
-export default SplashScreen;

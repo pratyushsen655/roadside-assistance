@@ -1,13 +1,19 @@
 // App.js - Root component for the Customer Expo app
-import React, { useEffect, useRef } from 'react';
+import './src/i18n'; // Initialize i18next before any screen renders
+import React, { useState, useEffect, useRef } from 'react';
 import { LogBox, InteractionManager } from 'react-native';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider } from './src/context/AuthContext';
+import { LanguageProvider } from './src/context/LanguageContext';
 import RootNavigator from './src/navigation';
 import ErrorBoundary from './src/components/ErrorBoundary';
 import OfflineBanner from './src/components/OfflineBanner';
 import Constants from 'expo-constants';
+import * as SplashScreen from 'expo-splash-screen';
+import AppSplashScreen from './src/screens/SplashScreen';
+
+SplashScreen.preventAutoHideAsync();
 
 const navigationRef = createNavigationContainerRef();
 
@@ -55,10 +61,12 @@ LogBox.ignoreLogs([
 ]);
 
 export default function App() {
+  const [showSplash, setShowSplash] = useState(true);
   const notificationListener = useRef();
   const responseListener = useRef();
 
   useEffect(() => {
+    SplashScreen.hideAsync();
     if (!Notifications) {
       console.log('[App] Running in Expo Go — push notifications disabled. Use a dev build for full support.');
       return;
@@ -97,15 +105,21 @@ export default function App() {
     };
   }, []);
 
+  if (showSplash) {
+    return <AppSplashScreen onFinish={() => setShowSplash(false)} />;
+  }
+
   return (
     <SafeAreaProvider>
       <ErrorBoundary>
-        <AuthProvider>
-          <NavigationContainer ref={navigationRef}>
-            <RootNavigator />
-          </NavigationContainer>
-          <OfflineBanner />
-        </AuthProvider>
+        <LanguageProvider>
+          <AuthProvider>
+            <NavigationContainer ref={navigationRef}>
+              <RootNavigator />
+            </NavigationContainer>
+            <OfflineBanner />
+          </AuthProvider>
+        </LanguageProvider>
       </ErrorBoundary>
     </SafeAreaProvider>
   );

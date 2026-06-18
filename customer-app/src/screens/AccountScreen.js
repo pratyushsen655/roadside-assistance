@@ -8,10 +8,12 @@ import Animated, { FadeInUp, FadeInDown } from 'react-native-reanimated';
 import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 import Skeleton from '../components/Skeleton';
 import { theme } from '../constants/theme';
+import { useAuth } from '../context/AuthContext';
 
 const { width } = Dimensions.get('window');
 
 export default function AccountScreen({ navigation }) {
+  const { logout } = useAuth();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
@@ -23,7 +25,7 @@ export default function AccountScreen({ navigation }) {
   const loadUser = async () => {
     setLoading(true);
     try {
-      const token = await AsyncStorage.getItem('token');
+      const token = await AsyncStorage.getItem('userToken');
       if (!token) {
         navigation.replace('Login');
         return;
@@ -32,6 +34,12 @@ export default function AccountScreen({ navigation }) {
       const response = await fetch(`${API_URL}/api/auth/profile`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
+      if (response.status === 401) {
+        Alert.alert('Session Expired', 'Your session has expired. Please login again.');
+        await AsyncStorage.multiRemove(['userToken', 'userData', 'tokenStoredAt', 'token', 'user']);
+        navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+        return;
+      }
       const data = await response.json();
       if (data.success && data.user) {
         setUser(data.user);
@@ -55,21 +63,43 @@ export default function AccountScreen({ navigation }) {
     }
   };
 
-  const handleLogout = async () => {
+  const handleLogout = () => {
     Alert.alert(
       'Logout',
-      'Are you sure you want to logout?',
+      'Choose logout option:',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Logout',
+          text: 'Logout This Device',
+          onPress: async () => {
+            try {
+              await logout();
+              navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+            } catch (error) {
+              console.log('Logout navigation error:', error);
+            }
+          },
+        },
+        {
+          text: 'Logout All Devices',
           style: 'destructive',
           onPress: async () => {
-            await AsyncStorage.removeItem('token');
-            navigation.replace('Login');
-          }
-        }
-      ]
+            try {
+              const token = await AsyncStorage.getItem('userToken');
+              const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://roadside-assistance-production-ddaf.up.railway.app';
+              await fetch(`${API_URL}/api/auth/logout-all`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` },
+              }).catch(() => {});
+              await logout();
+              navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+            } catch (error) {
+              console.log('Logout all navigation error:', error);
+            }
+          },
+        },
+      ],
+      { cancelable: true }
     );
   };
 
@@ -172,55 +202,6 @@ export default function AccountScreen({ navigation }) {
           </TouchableOpacity>
         </Animated.View>
 
-        {/* Wallet Card */}
-        <Animated.View entering={FadeInDown.delay(200).duration(500)}>
-          <TouchableOpacity
-            style={styles.walletCard}
-            onPress={() => {
-              Alert.alert(
-                'GoApp Money Wallet',
-                'Your current GoApp Money balance is ₹1,500. You can use it to pay for emergency roadside requests and store orders.'
-              );
-            }}
-            activeOpacity={0.8}
-          >
-            <View style={styles.walletLeft}>
-              <View style={styles.walletLogoContainer}>
-                <Text style={styles.walletLogoText}>G</Text>
-              </View>
-              <View style={styles.walletInfo}>
-                <Text style={styles.walletTitle}>GoApp Money</Text>
-                <Text style={styles.walletBalance}>₹1,500</Text>
-              </View>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
-          </TouchableOpacity>
-        </Animated.View>
-
-        {/* Subscription Banner */}
-        <Animated.View entering={FadeInDown.delay(250).duration(500)}>
-          <TouchableOpacity
-            style={styles.subCard}
-            onPress={() => {
-              Alert.alert(
-                'Miles Premium',
-                'Save over ₹19,400 annually. Get free towing, unlimited battery jumpstarts, free flat tyre repair, and zero dispatch fees. Join today!'
-              );
-            }}
-            activeOpacity={0.8}
-          >
-            <View style={styles.subLeft}>
-              <View style={styles.subBadge}>
-                <Text style={styles.subBadgeText}>Miles</Text>
-              </View>
-              <Text style={styles.subTitle}>
-                Save ₹19400 Annually, Free SOS & much more
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#E8192C" />
-          </TouchableOpacity>
-        </Animated.View>
-
         {/* Divider line */}
         <View style={styles.divider} />
 
@@ -311,6 +292,29 @@ export default function AccountScreen({ navigation }) {
               value={notificationsEnabled}
             />
           </View>
+
+          {/* App Language */}
+          <TouchableOpacity
+            style={[styles.settingsItem, { marginTop: 10 }]}
+            onPress={() => navigation.navigate('LanguageSelection', { fromSettings: true })}
+            activeOpacity={0.7}
+          >
+            <View style={styles.settingsLeft}>
+              <View style={styles.menuIconCircle}>
+                <Ionicons name="globe-outline" size={20} color="#374151" />
+              </View>
+              <Text style={styles.settingsLabel}>App Language</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+          </TouchableOpacity>
+        </Animated.View>
+
+        {/* Log Out Option */}
+        <Animated.View entering={FadeInDown.delay(380).duration(500)}>
+          <TouchableOpacity style={styles.logoutContainer} onPress={handleLogout}>
+            <Text style={styles.logoutText}>Log Out</Text>
+            <Ionicons name="chevron-forward" size={20} color="#111827" />
+          </TouchableOpacity>
         </Animated.View>
 
         {/* Footer links */}
@@ -318,10 +322,6 @@ export default function AccountScreen({ navigation }) {
           <View style={styles.footerLinks}>
             <TouchableOpacity onPress={() => Alert.alert('Privacy Policy', 'Standard roadside app privacy terms.')}>
               <Text style={styles.footerLinkText}>Privacy Policy</Text>
-            </TouchableOpacity>
-            <Text style={styles.footerDot}>•</Text>
-            <TouchableOpacity onPress={handleLogout}>
-              <Text style={styles.footerLinkText}>Logout</Text>
             </TouchableOpacity>
             <Text style={styles.footerDot}>•</Text>
             <Text style={styles.footerVersionText}>v3.2.5</Text>
@@ -332,43 +332,34 @@ export default function AccountScreen({ navigation }) {
       {/* Sticky Bottom Navigation Bar */}
       <View style={styles.bottomNavBar}>
         {/* Home */}
-        <TouchableOpacity
-          style={styles.navTab}
-          onPress={() => navigation.navigate('Home')}
-        >
+        <TouchableOpacity style={styles.navTab} onPress={() => navigation.navigate('Home')}>
           <Ionicons name="home-outline" size={24} color="#6B7280" />
           <Text style={styles.navText}>Home</Text>
         </TouchableOpacity>
 
-        {/* Help */}
-        <TouchableOpacity
-          style={styles.navTab}
-          onPress={() => navigation.navigate('Help')}
-        >
-          <Ionicons name="help-circle-outline" size={24} color="#6B7280" />
-          <Text style={styles.navText}>Help</Text>
+        {/* Bookings */}
+        <TouchableOpacity style={styles.navTab} onPress={() => navigation.navigate('ServiceHistory')}>
+          <MaterialCommunityIcons name="calendar-check-outline" size={24} color="#6B7280" />
+          <Text style={styles.navText}>Bookings</Text>
         </TouchableOpacity>
 
         {/* SOS - Center floating bell */}
-        <TouchableOpacity
-          style={styles.sosNavButton}
-          onPress={() => navigation.navigate('SOS')}
-          activeOpacity={0.85}
-        >
+        <TouchableOpacity style={styles.sosNavButton} onPress={() => navigation.navigate('SOS')} activeOpacity={0.85}>
           <View style={styles.sosNavCircle}>
-            <Ionicons name="notifications" size={28} color="#FFF" />
+            <Ionicons name="notifications-outline" size={26} color="#FFF" />
           </View>
           <Text style={styles.sosNavText}>SOS</Text>
         </TouchableOpacity>
 
-
+        {/* Help */}
+        <TouchableOpacity style={styles.navTab} onPress={() => navigation.navigate('Help')}>
+          <Ionicons name="help-circle-outline" size={24} color="#6B7280" />
+          <Text style={styles.navText}>Help</Text>
+        </TouchableOpacity>
 
         {/* Account / Active */}
-        <TouchableOpacity
-          style={styles.navTab}
-          onPress={() => {}}
-        >
-          <Ionicons name="person" size={24} color="#E8192C" />
+        <TouchableOpacity style={styles.navTab} onPress={() => {}}>
+          <Ionicons name="person" size={24} color="#E8192C" style={styles.activeNavIcon} />
           <Text style={[styles.navText, styles.activeNavText]}>Account</Text>
         </TouchableOpacity>
       </View>
@@ -643,63 +634,85 @@ const styles = StyleSheet.create({
     color: theme.colors.textSecondary,
     fontWeight: '500',
   },
+  logoutContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: theme.colors.white,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    marginTop: 10,
+    marginBottom: 20,
+    borderRadius: theme.card.borderRadius,
+  },
+  logoutText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+  },
   bottomNavBar: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: theme.colors.white,
-    height: 75,
+    backgroundColor: '#FFFFFF',
+    height: 85,
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
     borderTopWidth: 1,
-    borderTopColor: theme.colors.border,
+    borderTopColor: '#F3F4F6',
     elevation: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    paddingBottom: 10,
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    paddingBottom: 20,
+    paddingTop: 10,
+    borderRadius: 20,
   },
   navTab: {
     alignItems: 'center',
     justifyContent: 'center',
-    width: width * 0.18,
+    width: width * 0.16,
+  },
+  activeNavIcon: {
+    marginBottom: -2,
   },
   navText: {
-    fontSize: 10,
-    color: theme.colors.textSecondary,
+    fontSize: 11,
+    color: '#6B7280',
     marginTop: 4,
     fontWeight: '500',
   },
   activeNavText: {
-    color: theme.colors.primary,
+    color: '#E8192C',
     fontWeight: 'bold',
   },
   sosNavButton: {
     alignItems: 'center',
     justifyContent: 'center',
-    top: -15,
-    width: width * 0.18,
+    width: width * 0.16,
   },
   sosNavCircle: {
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: theme.colors.primary,
+    backgroundColor: '#1E3A8A',
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 6,
-    shadowColor: theme.colors.primary,
+    elevation: 8,
+    shadowColor: '#1E3A8A',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
-    shadowRadius: 6,
+    shadowRadius: 8,
+    borderWidth: 4,
+    borderColor: '#FFF',
   },
   sosNavText: {
-    fontSize: 10,
-    color: theme.colors.primary,
+    fontSize: 12,
+    color: '#1E3A8A',
     marginTop: 4,
-    fontWeight: 'bold',
+    fontWeight: '600',
   }
 });

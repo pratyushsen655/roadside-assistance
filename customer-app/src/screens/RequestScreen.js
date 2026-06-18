@@ -2,7 +2,7 @@ import React, { useState, useContext, useEffect, useRef } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import {
   View, Text, TextInput, TouchableOpacity,
-  StyleSheet, Alert, ActivityIndicator, ScrollView, Animated
+  StyleSheet, Alert, ActivityIndicator, ScrollView, Animated, Modal, FlatList
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 import * as Location from 'expo-location';
@@ -23,7 +23,6 @@ export default function RequestScreen({ navigation, route }) {
   const { token } = useContext(AuthContext);
 
   // Bidding System State
-  const [initialPrice, setInitialPrice] = useState('350');
   const [currentBiddingPrice, setCurrentBiddingPrice] = useState(350);
   const [countdown, setCountdown] = useState(120);
   const [showBidModal, setShowBidModal] = useState(false);
@@ -38,18 +37,65 @@ export default function RequestScreen({ navigation, route }) {
   const [latitude, setLatitude] = useState(28.6139);
   const [longitude, setLongitude] = useState(77.2090);
 
+  const [savedAddresses, setSavedAddresses] = useState([]);
+  const [addressModalVisible, setAddressModalVisible] = useState(false);
+  const [fetchingAddresses, setFetchingAddresses] = useState(false);
+
+  const handleOpenSavedAddresses = async () => {
+    setAddressModalVisible(true);
+    setFetchingAddresses(true);
+    try {
+      const res = await fetch(`${API_URL}/api/address`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSavedAddresses(data.addresses);
+      }
+    } catch (e) {
+      console.log('Error fetching saved addresses', e);
+    }
+    setFetchingAddresses(false);
+  };
+
+  const handleSelectSavedAddress = (item) => {
+    setCustomerAddress(item.address);
+    if (item.location?.lat) setLatitude(item.location.lat);
+    if (item.location?.lng) setLongitude(item.location.lng);
+    setAddressModalVisible(false);
+  };
+
   // Fetch current address/location on mount
   useEffect(() => {
     (async () => {
+      let hasDefault = false;
       try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === 'granted') {
-          setCustomerAddress('Fetching address...');
-          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-          setLatitude(loc.coords.latitude);
-          setLongitude(loc.coords.longitude);
-          
-          if (!route.params?.selectedAddress) {
+        if (!route.params?.selectedAddress) {
+          const res = await fetch(`${API_URL}/api/address`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const data = await res.json();
+          if (data.success && data.addresses && data.addresses.length > 0) {
+            const defaultAddress = data.addresses.find(a => a.isDefault);
+            if (defaultAddress) {
+              setCustomerAddress(defaultAddress.address);
+              if (defaultAddress.location?.lat) setLatitude(defaultAddress.location.lat);
+              if (defaultAddress.location?.lng) setLongitude(defaultAddress.location.lng);
+              hasDefault = true;
+            }
+          }
+        }
+      } catch (e) { console.log('Error fetching default address', e); }
+
+      if (!hasDefault && !route.params?.selectedAddress) {
+        try {
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          if (status === 'granted') {
+            setCustomerAddress('Fetching address...');
+            const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+            setLatitude(loc.coords.latitude);
+            setLongitude(loc.coords.longitude);
+            
             const [geo] = await Location.reverseGeocodeAsync({
               latitude: loc.coords.latitude,
               longitude: loc.coords.longitude
@@ -60,33 +106,38 @@ export default function RequestScreen({ navigation, route }) {
             } else {
               setCustomerAddress('HSR Layout, Bengaluru');
             }
+          } else {
+            Alert.alert('Permission Denied', 'Please enable location permissions to locate you automatically.');
           }
-        } else {
-          Alert.alert('Permission Denied', 'Please enable location permissions to locate you automatically.');
+        } catch (err) {
+          console.log('Error fetching current address:', err);
+          setCustomerAddress('HSR Layout, Bengaluru');
         }
-      } catch (err) {
-        console.log('Error fetching current address:', err);
-        setCustomerAddress('HSR Layout, Bengaluru');
       }
     })();
-  }, []);
+  }, [token, route.params?.selectedAddress]);
 
   // Update address & geocode if a saved address is selected
   useEffect(() => {
     if (route.params?.selectedAddress) {
       setCustomerAddress(route.params.selectedAddress);
       
-      (async () => {
-        try {
-          const geocoded = await Location.geocodeAsync(route.params.selectedAddress);
-          if (geocoded && geocoded.length > 0) {
-            setLatitude(geocoded[0].latitude);
-            setLongitude(geocoded[0].longitude);
+      if (route.params?.lat && route.params?.lng) {
+        setLatitude(route.params.lat);
+        setLongitude(route.params.lng);
+      } else {
+        (async () => {
+          try {
+            const geocoded = await Location.geocodeAsync(route.params.selectedAddress);
+            if (geocoded && geocoded.length > 0) {
+              setLatitude(geocoded[0].latitude);
+              setLongitude(geocoded[0].longitude);
+            }
+          } catch (err) {
+            console.log('Error geocoding selected address:', err);
           }
-        } catch (err) {
-          console.log('Error geocoding selected address:', err);
-        }
-      })();
+        })();
+      }
     }
     if (route.params?.serviceType) {
       setServiceType(route.params.serviceType);
@@ -453,10 +504,6 @@ export default function RequestScreen({ navigation, route }) {
       Alert.alert('Error', 'Please describe your issue');
       return;
     }
-    if (!initialPrice || isNaN(Number(initialPrice)) || Number(initialPrice) <= 0) {
-      Alert.alert('Error', 'Please enter a valid initial price');
-      return;
-    }
     setLoading(true);
     try {
       const response = await fetch(`${API_URL}/api/requests`, {
@@ -475,34 +522,53 @@ export default function RequestScreen({ navigation, route }) {
             type: 'Point',
             coordinates: [longitude, latitude]
           },
-          customerAddress,
-          initialPrice: Number(initialPrice)
+          customerAddress
         })
       });
+
+      if (response.status === 401) {
+        Alert.alert('Session Expired', 'Your session has expired. Please login again.');
+        await removeItem('token');
+        await removeItem('user');
+        navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+        return;
+      }
+
       const data = await response.json();
       if (data.success && data.request) {
         const createdJobId = data.request._id;
         setJobId(createdJobId);
-        setCurrentBiddingPrice(Number(initialPrice));
+        setCurrentBiddingPrice(350);
         setWaitingForMechanic(true);
 
         const socket = getSocket(token);
         socket.emit('join:job:room', { jobId: createdJobId });
 
+        // Remove any stale listeners before registering to prevent duplicates
+        socket.off('job:accepted:notify');
         socket.on('job:accepted:notify', (mechanicDetails) => {
-          console.log('[Socket] Job accepted by mechanic:', mechanicDetails);
-          setWaitingForMechanic(false);
-          socket.off('job:accepted:notify');
-          socket.off('request:price_updated');
+          try {
+            console.log('[Socket] Job accepted by mechanic:', mechanicDetails);
+            setWaitingForMechanic(false);
+            clearInterval(countdownIntervalRef.current);
+            socket.off('job:accepted:notify');
+            socket.off('request:price_updated');
 
-          navigation.replace('Tracking', {
-            jobId: createdJobId,
-            mechanicId: mechanicDetails.mechanicId,
-            mechanicName: mechanicDetails.mechanicName,
-            mechanicPhone: mechanicDetails.mechanicPhone,
-            customerLat: data.request.customerLocation?.coordinates[1] || 28.6139,
-            customerLng: data.request.customerLocation?.coordinates[0] || 77.2090
-          });
+            const coords = data.request?.customerLocation?.coordinates;
+            const custLat = Array.isArray(coords) && coords.length >= 2 ? coords[1] : 28.6139;
+            const custLng = Array.isArray(coords) && coords.length >= 2 ? coords[0] : 77.2090;
+
+            navigation.replace('Tracking', {
+              jobId: createdJobId,
+              mechanicId: mechanicDetails?.mechanicId ?? null,
+              mechanicName: mechanicDetails?.mechanicName ?? 'Professional Mechanic',
+              mechanicPhone: mechanicDetails?.mechanicPhone ?? '',
+              customerLat: custLat,
+              customerLng: custLng
+            });
+          } catch (err) {
+            console.error('[Socket] Error handling job:accepted:notify in RequestScreen:', err);
+          }
         });
 
         // Listen for real-time price updates
@@ -537,7 +603,7 @@ export default function RequestScreen({ navigation, route }) {
 
   const handleIncreasePrice = async (amountToAdd) => {
     setBidError('');
-    const totalIncrease = (currentBiddingPrice - Number(initialPrice)) + Number(amountToAdd);
+    const totalIncrease = (currentBiddingPrice - 350) + Number(amountToAdd);
     if (totalIncrease > maxPriceIncrease) {
       setBidError(`Maximum total increase limit of ₹${maxPriceIncrease} reached.`);
       return;
@@ -579,7 +645,12 @@ export default function RequestScreen({ navigation, route }) {
 
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
         {/* Location Section */}
-        <Text style={styles.label}>Location</Text>
+        <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}}>
+          <Text style={styles.label}>Location</Text>
+          <TouchableOpacity onPress={handleOpenSavedAddresses} style={{marginRight: 20}}>
+            <Text style={{color: '#E8192C', fontWeight: 'bold', fontSize: 13}}>+ Use Saved Address</Text>
+          </TouchableOpacity>
+        </View>
         <TouchableOpacity
           style={styles.addressBtn}
           onPress={() => navigation.navigate('AddressBook')}
@@ -652,20 +723,6 @@ export default function RequestScreen({ navigation, route }) {
 
         {renderVehicleRateList()}
 
-        {/* Price / Offer Section */}
-        <Text style={styles.label}>Initial Service Offer</Text>
-        <View style={styles.priceInputContainer}>
-          <Text style={styles.priceCurrency}>₹</Text>
-          <TextInput
-            style={styles.priceInput}
-            placeholder="e.g. 350"
-            placeholderTextColor="#9CA3AF"
-            value={initialPrice}
-            onChangeText={setInitialPrice}
-            keyboardType="numeric"
-          />
-        </View>
-
         {/* Send Request Button */}
         <TouchableOpacity style={styles.button} onPress={handleRequest} activeOpacity={0.9}>
           {loading ? <ActivityIndicator color="#fff" /> : (
@@ -704,10 +761,6 @@ export default function RequestScreen({ navigation, route }) {
           <Text style={styles.waitingText}>Finding a nearby mechanic...</Text>
           <Text style={styles.waitingSubtext}>We are locating the best technician for you.</Text>
           
-          <View style={styles.currentOfferContainer}>
-            <Text style={styles.currentOfferLabel}>Current Offer Price</Text>
-            <Text style={styles.currentOfferValue}>₹{currentBiddingPrice}</Text>
-          </View>
 
           {countdown > 0 ? (
             <Text style={styles.timerText}>Next offer increase available in {countdown}s</Text>
@@ -776,6 +829,36 @@ export default function RequestScreen({ navigation, route }) {
           )}
         </View>
       )}
+
+      <Modal visible={addressModalVisible} transparent animationType="slide">
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.bidModalContent, { maxHeight: '60%' }]}>
+            <Text style={styles.bidModalTitle}>Select Saved Address</Text>
+            {fetchingAddresses ? (
+              <ActivityIndicator size="large" color="#E8192C" style={{ marginVertical: 20 }} />
+            ) : (
+              <FlatList
+                data={savedAddresses}
+                keyExtractor={item => item._id}
+                showsVerticalScrollIndicator={false}
+                ListEmptyComponent={<Text style={{textAlign: 'center', marginTop: 20, color: '#666'}}>No saved addresses</Text>}
+                renderItem={({ item }) => (
+                  <TouchableOpacity 
+                    style={{ padding: 15, borderBottomWidth: 1, borderBottomColor: '#eee', backgroundColor: '#fafafa', borderRadius: 8, marginBottom: 10 }} 
+                    onPress={() => handleSelectSavedAddress(item)}>
+                    <Text style={{fontWeight: 'bold', fontSize: 16, color: '#333'}}>{item.label} {item.isDefault ? '(Default)' : ''}</Text>
+                    <Text style={{color: '#666', marginTop: 4}}>{item.address}</Text>
+                  </TouchableOpacity>
+                )}
+              />
+            )}
+            <TouchableOpacity style={styles.closeBidModalBtn} onPress={() => setAddressModalVisible(false)}>
+              <Text style={styles.closeBidModalText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
     </View>
   );
 }

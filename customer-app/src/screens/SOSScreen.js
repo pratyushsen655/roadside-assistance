@@ -8,7 +8,7 @@ import MapView, { Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 
-const { height } = Dimensions.get('window');
+const { height, width } = Dimensions.get('window');
 
 export default function SOSScreen({ navigation }) {
   const [latitude, setLatitude] = useState(28.6139);
@@ -102,7 +102,7 @@ export default function SOSScreen({ navigation }) {
     Vibration.vibrate([0, 200, 100, 200]);
     setLoading(true);
     try {
-      const token = await AsyncStorage.getItem('token');
+      const token = await AsyncStorage.getItem('userToken');
       if (!token) {
         Alert.alert('Error', 'Please log in to use SOS');
         navigation.replace('Login');
@@ -122,6 +122,13 @@ export default function SOSScreen({ navigation }) {
           description: `SOS: ${service.label.replace('\n', ' ')}`
         })
       });
+
+      if (response.status === 401) {
+        Alert.alert('Session Expired', 'Your session has expired. Please login again.');
+        await AsyncStorage.multiRemove(['token', 'user', 'tokenStoredAt']);
+        navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+        return;
+      }
 
       if (response.ok) {
         const data = await response.json();
@@ -234,41 +241,33 @@ export default function SOSScreen({ navigation }) {
       {/* 4. Bottom Navigation Bar */}
       <View style={styles.bottomNavBar}>
         {/* Home */}
-        <TouchableOpacity
-          style={styles.navTab}
-          onPress={() => navigation.navigate('Home')}
-        >
+        <TouchableOpacity style={styles.navTab} onPress={() => navigation.navigate('Home')}>
           <Ionicons name="home-outline" size={24} color="#6B7280" />
           <Text style={styles.navText}>Home</Text>
         </TouchableOpacity>
 
+        {/* Bookings */}
+        <TouchableOpacity style={styles.navTab} onPress={() => navigation.navigate('ServiceHistory')}>
+          <MaterialCommunityIcons name="calendar-check-outline" size={24} color="#6B7280" />
+          <Text style={styles.navText}>Bookings</Text>
+        </TouchableOpacity>
+
+        {/* SOS - Active Siren */}
+        <TouchableOpacity style={styles.sosNavButton} activeOpacity={1}>
+          <View style={styles.sosNavCircle}>
+            <Ionicons name="notifications" size={26} color="#FFF" />
+          </View>
+          <Text style={[styles.sosNavText, styles.activeNavText]}>SOS</Text>
+        </TouchableOpacity>
+
         {/* Help */}
-        <TouchableOpacity
-          style={styles.navTab}
-          onPress={() => navigation.navigate('Help')}
-        >
+        <TouchableOpacity style={styles.navTab} onPress={() => navigation.navigate('Help')}>
           <Ionicons name="help-circle-outline" size={24} color="#6B7280" />
           <Text style={styles.navText}>Help</Text>
         </TouchableOpacity>
 
-        {/* SOS - Active Siren */}
-        <TouchableOpacity
-          style={styles.sosNavButton}
-          activeOpacity={1}
-        >
-          <View style={styles.sosNavCircle}>
-            <Ionicons name="notifications" size={28} color="#FFF" />
-          </View>
-          <Text style={[styles.navText, styles.activeNavText]}>SOS</Text>
-        </TouchableOpacity>
-
-
-
         {/* Account / Settings */}
-        <TouchableOpacity
-          style={styles.navTab}
-          onPress={() => navigation.navigate('Account')}
-        >
+        <TouchableOpacity style={styles.navTab} onPress={() => navigation.navigate('Account')}>
           <Ionicons name="person-outline" size={24} color="#6B7280" />
           <Text style={styles.navText}>Account</Text>
         </TouchableOpacity>
@@ -444,46 +443,68 @@ const styles = StyleSheet.create({
     marginTop: 15,
   },
   bottomNavBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#FFFFFF',
+    height: 85,
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
-    height: 70,
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
-    backgroundColor: '#FFFFFF',
-    paddingBottom: 10,
+    borderTopColor: '#F3F4F6',
+    elevation: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    paddingBottom: 20,
+    paddingTop: 10,
+    borderRadius: 20,
   },
   navTab: {
     alignItems: 'center',
     justifyContent: 'center',
-    flex: 1,
+    width: width * 0.16,
+  },
+  activeNavIcon: {
+    marginBottom: -2,
   },
   navText: {
-    fontSize: 10,
+    fontSize: 11,
     color: '#6B7280',
     marginTop: 4,
-    fontWeight: '600',
+    fontWeight: '500',
   },
   activeNavText: {
     color: '#E8192C',
+    fontWeight: 'bold',
   },
   sosNavButton: {
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: -20,
-    flex: 1,
+    width: width * 0.16,
   },
   sosNavCircle: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: '#E8192C',
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#1E3A8A',
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#E8192C',
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
+    elevation: 8,
+    shadowColor: '#1E3A8A',
     shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    borderWidth: 4,
+    borderColor: '#FFF',
   },
+  sosNavText: {
+    fontSize: 12,
+    color: '#1E3A8A',
+    marginTop: 4,
+    fontWeight: '600',
+  }
 });

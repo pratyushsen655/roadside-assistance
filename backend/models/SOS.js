@@ -21,6 +21,14 @@ const SOSSchema = new mongoose.Schema({
     enum: ['pending', 'accepted', 'completed'],
     default: 'pending'
   },
+  serviceType: {
+    type: String,
+    default: 'unknown'
+  },
+  description: {
+    type: String,
+    default: 'Emergency SOS Request'
+  },
   mechanicId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',

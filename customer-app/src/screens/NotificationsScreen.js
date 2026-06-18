@@ -67,6 +67,12 @@ export default function NotificationsScreen({ navigation }) {
       const res = await fetch(`${API_BASE}/notifications`, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      if (res.status === 401) {
+        Alert.alert('Session Expired', 'Your session has expired. Please login again.');
+        await AsyncStorage.multiRemove(['token', 'user', 'tokenStoredAt']);
+        navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+        return;
+      }
       const data = await res.json();
       if (res.ok && data) {
         setNotifications(data.notifications || data || []);

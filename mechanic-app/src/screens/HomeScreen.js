@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import { AuthContext } from '../context/AuthContext';
 import API_URL from '../config/api';
-import { getSocket } from '../config/socket';
+import { useFocusEffect } from '@react-navigation/native';
 
 const RadarScanner = () => {
   const scaleAnim1 = useRef(new Animated.Value(0.2)).current;
@@ -89,8 +89,19 @@ const RadarScanner = () => {
 const HomeScreen = ({ navigation }) => {
   const { mechanic, mechanicToken } = useContext(AuthContext);
   const [isOnline, setIsOnline] = useState(false);
-  const [requests, setRequests] = useState([]);
-  const [toggleLoading, setToggleLoading] = useState(false);
+  const [greeting, setGreeting] = useState('');
+  const computeGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 12) return 'Good Morning';
+    if (hour >= 12 && hour < 17) return 'Good Afternoon';
+    if (hour >= 17 && hour < 21) return 'Good Evening';
+    return 'Good Night';
+  };
+  useFocusEffect(
+    React.useCallback(() => {
+      setGreeting(computeGreeting());
+    }, [])
+  );
   const [stats, setStats] = useState({
     jobsToday: 0,
     earningsToday: 0,
@@ -147,6 +158,7 @@ const HomeScreen = ({ navigation }) => {
       if (socket) {
         socket.off('request:price_updated');
         socket.off('request:price_updated_global');
+        socket.off('request_claimed');
       }
     }
     return () => {
@@ -154,6 +166,7 @@ const HomeScreen = ({ navigation }) => {
       if (socket) {
         socket.off('request:price_updated');
         socket.off('request:price_updated_global');
+        socket.off('request_claimed');
       }
     };
   }, [isOnline, mechanicToken]);
@@ -249,6 +262,12 @@ const HomeScreen = ({ navigation }) => {
       const data = await response.json();
 
       if (data.success) {
+        if (!data.jobId) {
+          console.error('[Accept] Server returned success but no jobId in response:', data);
+          Alert.alert('Error', 'Could not start the job — missing job ID from server.');
+          return;
+        }
+
         // Emit Socket event to notify customer
         const socket = getSocket(mechanicToken);
         if (socket) {
@@ -262,16 +281,17 @@ const HomeScreen = ({ navigation }) => {
         // Navigate to ActiveJob map screen
         navigation.navigate('ActiveJob', {
           jobId: data.jobId,
-          customerLocation: data.customerLocation,
-          customerName: data.customerName,
-          customerPhone: data.customerPhone,
-          customerAddress: data.location,
-          issue: data.issue
+          customerLocation: data.customerLocation ?? null,
+          customerName: data.customerName ?? 'Customer',
+          customerPhone: data.customerPhone ?? '',
+          customerAddress: data.customerAddress || data.location || 'Customer Location',
+          issue: data.issue ?? ''
         });
       } else {
         Alert.alert('Error', data.message || 'Failed to accept request');
       }
     } catch (error) {
+      console.error('[Accept] handleAcceptRequest failed:', error);
       Alert.alert('Error', 'Failed to accept request. Server is unreachable.');
     } finally {
       setAcceptLoading(prev => ({ ...prev, [id]: false }));
@@ -302,7 +322,7 @@ const HomeScreen = ({ navigation }) => {
     <ScrollView style={styles.container}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.greeting}>Good morning,</Text>
+          <Text style={styles.greeting}>{greeting},</Text>
           <Text style={styles.name}>{mechanic?.name || 'Mechanic'}</Text>
         </View>
         <View style={styles.statusContainer}>
@@ -330,7 +350,7 @@ const HomeScreen = ({ navigation }) => {
           <Text style={styles.statLabel}>Earnings Today</Text>
         </View>
         <View style={styles.statCard}>
-          <Text style={styles.statValue}>{stats.rating.toFixed(1)} ★</Text>
+          <Text style={styles.statValue}>{Number(stats.rating || 5).toFixed(1)} ★</Text>
           <Text style={styles.statLabel}>Rating</Text>
         </View>
       </View>
@@ -358,7 +378,7 @@ const HomeScreen = ({ navigation }) => {
               </View>
             </View>
             <Text style={styles.reqDetails}>
-              {req.vehicleMake} {req.vehicleModel} • {req.issueType.replace('_', ' ')}
+              {req.vehicleMake} {req.vehicleModel} • {String(req.issueType || '').replace(/_/g, ' ')}
             </Text>
             <Text style={styles.reqAddress} numberOfLines={1}>
               📍 {req.location}

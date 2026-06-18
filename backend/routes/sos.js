@@ -8,7 +8,7 @@ const router = express.Router();
 // POST /api/sos — create SOS record
 router.post('/', authMiddleware, async (req, res) => {
   try {
-    const { lat, lng } = req.body;
+    const { lat, lng, serviceType, description } = req.body;
     if (lat === undefined || lng === undefined) {
       return res.status(400).json({
         success: false,
@@ -19,8 +19,15 @@ router.post('/', authMiddleware, async (req, res) => {
     const sos = await SOS.create({
       customerId: req.user.id,
       location: { lat, lng },
-      status: 'pending'
+      status: 'pending',
+      serviceType: serviceType || 'unknown',
+      description: description || 'Emergency SOS Request'
     });
+
+    // Broadcast new SOS to all mechanics listening
+    if (/** @type {any} */ (req).io) {
+      /** @type {any} */ (req).io.to('mechanics').emit('sos:new', sos);
+    }
 
     res.status(201).json(sos);
   } catch (error) {
@@ -55,12 +62,12 @@ router.put('/:id/accept', authMiddleware, async (req, res) => {
     const mechanic = await Mechanic.findOne({ $or: [{ _id: req.user.id }, { userId: req.user.id }] });
 
     sos.status = 'accepted';
-    sos.mechanicId = mechanic?.userId || req.user.id;
+    sos.mechanicId = /** @type {any} */ (mechanic?.userId || req.user.id);
     await sos.save();
 
     // Notify customer via socket.io
-    if (req.io) {
-      req.io.to(`job:${id}`).emit('job:accepted:notify', {
+    if (/** @type {any} */ (req).io) {
+      /** @type {any} */ (req).io.to(`job:${id}`).emit('job:accepted:notify', {
         jobId: id,
         mechanicId: mechanic?._id || req.user.id,
         mechanicName: mechanic?.name || 'Mechanic',

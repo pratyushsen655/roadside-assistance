@@ -50,7 +50,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ mechanicToken, mechanic, login, logout, isLoading }}>
+    <AuthContext.Provider value={{ mechanicToken, mechanic, login, logout, isLoading, setMechanicToken }}>
       {children}
     </AuthContext.Provider>
   );

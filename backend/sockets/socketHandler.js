@@ -28,9 +28,9 @@ const socketHandler = {
       });
 
       // Notify customer when mechanic accepts
-      socket.on('job:accepted', ({ jobId, mechanicName, mechanicPhone }) => {
+      socket.on('job:accepted', ({ jobId, mechanicId, mechanicName, mechanicPhone }) => {
         console.log(`[Socket] Job accepted for job:${jobId} by ${mechanicName}`);
-        io.to(`job:${jobId}`).emit('job:accepted:notify', { mechanicName, mechanicPhone });
+        io.to(`job:${jobId}`).emit('job:accepted:notify', { mechanicId: mechanicId ?? null, mechanicName, mechanicPhone });
       });
 
       // Chat message send
