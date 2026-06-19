@@ -3,7 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator 
 import { AuthContext } from '../context/AuthContext';
 import API_URL from '../config/api';
 
-const LoginScreen = () => {
+const LoginScreen = ({ navigation }) => {
   const { login } = useContext(AuthContext);
   const [step, setStep] = useState(1);
   const [phone, setPhone] = useState('');
@@ -161,6 +161,15 @@ const LoginScreen = () => {
           <Text style={styles.buttonText}>{step === 1 ? 'Send OTP' : 'Verify & Login'}</Text>
         )}
       </TouchableOpacity>
+
+      <TouchableOpacity 
+        style={styles.registerLink}
+        onPress={() => navigation.navigate('Register')}
+      >
+        <Text style={styles.registerLinkText}>
+          Don't have an account? <Text style={styles.registerLinkHighlight}>Register</Text>
+        </Text>
+      </TouchableOpacity>
     </View>
   );
 };
@@ -243,6 +252,19 @@ const styles = StyleSheet.create({
   buttonText: {
     color: '#ffffff',
     fontSize: 18,
+    fontWeight: 'bold',
+  },
+  registerLink: {
+    alignItems: 'center',
+    marginTop: 24,
+    paddingVertical: 10,
+  },
+  registerLinkText: {
+    fontSize: 14,
+    color: '#aaaaaa',
+  },
+  registerLinkHighlight: {
+    color: '#00BFA5',
     fontWeight: 'bold',
   },
 });

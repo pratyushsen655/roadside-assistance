@@ -2,13 +2,27 @@
 import React, { useContext, useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, Switch, ScrollView, TouchableOpacity, Alert,
-  ActivityIndicator, Animated, Image
+  ActivityIndicator, Animated, Image, Modal, Dimensions
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 import { AuthContext } from '../context/AuthContext';
 import API_URL from '../config/api';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { getSocket } from '../config/socket';
+import * as Location from 'expo-location';
+import MapView, { Marker, Polyline } from 'react-native-maps';
+
+const { width } = Dimensions.get('window');
+
+const darkMapStyle = [
+  { "elementType": "geometry", "stylers": [{ "color": "#1a1a2e" }] },
+  { "elementType": "labels.text.fill", "stylers": [{ "color": "#8ec3b9" }] },
+  { "elementType": "labels.text.stroke", "stylers": [{ "color": "#1a1a2e" }] },
+  { "featureType": "administrative", "elementType": "geometry", "stylers": [{ "color": "#30304f" }] },
+  { "featureType": "road", "elementType": "geometry", "stylers": [{ "color": "#252542" }] },
+  { "featureType": "road", "elementType": "geometry.stroke", "stylers": [{ "color": "#30304f" }] },
+  { "featureType": "water", "elementType": "geometry", "stylers": [{ "color": "#0f0f1d" }] }
+];
 
 const RadarScanner = () => {
   const scaleAnim1 = useRef(new Animated.Value(0.2)).current;
@@ -92,6 +106,18 @@ const RadarScanner = () => {
 
 export default function HomeScreen() {
   const navigation = useNavigation();
+  const isMounted = useRef(true);
+  const acceptInProgress = useRef({});
+  const [mechanicCoords, setMechanicCoords] = useState(null);
+  const [selectedRequest, setSelectedRequest] = useState(null);
+
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
   const { mechanic, mechanicToken } = useContext(AuthContext);
   const [isOnline, setIsOnline] = useState(false);
   const [greeting, setGreeting] = useState('Good morning');
@@ -119,7 +145,9 @@ export default function HomeScreen() {
 
   useFocusEffect(
     React.useCallback(() => {
-      setGreeting(computeGreeting());
+      if (isMounted.current) {
+        setGreeting(computeGreeting());
+      }
     }, [])
   );
 
@@ -166,7 +194,9 @@ export default function HomeScreen() {
         fetchPendingRequests();
       }, 10000);
     } else {
-      setRequests([]);
+      if (isMounted.current) {
+        setRequests([]);
+      }
       if (socket) {
         socket.off('request:price_updated');
         socket.off('request:price_updated_global');
@@ -192,7 +222,9 @@ export default function HomeScreen() {
       });
       const data = await response.json();
       if (data.success && data.mechanic) {
-        setIsOnline(data.mechanic.isOnline || false);
+        if (isMounted.current) {
+          setIsOnline(data.mechanic.isOnline || false);
+        }
       }
     } catch (error) {
       console.log('Error fetching online status:', error);
@@ -200,7 +232,9 @@ export default function HomeScreen() {
   };
 
   const fetchStats = async () => {
-    setStatsLoading(true);
+    if (isMounted.current) {
+      setStatsLoading(true);
+    }
     try {
       const response = await fetch(`${API_URL}/api/mechanic/stats`, {
         headers: {
@@ -209,22 +243,28 @@ export default function HomeScreen() {
       });
       const data = await response.json();
       if (data.success) {
-        setStats({
-          jobsToday: data.jobsToday || 0,
-          earningsToday: data.earningsToday || 0,
-          rating: data.rating || 5.0,
-          totalJobs: data.totalJobs || 0
-        });
+        if (isMounted.current) {
+          setStats({
+            jobsToday: data.jobsToday || 0,
+            earningsToday: data.earningsToday || 0,
+            rating: data.rating || 5.0,
+            totalJobs: data.totalJobs || 0
+          });
+        }
       }
     } catch (error) {
       console.log('Error fetching stats:', error);
     } finally {
-      setStatsLoading(false);
+      if (isMounted.current) {
+        setStatsLoading(false);
+      }
     }
   };
 
   const fetchPendingRequests = async () => {
-    setRequestsLoading(true);
+    if (isMounted.current) {
+      setRequestsLoading(true);
+    }
     try {
       const response = await fetch(`${API_URL}/api/mechanic/requests/pending`, {
         headers: {
@@ -233,18 +273,24 @@ export default function HomeScreen() {
       });
       const data = await response.json();
       if (Array.isArray(data)) {
-        setRequests(data);
+        if (isMounted.current) {
+          setRequests(data);
+        }
       }
     } catch (error) {
       console.log('Error fetching pending requests:', error);
     } finally {
-      setRequestsLoading(false);
+      if (isMounted.current) {
+        setRequestsLoading(false);
+      }
     }
   };
 
   const toggleStatus = async () => {
     const newStatus = !isOnline;
-    setToggleLoading(true);
+    if (isMounted.current) {
+      setToggleLoading(true);
+    }
     try {
       const response = await fetch(`${API_URL}/api/mechanic/status`, {
         method: 'PUT',
@@ -256,19 +302,121 @@ export default function HomeScreen() {
       });
       const data = await response.json();
       if (data.success) {
-        setIsOnline(data.isOnline);
+        if (isMounted.current) {
+          setIsOnline(data.isOnline);
+        }
       } else {
         Alert.alert('Error', data.message || 'Failed to update status');
       }
     } catch (error) {
       Alert.alert('Error', 'Failed to update status. Server is unreachable.');
     } finally {
-      setToggleLoading(false);
+      if (isMounted.current) {
+        setToggleLoading(false);
+      }
     }
   };
 
+  const updateBackendLocation = async (coords) => {
+    try {
+      await fetch(`${API_URL}/api/mechanic/location`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${mechanicToken}`
+        },
+        body: JSON.stringify({
+          latitude: coords.latitude,
+          longitude: coords.longitude
+        })
+      });
+      console.log('[Location] Location synced with backend:', coords);
+    } catch (err) {
+      console.log('[Location] Failed to sync location with backend:', err.message);
+    }
+  };
+
+  // Watch location continuously when online
+  useEffect(() => {
+    let subscriber;
+
+    const startWatching = async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          console.warn('[Location] GPS permission not granted on Home');
+          return;
+        }
+
+        const initialLoc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        const coords = { latitude: initialLoc.coords.latitude, longitude: initialLoc.coords.longitude };
+        if (isMounted.current) {
+          setMechanicCoords(coords);
+          updateBackendLocation(coords);
+        }
+
+        subscriber = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.Balanced,
+            timeInterval: 15000,
+            distanceInterval: 50
+          },
+          (loc) => {
+            const currentCoords = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
+            if (isMounted.current) {
+              setMechanicCoords(currentCoords);
+              updateBackendLocation(currentCoords);
+            }
+          }
+        );
+      } catch (err) {
+        console.log('[Location] Error watching position on Home:', err.message);
+      }
+    };
+
+    if (isOnline && mechanicToken) {
+      startWatching();
+    } else {
+      if (isMounted.current) {
+        setMechanicCoords(null);
+      }
+    }
+
+    return () => {
+      if (subscriber) {
+        subscriber.remove();
+      }
+    };
+  }, [isOnline, mechanicToken]);
+
+  const formatDistance = (distanceKm) => {
+    if (distanceKm === undefined || distanceKm === null || isNaN(distanceKm)) {
+      return 'Distance unavailable';
+    }
+    if (distanceKm > 100) {
+      return 'Distance unavailable'; // Sanity check to filter location bugs (like [0,0] calculations)
+    }
+    if (distanceKm < 1) {
+      const meters = Math.round(distanceKm * 1000);
+      return `${meters} m`;
+    }
+    return `${distanceKm.toFixed(1)} km`;
+  };
+
+  const isValidCoordinate = (coord) => {
+    return coord && 
+           typeof coord.latitude === 'number' && !isNaN(coord.latitude) &&
+           typeof coord.longitude === 'number' && !isNaN(coord.longitude);
+  };
+
   const handleAcceptRequest = async (id) => {
-    setAcceptLoading(prev => ({ ...prev, [id]: true }));
+    if (acceptInProgress.current[id]) {
+      return;
+    }
+    acceptInProgress.current[id] = true;
+    if (isMounted.current) {
+      setAcceptLoading(prev => ({ ...prev, [id]: true }));
+    }
     try {
       const response = await fetch(`${API_URL}/api/mechanic/requests/${id}/accept`, {
         method: 'PUT',
@@ -280,28 +428,35 @@ export default function HomeScreen() {
       const data = await response.json();
 
       if (data.success) {
-        if (!data.jobId) {
+        const jobId = data.jobId || data.request?._id || id;
+        if (!jobId) {
           console.error('[ACCEPT_REQUEST_ERROR] Missing jobId in accept response payload:', data);
           Alert.alert('Error', 'Could not start the job — missing job ID.');
           return;
         }
 
         // Emit Socket event to notify customer
-        const socket = getSocket(mechanicToken);
-        if (socket) {
-          socket.emit('job:accepted', {
-            jobId: data.jobId,
-            mechanicName: mechanic?.name || 'Mechanic',
-            mechanicPhone: mechanic?.phone || '+919999999999'
-          });
+        try {
+          const socket = getSocket(mechanicToken);
+          if (socket) {
+            socket.emit('job:accepted', {
+              jobId: jobId,
+              mechanicName: mechanic?.name || 'Mechanic',
+              mechanicPhone: mechanic?.phone || '+919999999999'
+            });
+          }
+        } catch (socketErr) {
+          console.error('[ACCEPT_REQUEST_SOCKET_ERROR] Error emitting job:accepted:', socketErr);
         }
 
         // Navigate to OnTheWayScreen
-        try {
-          navigation.navigate('OnTheWay', { requestId: data.jobId });
-        } catch (navErr) {
-          console.error('[ACCEPT_REQUEST_ERROR] Navigation navigate crashed:', navErr, { requestId: data.jobId });
-          Alert.alert('Error', 'Navigation failed.');
+        if (isMounted.current && navigation) {
+          try {
+            navigation.navigate('OnTheWay', { requestId: jobId });
+          } catch (navErr) {
+            console.error('[ACCEPT_REQUEST_ERROR] Navigation navigate crashed:', navErr, { requestId: jobId });
+            Alert.alert('Error', 'Navigation failed.');
+          }
         }
       } else {
         Alert.alert('Error', data.message || 'Failed to accept request');
@@ -310,7 +465,10 @@ export default function HomeScreen() {
       console.error('[ACCEPT_REQUEST_ERROR] Failed during accept flow:', error, { id });
       Alert.alert('Error', 'Failed to accept request. Server is unreachable.');
     } finally {
-      setAcceptLoading(prev => ({ ...prev, [id]: false }));
+      acceptInProgress.current[id] = false;
+      if (isMounted.current) {
+        setAcceptLoading(prev => ({ ...prev, [id]: false }));
+      }
     }
   };
 
@@ -325,11 +483,14 @@ export default function HomeScreen() {
       });
       const data = await response.json();
       if (data.success) {
-        setRequests(prev => prev.filter(r => r._id !== id));
+        if (isMounted.current) {
+          setRequests(prev => prev.filter(r => r._id !== id));
+        }
       } else {
         Alert.alert('Error', data.message || 'Failed to reject request');
       }
     } catch (error) {
+      console.error('[REJECT_REQUEST_ERROR] Failed to reject request:', error);
       Alert.alert('Error', 'Failed to reject request. Server is unreachable.');
     }
   };
@@ -471,10 +632,11 @@ export default function HomeScreen() {
           )
         ) : (
           requests.slice(0, 3).map(req => {
+            if (!req || !req._id) return null;
             const formattedService = req.issueType || req.serviceType || 'Roadside Job';
             const vehicleText = req.vehicleMake || req.vehicleModel || req.vehicleType || 'Vehicle';
             return (
-              <View key={req._id} style={styles.requestCard}>
+              <TouchableOpacity key={req._id} activeOpacity={0.95} onPress={() => setSelectedRequest(req)} style={styles.requestCard}>
                 <View style={styles.reqHeader}>
                   <View style={styles.reqCustomerRow}>
                     <View style={styles.customerAvatarPlaceholder}>
@@ -490,7 +652,7 @@ export default function HomeScreen() {
                       <Text style={styles.priceBadgeText}>₹{req.price || req.amount || 350}</Text>
                     </View>
                     <Text style={styles.distanceBadge}>
-                      {req.distanceKm !== undefined ? `${req.distanceKm} km` : req.distance || 'Nearby'}
+                      {formatDistance(req.distanceKm)}
                     </Text>
                   </View>
                 </View>
@@ -530,7 +692,7 @@ export default function HomeScreen() {
                     )}
                   </TouchableOpacity>
                 </View>
-              </View>
+              </TouchableOpacity>
             );
           })
         )}
@@ -553,7 +715,7 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8F9FA' },
-  bodyScroll: { paddingBottom: 30, paddingHorizontal: 16 },
+  bodyScroll: { paddingBottom: 90, paddingHorizontal: 16 },
   // 1. HEADER SECTION
   header: {
     backgroundColor: '#1a1a2e',
@@ -930,9 +1092,685 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#FFF',
   },
+          <View style={styles.ratingBannerSubtitle}>
+            <Text style={styles.ratingBannerSubtitleText}>Great service brings more jobs!</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+        </TouchableOpacity>
+      </ScrollView>
+
+      {/* Map Preview Modal */}
+      <Modal
+        visible={!!selectedRequest}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSelectedRequest(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            {/* Modal Header */}
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Job Location Preview</Text>
+              <TouchableOpacity onPress={() => setSelectedRequest(null)} style={styles.modalCloseBtn}>
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Map Area */}
+            {selectedRequest && (
+              <View style={styles.mapContainer}>
+                {(() => {
+                  const custCoords = selectedRequest.customerLocation?.coordinates
+                    ? { latitude: selectedRequest.customerLocation.coordinates[1], longitude: selectedRequest.customerLocation.coordinates[0] }
+                    : null;
+                  
+                  return isValidCoordinate(custCoords) ? (
+                    <MapView
+                      style={styles.previewMap}
+                      customMapStyle={darkMapStyle}
+                      initialRegion={{
+                        latitude: custCoords.latitude,
+                        longitude: custCoords.longitude,
+                        latitudeDelta: 0.03,
+                        longitudeDelta: 0.03,
+                      }}
+                      showsUserLocation={false}
+                    >
+                      {/* Customer Pin */}
+                      <Marker coordinate={custCoords} title="Customer Location">
+                        <View style={styles.customerPinBadge}>
+                          <Text style={{ fontSize: 22 }}>🚗</Text>
+                        </View>
+                      </Marker>
+
+                      {/* Mechanic Live Location Pin */}
+                      {isValidCoordinate(mechanicCoords) && (
+                        <Marker coordinate={mechanicCoords} title="Your Location">
+                          <View style={styles.mechanicMarkerDot} />
+                        </Marker>
+                      )}
+
+                      {/* Path route line */}
+                      {isValidCoordinate(mechanicCoords) && (
+                        <Polyline
+                          coordinates={[mechanicCoords, custCoords]}
+                          strokeColor="#00BFA5"
+                          strokeWidth={4}
+                        />
+                      )}
+                    </MapView>
+                  ) : (
+                    <View style={styles.noMapContainer}>
+                      <Ionicons name="map-outline" size={48} color="#94a3b8" />
+                      <Text style={styles.noMapText}>Map view unavailable for this request</Text>
+                    </View>
+                  );
+                })()}
+              </View>
+            )}
+
+            {/* Job Details */}
+            {selectedRequest && (
+              <View style={styles.modalDetailsContainer}>
+                <View style={styles.modalDetailsRow}>
+                  <Text style={styles.modalCustomerName}>
+                    {selectedRequest.customerName || 'Customer'}
+                  </Text>
+                  <Text style={styles.modalDistanceVal}>
+                    {formatDistance(selectedRequest.distanceKm)}
+                  </Text>
+                </View>
+
+                <Text style={styles.modalServiceSub}>
+                  {String(selectedRequest.vehicleMake || selectedRequest.vehicleModel || 'Vehicle').toUpperCase()} • {String(selectedRequest.issueType || 'Roadside Assistance').replace(/_/g, ' ')}
+                </Text>
+
+                <View style={styles.modalLocRow}>
+                  <Ionicons name="location" size={14} color="#ef4444" style={{ marginRight: 6 }} />
+                  <Text style={styles.modalLocText} numberOfLines={2}>
+                    {selectedRequest.location || 'Nearby location'}
+                  </Text>
+                </View>
+
+                {selectedRequest.issueDescription ? (
+                  <View style={styles.modalNoteBox}>
+                    <Text style={styles.modalNoteText}>"{selectedRequest.issueDescription}"</Text>
+                  </View>
+                ) : null}
+
+                {/* Pricing / Fare */}
+                <View style={styles.modalPriceContainer}>
+                  <Text style={styles.modalPriceLabel}>Fare Amount</Text>
+                  <Text style={styles.modalPriceValue}>₹{selectedRequest.price || selectedRequest.amount || 350}</Text>
+                </View>
+
+                {/* Actions inside modal */}
+                <View style={styles.modalActionsRow}>
+                  <TouchableOpacity
+                    style={[styles.modalActionBtn, styles.modalRejectBtn]}
+                    onPress={() => {
+                      const reqId = selectedRequest._id;
+                      setSelectedRequest(null);
+                      handleRejectRequest(reqId);
+                    }}
+                  >
+                    <Text style={styles.rejectBtnText}>Reject</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.modalActionBtn, styles.modalAcceptBtn, acceptLoading[selectedRequest._id] && styles.modalAcceptBtnDisabled]}
+                    onPress={async () => {
+                      const reqId = selectedRequest._id;
+                      setSelectedRequest(null);
+                      await handleAcceptRequest(reqId);
+                    }}
+                    disabled={acceptLoading[selectedRequest._id]}
+                  >
+                    {acceptLoading[selectedRequest._id] ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={styles.acceptBtnText}>Accept Request</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#F8F9FA' },
+  bodyScroll: { paddingBottom: 90, paddingHorizontal: 16 },
+  // 1. HEADER SECTION
+  header: {
+    backgroundColor: '#1a1a2e',
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 50,
+    paddingBottom: 24,
+  },
+  topRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  notificationBtn: {
+    position: 'relative',
+    padding: 4,
+  },
+  badge: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    backgroundColor: '#E74C3C',
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badgeText: {
+    color: '#FFF',
+    fontSize: 9,
+    fontWeight: 'bold',
+  },
+  greetingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  greetingTextContainer: {},
+  greetingText: {
+    color: '#9CA3AF',
+    fontSize: 14,
+  },
+  mechanicName: {
+    color: '#FFF',
+    fontSize: 22,
+    fontWeight: 'bold',
+  },
+  avatarContainer: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: '#252542',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  onlineStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#252542',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    marginBottom: 20,
+  },
+  statusLabelContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 8,
+  },
+  statusText: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: '#252542',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginHorizontal: 4,
+  },
+  statValue: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginTop: 4,
+    marginBottom: 2,
+  },
+  statLabel: {
+    color: '#9CA3AF',
+    fontSize: 10,
+  },
+  starRow: {
+    flexDirection: 'row',
+    marginTop: 4,
+  },
+  // 2. PERFORMANCE BANNER
+  performanceBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E8F8F5',
+    borderRadius: 12,
+    padding: 16,
+    marginVertical: 16,
+    borderWidth: 1,
+    borderColor: '#A3E4D7',
+  },
+  perfLeftIcon: {
+    marginRight: 12,
+  },
+  perfTextContainer: {
+    flex: 1,
+  },
+  perfTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#16A085',
+  },
+  perfSubtitle: {
+    fontSize: 11,
+    color: '#1abc9c',
+    marginTop: 2,
+  },
+  perfLinkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  perfLinkLabel: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#27AE60',
+    marginRight: 4,
+  },
+  // 3. INCOMING REQUESTS
+  requestsSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+    marginTop: 8,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1F2937',
+  },
+  viewAllText: {
+    fontSize: 13,
+    color: '#00BFA5',
+    fontWeight: 'bold',
+  },
+  requestCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  reqHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  reqCustomerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  customerAvatarPlaceholder: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  reqCustomerTextCol: {
+    flex: 1,
+  },
+  reqCustomerName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#1F2937',
+  },
+  reqSub: {
+    fontSize: 11,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  badgeRow: {
+    alignItems: 'flex-end',
+  },
+  priceBadge: {
+    backgroundColor: 'rgba(0, 191, 165, 0.12)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    marginBottom: 4,
+  },
+  priceBadgeText: {
+    color: '#00BFA5',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  distanceBadge: {
+    fontSize: 11,
+    color: '#6B7280',
+    fontWeight: 'bold',
+  },
+  reqLocRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  reqLocText: {
+    fontSize: 13,
+    color: '#4B5563',
+    flex: 1,
+  },
+  customerNoteContainer: {
+    backgroundColor: '#FFFBEB',
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#FEF3C7',
+  },
+  customerNoteText: {
+    fontSize: 12,
+    color: '#D97706',
+    fontStyle: 'italic',
+  },
+  reqActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  actionBtn: {
+    flex: 1,
+    height: 40,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rejectBtn: {
+    backgroundColor: '#F3F4F6',
+    marginRight: 8,
+  },
+  rejectBtnText: {
+    color: '#4B5563',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  acceptBtn: {
+    backgroundColor: '#00BFA5',
+    marginLeft: 8,
+  },
+  acceptBtnText: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 32,
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  emptyText: {
+    color: '#6B7280',
+    fontSize: 14,
+  },
+  radarContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 32,
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  radarCenter: {
+    position: 'relative',
+    width: 80,
+    height: 80,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  sonarCore: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(0, 191, 165, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+  pulseCircle: {
+    position: 'absolute',
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(0, 191, 165, 0.12)',
+    zIndex: 1,
+  },
+  scanningText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  scanningSub: {
+    color: '#6B7280',
+    fontSize: 11,
+  },
+  // 4. RATING BANNER
+  ratingBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1a1a2e',
+    borderRadius: 12,
+    padding: 16,
+    marginVertical: 8,
+  },
+  trophyIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#252542',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  ratingTextContainer: {
+    flex: 1,
+  },
+  ratingBannerTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#FFF',
+  },
   ratingBannerSubtitle: {
     fontSize: 11,
     color: '#9CA3AF',
     marginTop: 2,
+  },
+  // Map preview modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#1a1a2e',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingBottom: 24,
+    maxHeight: '90%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#252542',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#ffffff',
+  },
+  modalCloseBtn: {
+    padding: 4,
+  },
+  mapContainer: {
+    height: 250,
+    width: '100%',
+    backgroundColor: '#0f0f1d',
+  },
+  previewMap: {
+    flex: 1,
+  },
+  noMapContainer: {
+    height: 250,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#0f0f1d',
+  },
+  noMapText: {
+    color: '#64748b',
+    fontSize: 14,
+    marginTop: 8,
+  },
+  customerPinBadge: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mechanicMarkerDot: {
+    width: 16,
+    height: 16,
+    backgroundColor: '#00BFA5',
+    borderRadius: 8,
+    borderWidth: 3,
+    borderColor: '#ffffff',
+    elevation: 4,
+  },
+  modalDetailsContainer: {
+    padding: 20,
+  },
+  modalDetailsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  modalCustomerName: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#ffffff',
+  },
+  modalDistanceVal: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#00BFA5',
+    backgroundColor: 'rgba(0, 191, 165, 0.12)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  modalServiceSub: {
+    fontSize: 13,
+    color: '#94a3b8',
+    marginBottom: 12,
+    fontWeight: '600',
+  },
+  modalLocRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 14,
+  },
+  modalLocText: {
+    fontSize: 14,
+    color: '#94a3b8',
+    flex: 1,
+    lineHeight: 18,
+  },
+  modalNoteBox: {
+    backgroundColor: '#252542',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 16,
+  },
+  modalNoteText: {
+    fontSize: 13,
+    color: '#cbd5e1',
+    fontStyle: 'italic',
+  },
+  modalPriceContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#252542',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginBottom: 20,
+  },
+  modalPriceLabel: {
+    fontSize: 15,
+    color: '#94a3b8',
+    fontWeight: '500',
+  },
+  modalPriceValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#00BFA5',
+  },
+  modalActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  modalActionBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalRejectBtn: {
+    backgroundColor: '#E74C3C',
+    marginRight: 10,
+  },
+  modalAcceptBtn: {
+    backgroundColor: '#00BFA5',
+  },
+  modalAcceptBtnDisabled: {
+    opacity: 0.6,
   },
 });

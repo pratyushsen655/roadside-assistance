@@ -13,7 +13,7 @@ const SplashScreen = ({ navigation }) => {
     }).start();
 
     const timer = setTimeout(() => {
-      navigation.replace('Login');
+      navigation.replace('Register');
     }, 2500);
 
     return () => clearTimeout(timer);

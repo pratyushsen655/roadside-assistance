@@ -84,12 +84,24 @@ const getChecklist = (issueType) => {
         'Confirm resolution with customer before finalizing job completion.'
       ]
     };
-  }
+// Check if coordinate is a valid latitude/longitude number pair
+const isValidCoordinate = (coord) => {
+  return coord && 
+         typeof coord.latitude === 'number' && !isNaN(coord.latitude) &&
+         typeof coord.longitude === 'number' && !isNaN(coord.longitude);
 };
 
 export default function ActiveJobScreen({ route, navigation }) {
   const { jobId, customerLocation, customerName, customerPhone, issue } = route.params || {};
   const { mechanicToken } = useContext(AuthContext);
+
+  const isMounted = useRef(true);
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
 
   const [mechanicCoords, setMechanicCoords] = useState(null);
   const [jobStatus, setJobStatus] = useState('accepted'); // accepted, en_route, arrived, in_progress, completed
@@ -114,7 +126,9 @@ export default function ActiveJobScreen({ route, navigation }) {
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
-      setUnreadCount(0);
+      if (isMounted.current) {
+        setUnreadCount(0);
+      }
     });
     return unsubscribe;
   }, [navigation]);
@@ -126,9 +140,15 @@ export default function ActiveJobScreen({ route, navigation }) {
       console.log(`[Socket] Mechanic joined room job:${jobId}`);
 
       socket.on('chat:message', (msg) => {
-        console.log('[Socket] Chat message received in ActiveJob:', msg);
-        if (msg && msg.jobId === jobId && msg.senderType === 'customer') {
-          setUnreadCount((prev) => prev + 1);
+        try {
+          console.log('[Socket] Chat message received in ActiveJob:', msg);
+          if (msg && msg.jobId === jobId && msg.senderType === 'customer') {
+            if (isMounted.current) {
+              setUnreadCount((prev) => prev + 1);
+            }
+          }
+        } catch (err) {
+          console.error('[ACTIVE_JOB_SOCKET_ERROR] Error handling chat:message:', err);
         }
       });
     }
@@ -159,16 +179,22 @@ export default function ActiveJobScreen({ route, navigation }) {
           },
           (loc) => {
             const { latitude, longitude } = loc.coords;
-            setMechanicCoords({ latitude, longitude });
+            if (isMounted.current) {
+              setMechanicCoords({ latitude, longitude });
+            }
 
             // Emit location to customer
             if (socket) {
-              socket.emit('mechanic:location', {
-                jobId,
-                lat: latitude,
-                lng: longitude
-              });
-              console.log('[Socket] Emitted mechanic location:', { lat: latitude, lng: longitude });
+              try {
+                socket.emit('mechanic:location', {
+                  jobId,
+                  lat: latitude,
+                  lng: longitude
+                });
+                console.log('[Socket] Emitted mechanic location:', { lat: latitude, lng: longitude });
+              } catch (socketErr) {
+                console.error('[ACTIVE_JOB_SOCKET_ERROR] Error emitting location:', socketErr);
+              }
             }
           }
         );
@@ -187,7 +213,9 @@ export default function ActiveJobScreen({ route, navigation }) {
   }, [jobId, socket]);
 
   const updateStatus = async (newStatus) => {
-    setLoading(true);
+    if (isMounted.current) {
+      setLoading(true);
+    }
     try {
       const response = await fetch(`${API_URL}/api/mechanic/jobs/${jobId}/status`, {
         method: 'PUT',
@@ -200,24 +228,35 @@ export default function ActiveJobScreen({ route, navigation }) {
       const data = await response.json();
 
       if (data.success) {
-        setJobStatus(newStatus);
+        if (isMounted.current) {
+          setJobStatus(newStatus);
+        }
         
         // Emit status update to socket
         if (socket) {
-          socket.emit('job:status:update', { jobId, status: newStatus });
+          try {
+            socket.emit('job:status:update', { jobId, status: newStatus });
+          } catch (socketErr) {
+            console.error('[ACTIVE_JOB_SOCKET_ERROR] Error emitting job status update:', socketErr);
+          }
         }
 
         if (newStatus === 'completed') {
-          setEarnings(data.earningsEarned || 350);
-          setShowCompleteModal(true);
+          if (isMounted.current) {
+            setEarnings(data.earningsEarned || 350);
+            setShowCompleteModal(true);
+          }
         }
       } else {
         Alert.alert('Error', data.message || 'Failed to update status');
       }
     } catch (err) {
+      console.error('[ACTIVE_JOB_UPDATE_STATUS_ERROR] Error updating status:', err);
       Alert.alert('Error', 'Failed to update status. Server unreachable.');
     } finally {
-      setLoading(false);
+      if (isMounted.current) {
+        setLoading(false);
+      }
     }
   };
 
@@ -281,39 +320,41 @@ export default function ActiveJobScreen({ route, navigation }) {
 
   return (
     <View style={styles.container}>
-      <MapView
-        style={styles.map}
-        customMapStyle={darkMapStyle}
-        initialRegion={{
-          latitude: customerCoords.latitude,
-          longitude: customerCoords.longitude,
-          latitudeDelta: 0.015,
-          longitudeDelta: 0.015,
-        }}
-      >
-        {/* Customer Location */}
-        <Marker coordinate={customerCoords} title="Customer Location">
-          <View style={styles.customerPin}>
-            <Text style={{ fontSize: 28 }}>🚗</Text>
-          </View>
-        </Marker>
-
-        {/* Mechanic Live Location */}
-        {mechanicCoords && (
-          <Marker coordinate={mechanicCoords} title="You">
-            <View style={styles.mechanicPin} />
+      {isValidCoordinate(customerCoords) && (
+        <MapView
+          style={styles.map}
+          customMapStyle={darkMapStyle}
+          initialRegion={{
+            latitude: customerCoords.latitude,
+            longitude: customerCoords.longitude,
+            latitudeDelta: 0.015,
+            longitudeDelta: 0.015,
+          }}
+        >
+          {/* Customer Location */}
+          <Marker coordinate={customerCoords} title="Customer Location">
+            <View style={styles.customerPin}>
+              <Text style={{ fontSize: 28 }}>🚗</Text>
+            </View>
           </Marker>
-        )}
 
-        {/* Polyline Route */}
-        {mechanicCoords && (
-          <Polyline
-            coordinates={[mechanicCoords, customerCoords]}
-            strokeColor="#00BFA5"
-            strokeWidth={4}
-          />
-        )}
-      </MapView>
+          {/* Mechanic Live Location */}
+          {isValidCoordinate(mechanicCoords) && (
+            <Marker coordinate={mechanicCoords} title="You">
+              <View style={styles.mechanicPin} />
+            </Marker>
+          )}
+
+          {/* Polyline Route */}
+          {isValidCoordinate(mechanicCoords) && (
+            <Polyline
+              coordinates={[mechanicCoords, customerCoords]}
+              strokeColor="#00BFA5"
+              strokeWidth={4}
+            />
+          )}
+        </MapView>
+      )}
 
       {/* Top Customer Info Card */}
       <View style={styles.topCard}>

@@ -1,4 +1,4 @@
-import React, { useContext, useState, useEffect } from 'react';
+import React, { useContext, useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, ActivityIndicator, Vibration
 } from 'react-native';
@@ -11,6 +11,14 @@ export default function SOSAlertsScreen() {
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [acceptingId, setAcceptingId] = useState(null);
+  const isMounted = useRef(true);
+
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
 
   const fetchActiveSOS = async () => {
     try {
@@ -21,12 +29,16 @@ export default function SOSAlertsScreen() {
       });
       const data = await response.json();
       if (response.ok) {
-        setAlerts(Array.isArray(data) ? data : []);
+        if (isMounted.current) {
+          setAlerts(Array.isArray(data) ? data : []);
+        }
       }
     } catch (error) {
       console.log('Error fetching active SOS alerts:', error);
     } finally {
-      setLoading(false);
+      if (isMounted.current) {
+        setLoading(false);
+      }
     }
   };
 
@@ -39,14 +51,20 @@ export default function SOSAlertsScreen() {
       const socket = getSocket(mechanicToken);
       if (socket) {
         socket.on('sos:new', (newSos) => {
-          console.log('[Socket] New SOS received:', newSos);
-          Vibration.vibrate([0, 400, 200, 400]);
-          setAlerts((prev) => {
-            if (!prev.find(item => item._id === newSos._id)) {
-              return [newSos, ...prev];
+          try {
+            console.log('[Socket] New SOS received:', newSos);
+            Vibration.vibrate([0, 400, 200, 400]);
+            if (isMounted.current) {
+              setAlerts((prev) => {
+                if (!prev.find(item => item._id === newSos._id)) {
+                  return [newSos, ...prev];
+                }
+                return prev;
+              });
             }
-            return prev;
-          });
+          } catch (err) {
+            console.error('[SOS_ALERTS_SOCKET_ERROR] Error handling sos:new event:', err);
+          }
         });
       }
 
@@ -60,7 +78,9 @@ export default function SOSAlertsScreen() {
   }, [mechanicToken]);
 
   const handleAccept = async (id) => {
-    setAcceptingId(id);
+    if (isMounted.current) {
+      setAcceptingId(id);
+    }
     try {
       const response = await fetch(`${API_URL}/api/sos/${id}/accept`, {
         method: 'PUT',
@@ -73,15 +93,19 @@ export default function SOSAlertsScreen() {
       if (response.ok) {
         Alert.alert('Success', "You've been assigned to this emergency!");
         // Remove from list
-        setAlerts(prev => prev.filter(item => item._id !== id));
+        if (isMounted.current) {
+          setAlerts(prev => prev.filter(item => item._id !== id));
+        }
       } else {
         Alert.alert('Error', data.message || 'Failed to accept SOS emergency.');
       }
     } catch (error) {
-      console.log('Error accepting SOS:', error);
+      console.error('[SOS_ALERTS_ACCEPT_ERROR] Error accepting SOS:', error);
       Alert.alert('Error', 'Cannot connect to server.');
     } finally {
-      setAcceptingId(null);
+      if (isMounted.current) {
+        setAcceptingId(null);
+      }
     }
   };
 
@@ -184,7 +208,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   listContent: {
-    paddingBottom: 30,
+    paddingBottom: 90,
   },
   card: {
     backgroundColor: '#252542',

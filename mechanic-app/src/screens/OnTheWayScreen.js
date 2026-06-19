@@ -26,6 +26,13 @@ const haversine = (lat1, lon1, lat2, lon2) => {
 // Approximate ETA assuming average speed of 30 km/h in city traffic
 const calculateEta = (distanceKm) => Math.max(1, Math.round((distanceKm / 30) * 60));
 
+// Check if coordinate is a valid latitude/longitude number pair
+const isValidCoordinate = (coord) => {
+  return coord && 
+         typeof coord.latitude === 'number' && !isNaN(coord.latitude) &&
+         typeof coord.longitude === 'number' && !isNaN(coord.longitude);
+};
+
 // ---------- Progress Tracker Steps ----------
 const trackerSteps = [
   { label: 'Accepted', icon: 'check-bold', library: 'MaterialCommunityIcons' },
@@ -85,6 +92,14 @@ export default function OnTheWayScreen() {
   const { requestId } = route.params || {};
   const { mechanicToken, mechanic } = useContext(AuthContext);
 
+  const isMounted = useRef(true);
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
   const [loading, setLoading] = useState(true);
   const [request, setRequest] = useState(null);
   const [mechanicLoc, setMechanicLoc] = useState(null);
@@ -109,15 +124,22 @@ export default function OnTheWayScreen() {
         });
         const data = await res.json();
         if (data.success && data.request) {
-          setRequest(data.request);
+          if (isMounted.current) {
+            setRequest(data.request);
+          }
         } else {
           Alert.alert('Error', data.message || 'Unable to load request');
-          navigation.navigate('Home');
+          if (isMounted.current && navigation) {
+            navigation.navigate('Home');
+          }
         }
       } catch (e) {
+        console.error('[ON_THE_WAY_FETCH_ERROR] Error fetching request details:', e);
         Alert.alert('Error', 'Network error while fetching request');
       } finally {
-        setLoading(false);
+        if (isMounted.current) {
+          setLoading(false);
+        }
       }
     };
     fetchData();
@@ -138,8 +160,10 @@ export default function OnTheWayScreen() {
         // Get initial location
         const initialLoc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
         const initialCoords = { latitude: initialLoc.coords.latitude, longitude: initialLoc.coords.longitude };
-        setMechanicLoc(initialCoords);
-        setLastLoggedLoc(initialCoords);
+        if (isMounted.current) {
+          setMechanicLoc(initialCoords);
+          setLastLoggedLoc(initialCoords);
+        }
 
         // Watch live position updates
         subscriber = await Location.watchPositionAsync(
@@ -151,16 +175,22 @@ export default function OnTheWayScreen() {
           (location) => {
             const { latitude, longitude } = location.coords;
             const currentCoords = { latitude, longitude };
-            setMechanicLoc(currentCoords);
+            if (isMounted.current) {
+              setMechanicLoc(currentCoords);
+            }
 
             // Emit location to customer via Socket
-            const socket = getSocket(mechanicToken);
-            if (socket) {
-              socket.emit('mechanic:location', {
-                jobId: requestId,
-                lat: latitude,
-                lng: longitude
-              });
+            try {
+              const socket = getSocket(mechanicToken);
+              if (socket) {
+                socket.emit('mechanic:location', {
+                  jobId: requestId,
+                  lat: latitude,
+                  lng: longitude
+                });
+              }
+            } catch (socketErr) {
+              console.error('[ON_THE_WAY_SOCKET_ERROR] Error emitting location update:', socketErr);
             }
           }
         );
@@ -184,20 +214,28 @@ export default function OnTheWayScreen() {
   useEffect(() => {
     if (!mechanicLoc || !request?.customerLocation?.coordinates) return;
 
-    const [custLng, custLat] = request.customerLocation.coordinates;
-    const dist = haversine(custLat, custLng, mechanicLoc.latitude, mechanicLoc.longitude);
+    try {
+      const [custLng, custLat] = request.customerLocation.coordinates;
+      const dist = haversine(custLat, custLng, mechanicLoc.latitude, mechanicLoc.longitude);
 
-    if (!lastLoggedLoc) {
-      setDistance(dist.toFixed(1));
-      setEta(`${calculateEta(dist)} mins`);
-      setLastLoggedLoc(mechanicLoc);
-    } else {
-      const movedDist = haversine(lastLoggedLoc.latitude, lastLoggedLoc.longitude, mechanicLoc.latitude, mechanicLoc.longitude) * 1000;
-      if (movedDist >= 50) {
-        setDistance(dist.toFixed(1));
-        setEta(`${calculateEta(dist)} mins`);
-        setLastLoggedLoc(mechanicLoc);
+      if (!lastLoggedLoc) {
+        if (isMounted.current) {
+          setDistance(dist.toFixed(1));
+          setEta(`${calculateEta(dist)} mins`);
+          setLastLoggedLoc(mechanicLoc);
+        }
+      } else {
+        const movedDist = haversine(lastLoggedLoc.latitude, lastLoggedLoc.longitude, mechanicLoc.latitude, mechanicLoc.longitude) * 1000;
+        if (movedDist >= 50) {
+          if (isMounted.current) {
+            setDistance(dist.toFixed(1));
+            setEta(`${calculateEta(dist)} mins`);
+            setLastLoggedLoc(mechanicLoc);
+          }
+        }
       }
+    } catch (err) {
+      console.error('[ON_THE_WAY_DISTANCE_EFFECT_ERROR] Error in distance calculation:', err);
     }
   }, [mechanicLoc, request, lastLoggedLoc]);
 
@@ -210,9 +248,17 @@ export default function OnTheWayScreen() {
     socket.emit('join:job:room', { jobId: requestId });
 
     const cancelHandler = () => {
-      Alert.alert('Job Cancelled', 'The customer has cancelled this service request.', [
-        { text: 'Okay', onPress: () => navigation.navigate('Home') }
-      ]);
+      try {
+        Alert.alert('Job Cancelled', 'The customer has cancelled this service request.', [
+          { text: 'Okay', onPress: () => {
+            if (isMounted.current && navigation) {
+              navigation.navigate('Home');
+            }
+          } }
+        ]);
+      } catch (err) {
+        console.error('[ON_THE_WAY_CANCEL_ALERT_ERROR] Error showing cancel alert:', err);
+      }
     };
 
     socket.on('request:cancelled', cancelHandler);
@@ -264,7 +310,7 @@ export default function OnTheWayScreen() {
   };
 
   const handleArrived = async () => {
-    if (!mechanicLoc || !request.customerLocation?.coordinates) {
+    if (!mechanicLoc || !request?.customerLocation?.coordinates) {
       Alert.alert('Error', 'Location data missing. Unable to verify your position.');
       return;
     }
@@ -289,15 +335,22 @@ export default function OnTheWayScreen() {
       const data = await res.json();
       if (data.success) {
         // Emit arrived update to customer
-        const socket = getSocket(mechanicToken);
-        if (socket) {
-          socket.emit('job:status:update', { jobId: requestId, status: 'arrived' });
+        try {
+          const socket = getSocket(mechanicToken);
+          if (socket) {
+            socket.emit('job:status:update', { jobId: requestId, status: 'arrived' });
+          }
+        } catch (socketErr) {
+          console.error('[ON_THE_WAY_ARRIVED_SOCKET_ERROR] Error emitting job status update:', socketErr);
         }
-        setShowOtpModal(true);
+        if (isMounted.current) {
+          setShowOtpModal(true);
+        }
       } else {
         Alert.alert('Error', data.message || 'Unable to update status to Arrived');
       }
     } catch (e) {
+      console.error('[ON_THE_WAY_ARRIVED_ERROR] Error in handleArrived:', e);
       Alert.alert('Error', 'Network error while updating status');
     }
   };
@@ -309,7 +362,9 @@ export default function OnTheWayScreen() {
       return;
     }
 
-    setOtpLoading(true);
+    if (isMounted.current) {
+      setOtpLoading(true);
+    }
     try {
       const res = await fetch(`${API_URL}/api/requests/${requestId}/verify-start`, {
         method: 'POST',
@@ -321,19 +376,23 @@ export default function OnTheWayScreen() {
       });
       const data = await res.json();
       if (data.success) {
-        setShowOtpModal(false);
+        if (isMounted.current) {
+          setShowOtpModal(false);
+        }
         Alert.alert('Success', 'OTP verified! Starting service job.', [
           {
             text: 'Go to Job Screen',
             onPress: () => {
-              navigation.navigate('ActiveJob', {
-                jobId: requestId,
-                customerLocation: request.customerLocation,
-                customerName: customerObj.name || 'Customer',
-                customerPhone: customerObj.phone || '',
-                customerAddress: request.customerAddress || 'Customer Address',
-                issue: request.issueDescription || request.serviceType || 'Roadside Assistance'
-              });
+              if (isMounted.current && navigation) {
+                navigation.navigate('ActiveJob', {
+                  jobId: requestId,
+                  customerLocation: request.customerLocation,
+                  customerName: customerObj.name || 'Customer',
+                  customerPhone: customerObj.phone || '',
+                  customerAddress: request.customerAddress || 'Customer Address',
+                  issue: request.issueDescription || request.serviceType || 'Roadside Assistance'
+                });
+              }
             }
           }
         ]);
@@ -341,9 +400,12 @@ export default function OnTheWayScreen() {
         Alert.alert('Verification Failed', data.message || 'Incorrect verification OTP.');
       }
     } catch (err) {
+      console.error('[ON_THE_WAY_VERIFY_OTP_ERROR] Error in handleVerifyOtpSubmit:', err);
       Alert.alert('Error', 'Failed to connect to verification service.');
     } finally {
-      setOtpLoading(false);
+      if (isMounted.current) {
+        setOtpLoading(false);
+      }
     }
   };
 
@@ -360,14 +422,19 @@ export default function OnTheWayScreen() {
       const data = await res.json();
       if (data.success) {
         Alert.alert('Job Cancelled', 'The job has been cancelled successfully.');
-        navigation.navigate('Home');
+        if (isMounted.current && navigation) {
+          navigation.navigate('Home');
+        }
       } else {
         Alert.alert('Error', data.message || 'Cancellation failed.');
       }
     } catch (e) {
+      console.error('[ON_THE_WAY_CANCEL_JOB_ERROR] Error cancelling job:', e);
       Alert.alert('Error', 'Network error during cancellation.');
     }
-    setShowCancelModal(false);
+    if (isMounted.current) {
+      setShowCancelModal(false);
+    }
   };
 
   const formatServiceType = type => {
@@ -439,10 +506,13 @@ export default function OnTheWayScreen() {
         {/* CUSTOMER INFO CARD */}
         <View style={styles.card}>
           <View style={styles.customerRow}>
-            <Image
-              source={customerObj.photo ? { uri: customerObj.photo } : require('../assets/customer-placeholder.png')}
-              style={styles.customerAvatar}
-            />
+            {customerObj.photo ? (
+              <Image source={{ uri: customerObj.photo }} style={styles.customerAvatar} />
+            ) : (
+              <View style={[styles.customerAvatar, { backgroundColor: '#E5E7EB', alignItems: 'center', justifyContent: 'center' }]}>
+                <Ionicons name="person" size={24} color="#9CA3AF" />
+              </View>
+            )}
             <View style={styles.customerInfo}>
               <Text style={styles.customerName}>{customerObj.name || 'Customer'}</Text>
               <View style={styles.ratingRow}>
@@ -519,7 +589,7 @@ export default function OnTheWayScreen() {
         </View>
 
         {/* MAP VIEW */}
-        {customerCoords && (
+        {isValidCoordinate(customerCoords) && (
           <View style={styles.mapCard}>
             <MapView
               style={styles.map}
@@ -532,12 +602,12 @@ export default function OnTheWayScreen() {
               showsUserLocation={false}
             >
               <Marker coordinate={customerCoords} pinColor="red" title="Customer Location" />
-              {mechanicLoc && (
+              {isValidCoordinate(mechanicLoc) && (
                 <Marker coordinate={mechanicLoc} title="Your Location">
                   <View style={styles.mechanicMarkerDot} />
                 </Marker>
               )}
-              {mechanicLoc && (
+              {isValidCoordinate(mechanicLoc) && (
                 <Polyline coordinates={[mechanicLoc, customerCoords]} strokeColor="#3498DB" strokeWidth={4} />
               )}
             </MapView>
