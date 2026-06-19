@@ -8,6 +8,7 @@ import Animated, { FadeInUp, FadeInDown } from 'react-native-reanimated';
 import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 import Skeleton from '../components/Skeleton';
 import { theme } from '../constants/theme';
+import { useAuth } from '../context/AuthContext';
 
 const { width } = Dimensions.get('window');
 import { useAuth } from '../context/AuthContext';

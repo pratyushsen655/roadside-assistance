@@ -45,5 +45,8 @@
     "cli": {
       "appVersionSource": "native"
     }
+  },
+  "cli": {
+    "appVersionSource": "native"
   }
 }
