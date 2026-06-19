@@ -122,6 +122,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/referrals', referralRoutes);
 app.use('/api/ratings', ratingRoutes);
 app.use('/api/invoices', invoiceRoutes);
+app.use('/api/address', require('./routes/address'));
 
 // Catch-all route handler for 404
 app.use((req, res, next) => {

@@ -1,9 +1,10 @@
 import React, { useContext, useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, ActivityIndicator
+  View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, ActivityIndicator, Vibration
 } from 'react-native';
 import { AuthContext } from '../context/AuthContext';
 import API_URL from '../config/api';
+import { getSocket } from '../config/socket';
 
 export default function SOSAlertsScreen() {
   const { mechanicToken } = useContext(AuthContext);
@@ -33,7 +34,28 @@ export default function SOSAlertsScreen() {
     if (mechanicToken) {
       fetchActiveSOS();
       const interval = setInterval(fetchActiveSOS, 10000);
-      return () => clearInterval(interval);
+
+      // Real-time listener for new SOS
+      const socket = getSocket(mechanicToken);
+      if (socket) {
+        socket.on('sos:new', (newSos) => {
+          console.log('[Socket] New SOS received:', newSos);
+          Vibration.vibrate([0, 400, 200, 400]);
+          setAlerts((prev) => {
+            if (!prev.find(item => item._id === newSos._id)) {
+              return [newSos, ...prev];
+            }
+            return prev;
+          });
+        });
+      }
+
+      return () => {
+        clearInterval(interval);
+        if (socket) {
+          socket.off('sos:new');
+        }
+      };
     }
   }, [mechanicToken]);
 
@@ -72,6 +94,13 @@ export default function SOSAlertsScreen() {
         </Text>
       </View>
       
+      <View style={styles.infoRow}>
+        <Text style={styles.label}>Emergency:</Text>
+        <Text style={[styles.value, { color: '#FF3B30', fontWeight: 'bold' }]} numberOfLines={2}>
+          {item.description || item.serviceType || 'Emergency Assistance Required'}
+        </Text>
+      </View>
+
       <View style={styles.infoRow}>
         <Text style={styles.label}>Customer ID:</Text>
         <Text style={styles.value} numberOfLines={1}>{item.customerId}</Text>

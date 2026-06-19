@@ -5,6 +5,7 @@ import {
   RefreshControl, Share, Clipboard, Alert, ActivityIndicator,
   Image, TextInput, Modal, Linking
 } from 'react-native';
+import * as ExpoClipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ? `${process.env.EXPO_PUBLIC_API_URL}/api` : 'https://roadside-assistance-production-ddaf.up.railway.app/api';
@@ -25,6 +26,7 @@ export default function ReferralScreen({ navigation }) {
   const [applying, setApplying] = useState(false);
   const [leaderboardVisible, setLeaderboardVisible] = useState(false);
   const [faqExpanded, setFaqExpanded] = useState({ q1: false, q2: false });
+  const [copied, setCopied] = useState(null);
 
   useEffect(() => {
     fetchReferralData();
@@ -74,27 +76,41 @@ export default function ReferralScreen({ navigation }) {
     fetchReferralData();
   };
 
-  const copyToClipboard = () => {
-    if (!data.referralCode) return;
-    Clipboard.setString(data.referralCode);
-    Alert.alert('Copied!', 'Referral code copied to clipboard.', [{ text: 'OK' }]);
+  const appLink = `https://play.google.com/store/apps/details?id=com.praty.roadsideassist&referral=${data.referralCode}`;
+  const shareMessage = `🚗 Stranded on the road? Get instant mechanic help!\n\n📲 Download RescueMe app:\n${appLink}\n\n🎁 Use my referral code *${data.referralCode}* at signup to get ₹30 off your first service!\n\n🔧 Fast • Reliable • 24/7 Roadside Assistance`;
+
+  const shareOnWhatsApp = async () => {
+    const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(shareMessage)}`;
+    const canOpen = await Linking.canOpenURL(whatsappUrl);
+    if (canOpen) {
+      await Linking.openURL(whatsappUrl);
+    } else {
+      Alert.alert('WhatsApp not installed', 'Please install WhatsApp to share via WhatsApp.');
+    }
   };
 
-  const shareViaWhatsApp = async () => {
-    if (!data.referralCode) return;
-    const message = `Hey! Use my referral code ${data.referralCode} on the Roadside Assistance app to get ₹1000 GoApp Money instantly when you sign up!`;
-    const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(message)}`;
+  const shareLink = async () => {
     try {
-      const supported = await Linking.canOpenURL(whatsappUrl);
-      if (supported) {
-        await Linking.openURL(whatsappUrl);
-      } else {
-        await Share.share({ message });
-      }
-    } catch (e) {
-      console.log('Error opening WhatsApp:', e);
-      await Share.share({ message });
+      await Share.share({
+        message: shareMessage,
+        url: appLink,
+        title: 'Download RescueMe - Roadside Assistance',
+      });
+    } catch (error) {
+      Alert.alert('Error', 'Could not open share menu');
     }
+  };
+
+  const copyLink = async () => {
+    await ExpoClipboard.setStringAsync(appLink);
+    setCopied('link');
+    setTimeout(() => setCopied(null), 2000);
+  };
+
+  const copyCode = async () => {
+    await ExpoClipboard.setStringAsync(data.referralCode);
+    setCopied('code');
+    setTimeout(() => setCopied(null), 2000);
   };
 
   const applyFriendCode = async () => {
@@ -219,17 +235,32 @@ export default function ReferralScreen({ navigation }) {
               <View style={styles.dividerLineDashed} />
             </View>
 
-            {/* Referral Code dashed container */}
-            <TouchableOpacity style={styles.codeCard} onPress={copyToClipboard} activeOpacity={0.8}>
-              <Text style={styles.codeText}>{data.referralCode || 'N/A'}</Text>
-              <Ionicons name="share-social-outline" size={22} color="#1E88E5" />
-            </TouchableOpacity>
+            <View style={styles.previewBox}>
+              <Text style={styles.previewTitle}>📨 Message Preview</Text>
+              <Text style={styles.previewText}>{shareMessage}</Text>
+            </View>
 
-            {/* Share via WhatsApp green button */}
-            <TouchableOpacity style={styles.whatsappBtn} onPress={shareViaWhatsApp} activeOpacity={0.9}>
-              <Text style={styles.whatsappBtnText}>Share via WhatsApp</Text>
-              <MaterialCommunityIcons name="whatsapp" size={22} color="#fff" />
-            </TouchableOpacity>
+            <View style={styles.shareGrid}>
+              <TouchableOpacity style={[styles.shareBtn, styles.whatsappBtn]} onPress={shareOnWhatsApp}>
+                <Text style={styles.shareBtnIcon}>💬</Text>
+                <Text style={styles.shareBtnText}>WhatsApp</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={[styles.shareBtn, styles.shareAnyBtn]} onPress={shareLink}>
+                <Text style={styles.shareBtnIcon}>📤</Text>
+                <Text style={styles.shareBtnText}>Share Link</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={[styles.shareBtn, styles.copyLinkBtn]} onPress={copyLink}>
+                <Text style={styles.shareBtnIcon}>{copied === 'link' ? '✓' : '🔗'}</Text>
+                <Text style={styles.shareBtnText}>{copied === 'link' ? 'Copied!' : 'Copy Link'}</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={[styles.shareBtn, styles.copyCodeBtn]} onPress={copyCode}>
+                <Text style={styles.shareBtnIcon}>{copied === 'code' ? '✓' : '📋'}</Text>
+                <Text style={styles.shareBtnText}>{copied === 'code' ? 'Copied!' : 'Copy Code'}</Text>
+              </TouchableOpacity>
+            </View>
 
             {/* Earnings Row */}
             <View style={styles.earningsRow}>
@@ -560,43 +591,48 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
 
-  codeCard: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  previewBox: {
+    backgroundColor: '#F5F5F5',
+    borderRadius: 12,
+    padding: 14,
+    marginVertical: 12,
     marginHorizontal: 20,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    backgroundColor: '#E3F2FD',
-    borderWidth: 1.5,
-    borderStyle: 'dashed',
-    borderColor: '#90CAF9',
-    borderRadius: 8,
-    marginBottom: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#B34700',
   },
-  codeText: {
-    fontSize: 18,
+  previewTitle: {
+    fontSize: 13,
     fontWeight: '700',
-    color: '#1E88E5',
-    letterSpacing: 0.5,
+    color: '#B34700',
+    marginBottom: 8,
   },
-
-  whatsappBtn: {
+  previewText: {
+    fontSize: 13,
+    color: '#444',
+    lineHeight: 20,
+  },
+  shareGrid: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginVertical: 16,
+    marginHorizontal: 20,
+    justifyContent: 'space-between'
+  },
+  shareBtn: {
+    width: '47%',
+    paddingVertical: 16,
+    borderRadius: 16,
+    alignItems: 'center',
     justifyContent: 'center',
-    alignItems: 'center',
-    marginHorizontal: 20,
-    paddingVertical: 14,
-    backgroundColor: '#4CAF50',
-    borderRadius: 8,
-    marginBottom: 20,
+    gap: 6,
   },
-  whatsappBtnText: {
-    color: '#ffffff',
-    fontWeight: '700',
-    fontSize: 15,
-    marginRight: 10,
-  },
+  whatsappBtn: { backgroundColor: '#25D366' },
+  shareAnyBtn: { backgroundColor: '#1565C0' },
+  copyLinkBtn: { backgroundColor: '#F57C00' },
+  copyCodeBtn: { backgroundColor: '#6A1B9A' },
+  shareBtnIcon: { fontSize: 24 },
+  shareBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
 
   earningsRow: {
     flexDirection: 'row',

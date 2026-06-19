@@ -1,136 +1,186 @@
-import React, { useState, useRef, useContext } from 'react';
+import React, { useState, useEffect, useRef, useContext } from 'react';
 import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  Alert,
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StatusBar,
+  View, Text, TextInput, TouchableOpacity, StyleSheet,
+  Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
+  ScrollView, StatusBar, Animated, Image
 } from 'react-native';
 import { AuthContext, API_URL } from '../context/AuthContext';
+import * as ImagePicker from 'expo-image-picker';
+import { Ionicons } from '@expo/vector-icons';
 
-const ACCENT = '#B34700';
-const BG = '#FFF8F5';
+const COLORS = {
+  primary: '#B34700',
+  primaryDark: '#8B3300',
+  primaryLight: '#FFF3E0',
+  text: '#1A1A1A',
+  textGray: '#757575',
+  textLight: '#BDBDBD',
+  border: '#E0E0E0',
+  white: '#FFFFFF',
+  error: '#D32F2F',
+  success: '#2E7D32',
+  background: '#FAFAFA',
+};
 
-/* ── Emoji-prefixed input row ──────────────────────────────── */
-function FieldInput({
-  emoji,
-  label,
-  optional,
-  placeholder,
-  value,
-  onChangeText,
-  keyboardType,
-  autoCapitalize,
-  returnKeyType,
-  onSubmitEditing,
-  inputRef,
-  editable = true,
-}) {
-  const [focused, setFocused] = useState(false);
+// Reusable Input Field Component
+const FormInput = ({ 
+  icon, label, value, onChangeText, placeholder, optional,
+  keyboardType = 'default', autoCapitalize = 'none', 
+  error, animValue 
+}) => {
+  const [isFocused, setIsFocused] = useState(false);
+  
   return (
-    <View style={field.wrapper}>
-      <View style={field.labelRow}>
-        <Text style={field.label}>{label}</Text>
-        {optional && <Text style={field.optional}>Optional</Text>}
+    <Animated.View style={[styles.inputContainer, { opacity: animValue, transform: [{ translateY: animValue.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }] }]}>
+      <View style={styles.labelRow}>
+        <Text style={styles.inputLabel}>{label}</Text>
+        {optional && <View style={styles.optionalBadge}><Text style={styles.optionalText}>Optional</Text></View>}
       </View>
-      <View style={[field.row, focused && field.rowFocused]}>
-        <Text style={field.emoji}>{emoji}</Text>
+      <View style={[styles.inputWrapper, isFocused && styles.inputWrapperFocused]}>
+        <Text style={styles.inputIcon}>{icon}</Text>
         <TextInput
-          ref={inputRef}
-          style={field.input}
+          style={styles.input}
           placeholder={placeholder}
-          placeholderTextColor="#C4A99A"
+          placeholderTextColor={COLORS.textLight}
           value={value}
           onChangeText={onChangeText}
-          keyboardType={keyboardType || 'default'}
-          autoCapitalize={autoCapitalize || 'words'}
-          returnKeyType={returnKeyType || 'next'}
-          onSubmitEditing={onSubmitEditing}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          editable={editable}
+          keyboardType={keyboardType}
+          autoCapitalize={autoCapitalize}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setIsFocused(false)}
         />
       </View>
-    </View>
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+    </Animated.View>
   );
-}
+};
 
-const field = StyleSheet.create({
-  wrapper: { marginBottom: 16 },
-  labelRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 7, gap: 8 },
-  label: { fontSize: 13, fontWeight: '700', color: '#444' },
-  optional: {
-    fontSize: 11,
-    color: '#B0A090',
-    backgroundColor: '#F5ECE6',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 8,
-    fontWeight: '600',
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: '#E5D5CC',
-    borderRadius: 14,
-    backgroundColor: '#fff',
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    gap: 10,
-  },
-  rowFocused: {
-    borderColor: ACCENT,
-    backgroundColor: '#FFF4EE',
-  },
-  emoji: { fontSize: 18, width: 26, textAlign: 'center' },
-  input: {
-    flex: 1,
-    fontSize: 15,
-    color: '#1A1A1A',
-    fontWeight: '500',
-    paddingVertical: 0,
-  },
-});
-
-/* ════════════════════════════════════════════════════════════
-   MAIN SCREEN
-════════════════════════════════════════════════════════════ */
 export default function CompleteProfileScreen({ navigation }) {
   const { token, updateUser } = useContext(AuthContext);
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [vehicleType, setVehicleType] = useState('🚗 Car');
   const [vehicleMake, setVehicleMake] = useState('');
   const [vehicleModel, setVehicleModel] = useState('');
   const [vehicleYear, setVehicleYear] = useState('');
+  const [vehicleNumber, setVehicleNumber] = useState('');
+  
+  const [photo, setPhoto] = useState(null);
   const [loading, setLoading] = useState(false);
+  
   const [nameError, setNameError] = useState('');
+  const [emailError, setEmailError] = useState('');
+  const [yearError, setYearError] = useState('');
 
-  /* refs for tab-order */
-  const emailRef = useRef();
-  const makeRef = useRef();
-  const modelRef = useRef();
-  const yearRef = useRef();
+  // Animations
+  const cardAnim = useRef(new Animated.Value(0)).current;
+  const nameAnim = useRef(new Animated.Value(0)).current;
+  const emailAnim = useRef(new Animated.Value(0)).current;
+  const detailsAnim = useRef(new Animated.Value(0)).current;
+  const photoBounce = useRef(new Animated.Value(1)).current;
 
-  /* ── initials ──────────────────────────────────────────── */
-  const initials = name.trim()
-    ? name.trim().split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
-    : '?';
+  useEffect(() => {
+    Animated.spring(cardAnim, {
+      toValue: 1,
+      tension: 50,
+      friction: 7,
+      useNativeDriver: true,
+    }).start();
 
-  /* ── submit ────────────────────────────────────────────── */
-  const handleComplete = async () => {
-    if (!name.trim()) {
-      setNameError('Full name is required to continue.');
+    Animated.stagger(100, [
+      Animated.timing(nameAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
+      Animated.timing(emailAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
+      Animated.timing(detailsAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
+    ]).start();
+  }, []);
+
+  const handlePhotoSelect = () => {
+    Alert.alert('Profile Photo', 'Choose an option', [
+      { text: '📷 Take Photo', onPress: pickFromCamera },
+      { text: '🖼️ Choose from Gallery', onPress: pickFromGallery },
+      { text: 'Cancel', style: 'cancel' }
+    ]);
+  };
+
+  const pickFromCamera = async () => {
+    const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
+    if (permissionResult.granted === false) {
+      Alert.alert('Permission needed', 'Camera permission is required.');
       return;
     }
-    setNameError('');
+    const result = await ImagePicker.launchCameraAsync({
+      allowsEditing: true, aspect: [1, 1], quality: 0.8,
+    });
+    if (!result.canceled) {
+      animatePhotoBounce();
+      setPhoto(result.assets[0].uri);
+    }
+  };
+
+  const pickFromGallery = async () => {
+    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (permissionResult.granted === false) {
+      Alert.alert('Permission needed', 'Gallery permission is required.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      allowsEditing: true, aspect: [1, 1], quality: 0.8,
+    });
+    if (!result.canceled) {
+      animatePhotoBounce();
+      setPhoto(result.assets[0].uri);
+    }
+  };
+
+  const animatePhotoBounce = () => {
+    Animated.sequence([
+      Animated.timing(photoBounce, { toValue: 1.1, duration: 150, useNativeDriver: true }),
+      Animated.spring(photoBounce, { toValue: 1, friction: 3, useNativeDriver: true })
+    ]).start();
+  };
+
+  const validateForm = () => {
+    let isValid = true;
+    
+    if (!name.trim()) {
+      setNameError('Full Name is required');
+      isValid = false;
+    } else {
+      setNameError('');
+    }
+
+    if (email.trim()) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        setEmailError('Invalid email format');
+        isValid = false;
+      } else {
+        setEmailError('');
+      }
+    } else {
+      setEmailError('');
+    }
+
+    if (vehicleYear.trim()) {
+      const year = parseInt(vehicleYear, 10);
+      const currentYear = new Date().getFullYear();
+      if (isNaN(year) || year < 1990 || year > currentYear) {
+        setYearError(`Year must be between 1990 and ${currentYear}`);
+        isValid = false;
+      } else {
+        setYearError('');
+      }
+    } else {
+      setYearError('');
+    }
+
+    return isValid;
+  };
+
+  const handleComplete = async () => {
+    if (!validateForm()) return;
+    
     setLoading(true);
     try {
       const res = await fetch(`${API_URL}/api/auth/profile`, {
@@ -142,9 +192,11 @@ export default function CompleteProfileScreen({ navigation }) {
         body: JSON.stringify({
           name: name.trim(),
           email: email.trim().toLowerCase() || undefined,
+          vehicleType,
           vehicleMake: vehicleMake.trim() || undefined,
           vehicleModel: vehicleModel.trim() || undefined,
           vehicleYear: vehicleYear.trim() || undefined,
+          vehicleNumber: vehicleNumber.trim() || undefined,
         }),
       });
       const data = await res.json();
@@ -152,320 +204,386 @@ export default function CompleteProfileScreen({ navigation }) {
         await updateUser(data.user);
         navigation.replace('Home');
       } else {
-        Alert.alert('Could not save profile', data.message || 'Please try again.');
+        Alert.alert('Error', data.message || 'Please try again.');
       }
-    } catch {
-      // Network offline — don't block the user
+    } catch (err) {
       navigation.replace('Home');
     } finally {
       setLoading(false);
     }
   };
 
-  /* ─────────────────────────────────────────────────────────
-     RENDER
-  ───────────────────────────────────────────────────────── */
+  const handleVehicleNumberChange = (text) => {
+    setVehicleNumber(text.toUpperCase());
+  };
+
+  const vehicleTypes = ['🚗 Car', '🛵 Bike', '🚐 Auto', '🚛 Truck'];
+
   return (
     <KeyboardAvoidingView
       style={styles.root}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <StatusBar barStyle="dark-content" backgroundColor={BG} />
+      <StatusBar barStyle="light-content" backgroundColor={COLORS.primaryDark} />
       <ScrollView
         contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
+        bounces={false}
       >
+        {/* Header Section */}
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Complete Your Profile</Text>
+          <Text style={styles.headerSub}>Just a few details to get you started 🚀</Text>
 
-        {/* ── Progress dots (step 3 of 3) ──────────────────── */}
-        <View style={styles.dotsRow}>
-          {[0, 1, 2].map(i => (
-            <View key={i} style={[styles.dot, i === 2 && styles.dotActive]} />
-          ))}
+          {/* Progress Indicator */}
+          <View style={styles.progressContainer}>
+            <Text style={styles.progressText}>Step 1 of 2</Text>
+            <View style={styles.dotsRow}>
+              <View style={[styles.dot, styles.dotFilled]} />
+              <View style={[styles.dot, styles.dotOutlined]} />
+            </View>
+          </View>
+
+          {/* Photo Circle */}
+          <TouchableOpacity onPress={handlePhotoSelect} activeOpacity={0.8} style={styles.photoContainer}>
+            <Animated.View style={[styles.photoCircle, { transform: [{ scale: photoBounce }] }]}>
+              {photo ? (
+                <Image source={{ uri: photo }} style={styles.photoImage} />
+              ) : (
+                <Ionicons name="person" size={50} color={COLORS.border} />
+              )}
+            </Animated.View>
+            <View style={styles.cameraFab}>
+              <Text style={{ fontSize: 16 }}>📷</Text>
+            </View>
+          </TouchableOpacity>
         </View>
 
-        {/* ── Header text ──────────────────────────────────── */}
-        <Text style={styles.headerTitle}>Almost there! 🎉</Text>
-        <Text style={styles.headerSub}>Set up your profile to get started</Text>
-
-        {/* ── Avatar circle ────────────────────────────────── */}
-        <View style={styles.avatarWrapper}>
-          <View style={styles.avatarCircle}>
-            <Text style={styles.avatarInitials}>{initials}</Text>
-          </View>
-          {/* Camera badge overlay */}
-          <View style={styles.cameraBadge}>
-            <Text style={styles.cameraEmoji}>📷</Text>
-          </View>
-        </View>
-
-        {/* ── Form card ────────────────────────────────────── */}
-        <View style={styles.card}>
-
-          {/* Name */}
-          <FieldInput
-            emoji="👤"
-            label="Full Name"
+        {/* Form Card */}
+        <Animated.View style={[
+          styles.formCard, 
+          { 
+            transform: [{ 
+              translateY: cardAnim.interpolate({ inputRange: [0, 1], outputRange: [300, 0] }) 
+            }] 
+          }
+        ]}>
+          <Text style={styles.sectionTitle}>👤 PERSONAL INFORMATION</Text>
+          
+          <FormInput
+            animValue={nameAnim}
+            icon="👤"
+            label="Full Name *"
             placeholder="e.g. Priya Sharma"
             value={name}
-            onChangeText={t => { setName(t); setNameError(''); }}
+            onChangeText={(text) => { setName(text); setNameError(''); }}
             autoCapitalize="words"
-            returnKeyType="next"
-            onSubmitEditing={() => emailRef.current?.focus()}
-            editable={!loading}
+            error={nameError}
           />
-          {nameError ? <Text style={styles.fieldError}>{nameError}</Text> : null}
 
-          {/* Email */}
-          <FieldInput
-            inputRef={emailRef}
-            emoji="📧"
+          <FormInput
+            animValue={emailAnim}
+            icon="📧"
             label="Email Address"
             optional
-            placeholder="priya@example.com"
+            placeholder="e.g. priya@example.com"
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(text) => { setEmail(text); setEmailError(''); }}
             keyboardType="email-address"
-            autoCapitalize="none"
-            returnKeyType="next"
-            onSubmitEditing={() => makeRef.current?.focus()}
-            editable={!loading}
+            error={emailError}
           />
 
-          {/* Divider */}
-          <View style={styles.divider}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerLabel}>🚗  Vehicle Details</Text>
-            <View style={styles.dividerLine} />
-          </View>
+          <Animated.View style={{ opacity: detailsAnim }}>
+            <View style={styles.divider}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerIcon}>——— 🚗 Vehicle Details ———</Text>
+              <View style={styles.dividerLine} />
+            </View>
 
-          {/* Vehicle Make */}
-          <FieldInput
-            inputRef={makeRef}
-            emoji="🚗"
-            label="Vehicle Make"
-            optional
-            placeholder="e.g. Maruti, Honda"
-            value={vehicleMake}
-            onChangeText={setVehicleMake}
-            autoCapitalize="words"
-            returnKeyType="next"
-            onSubmitEditing={() => modelRef.current?.focus()}
-            editable={!loading}
-          />
+            {/* Vehicle Type Selector */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.typeSelector}>
+              {vehicleTypes.map((type) => {
+                const isSelected = vehicleType === type;
+                return (
+                  <TouchableOpacity
+                    key={type}
+                    style={[styles.typeChip, isSelected && styles.typeChipSelected]}
+                    onPress={() => setVehicleType(type)}
+                  >
+                    <Text style={[styles.typeChipText, isSelected && styles.typeChipTextSelected]}>
+                      {type}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
 
-          {/* Vehicle Model */}
-          <FieldInput
-            inputRef={modelRef}
-            emoji="🏷️"
-            label="Vehicle Model"
-            optional
-            placeholder="e.g. Swift, City, i20"
-            value={vehicleModel}
-            onChangeText={setVehicleModel}
-            autoCapitalize="words"
-            returnKeyType="next"
-            onSubmitEditing={() => yearRef.current?.focus()}
-            editable={!loading}
-          />
+            <FormInput animValue={detailsAnim} icon="🚗" label="Vehicle Make" optional placeholder="e.g. Maruti, Honda" value={vehicleMake} onChangeText={setVehicleMake} autoCapitalize="words" />
+            <FormInput animValue={detailsAnim} icon="🏷️" label="Vehicle Model" optional placeholder="e.g. Swift, City" value={vehicleModel} onChangeText={setVehicleModel} autoCapitalize="words" />
+            <FormInput animValue={detailsAnim} icon="📅" label="Vehicle Year" optional placeholder="e.g. 2021" value={vehicleYear} onChangeText={(t) => { setVehicleYear(t); setYearError(''); }} keyboardType="number-pad" error={yearError} />
+            <FormInput animValue={detailsAnim} icon="🔢" label="Vehicle Number" optional placeholder="e.g. DL 01 AB 1234" value={vehicleNumber} onChangeText={handleVehicleNumberChange} autoCapitalize="characters" />
+          </Animated.View>
 
-          {/* Vehicle Year */}
-          <FieldInput
-            inputRef={yearRef}
-            emoji="📅"
-            label="Vehicle Year"
-            optional
-            placeholder="e.g. 2021"
-            value={vehicleYear}
-            onChangeText={setVehicleYear}
-            keyboardType="number-pad"
-            autoCapitalize="none"
-            returnKeyType="done"
-            onSubmitEditing={handleComplete}
-            editable={!loading}
-          />
-
-          {/* Submit */}
           <TouchableOpacity
-            style={[styles.primaryBtn, loading && styles.primaryBtnDim]}
+            style={[styles.submitBtn, (!name.trim() || loading) && styles.submitBtnDisabled]}
             onPress={handleComplete}
-            disabled={loading}
-            activeOpacity={0.85}
+            disabled={!name.trim() || loading}
           >
             {loading ? (
-              <ActivityIndicator color="#fff" />
+              <ActivityIndicator color={COLORS.white} />
             ) : (
-              <Text style={styles.primaryBtnTxt}>Complete Setup →</Text>
+              <Text style={styles.submitBtnText}>Complete Setup →</Text>
             )}
           </TouchableOpacity>
 
-          {/* Skip */}
-          <TouchableOpacity
-            style={styles.skipBtn}
-            onPress={() => navigation.replace('Home')}
-            disabled={loading}
-          >
-            <Text style={styles.skipTxt}>Skip for now</Text>
+          <TouchableOpacity style={styles.skipBtn} onPress={() => navigation.replace('Home')} disabled={loading}>
+            <Text style={styles.skipBtnText}>Skip for now →</Text>
           </TouchableOpacity>
-        </View>
 
+        </Animated.View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
-/* ══════════════════════════════════════════════════════════
-   STYLES
-══════════════════════════════════════════════════════════ */
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: BG },
-  scroll: {
-    alignItems: 'center',
+  root: { flex: 1, backgroundColor: COLORS.background },
+  scroll: { flexGrow: 1 },
+  
+  header: {
+    backgroundColor: COLORS.primary, // Used primary color since expo-linear-gradient is not present, gives a robust, native-like look
+    paddingTop: 60,
     paddingHorizontal: 24,
-    paddingTop: 56,
-    paddingBottom: 48,
+    paddingBottom: 60,
+    alignItems: 'center',
   },
-
-  /* Progress dots */
-  dotsRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 28,
-  },
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#E5D5CC',
-  },
-  dotActive: {
-    width: 28,
-    backgroundColor: ACCENT,
-    borderRadius: 5,
-  },
-
-  /* Header */
   headerTitle: {
-    fontSize: 26,
-    fontWeight: '900',
-    color: '#1A1A1A',
-    textAlign: 'center',
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: COLORS.white,
     marginBottom: 8,
   },
   headerSub: {
-    fontSize: 14,
-    color: '#888',
-    textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: 28,
+    fontSize: 15,
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginBottom: 20,
   },
-
-  /* Avatar */
-  avatarWrapper: {
-    position: 'relative',
-    marginBottom: 28,
-  },
-  avatarCircle: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    backgroundColor: '#F0D9CC',
-    borderWidth: 3,
-    borderColor: ACCENT,
+  progressContainer: {
     alignItems: 'center',
+    marginBottom: 30,
+  },
+  progressText: {
+    color: COLORS.white,
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  dotsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  dotFilled: {
+    backgroundColor: COLORS.white,
+  },
+  dotOutlined: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: COLORS.white,
+  },
+  
+  photoContainer: {
+    position: 'relative',
+    marginBottom: 10,
+  },
+  photoCircle: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: COLORS.background,
     justifyContent: 'center',
-    shadowColor: ACCENT,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.22,
-    shadowRadius: 12,
-    elevation: 6,
+    alignItems: 'center',
+    borderWidth: 3,
+    borderColor: COLORS.white,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 8,
+    overflow: 'hidden',
   },
-  avatarInitials: {
-    fontSize: 32,
-    fontWeight: '900',
-    color: ACCENT,
-    letterSpacing: 1,
+  photoImage: {
+    width: '100%',
+    height: '100%',
   },
-  cameraBadge: {
+  cameraFab: {
     position: 'absolute',
     bottom: 0,
-    right: -4,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: ACCENT,
-    alignItems: 'center',
+    right: 0,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: COLORS.primary,
     justifyContent: 'center',
-    borderWidth: 2.5,
-    borderColor: BG,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  cameraEmoji: { fontSize: 14 },
-
-  /* Card */
-  card: {
-    width: '100%',
-    maxWidth: 440,
-    backgroundColor: '#fff',
-    borderRadius: 24,
-    padding: 24,
-    shadowColor: '#B34700',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.09,
-    shadowRadius: 20,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: COLORS.white,
     elevation: 5,
   },
 
-  /* Field error */
-  fieldError: {
+  formCard: {
+    flex: 1,
+    backgroundColor: COLORS.white,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    marginTop: -28,
+    paddingHorizontal: 24,
+    paddingTop: 32,
+    paddingBottom: 40,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: COLORS.primary,
+    marginBottom: 20,
+    letterSpacing: 0.5,
+  },
+  
+  inputContainer: {
+    marginBottom: 20,
+  },
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  inputLabel: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: COLORS.textGray,
+  },
+  optionalBadge: {
+    marginLeft: 8,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    borderRadius: 12,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  optionalText: {
+    fontSize: 10,
+    color: COLORS.primary,
+    fontWeight: '600',
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: COLORS.border,
+    paddingBottom: 8,
+  },
+  inputWrapperFocused: {
+    borderBottomColor: COLORS.primary,
+  },
+  inputIcon: {
+    fontSize: 18,
+    marginRight: 10,
+  },
+  input: {
+    flex: 1,
+    fontSize: 16,
+    color: COLORS.text,
+    paddingVertical: 0,
+  },
+  errorText: {
+    color: COLORS.error,
     fontSize: 12,
-    color: '#D32F2F',
-    marginTop: -10,
-    marginBottom: 12,
-    marginLeft: 4,
+    marginTop: 6,
   },
 
-  /* Divider */
   divider: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 16,
-    gap: 10,
+    marginVertical: 24,
   },
-  dividerLine: { flex: 1, height: 1, backgroundColor: '#F0E6E0' },
-  dividerLabel: { fontSize: 13, fontWeight: '700', color: '#B0A090' },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: COLORS.border,
+  },
+  dividerIcon: {
+    marginHorizontal: 12,
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.textGray,
+  },
 
-  /* Primary button */
-  primaryBtn: {
-    backgroundColor: ACCENT,
-    borderRadius: 16,
+  typeSelector: {
+    flexDirection: 'row',
+    marginBottom: 24,
+  },
+  typeChip: {
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginRight: 12,
+  },
+  typeChipSelected: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  typeChipText: {
+    color: COLORS.textGray,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  typeChipTextSelected: {
+    color: COLORS.white,
+  },
+
+  submitBtn: {
+    backgroundColor: COLORS.primary,
     height: 56,
-    alignItems: 'center',
+    borderRadius: 16,
     justifyContent: 'center',
-    marginTop: 8,
-    shadowColor: ACCENT,
-    shadowOffset: { width: 0, height: 6 },
+    alignItems: 'center',
+    marginTop: 10,
+    marginBottom: 32,
+    elevation: 3,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
-    shadowRadius: 14,
-    elevation: 6,
+    shadowRadius: 8,
   },
-  primaryBtnDim: { opacity: 0.5 },
-  primaryBtnTxt: {
-    color: '#fff',
+  submitBtnDisabled: {
+    opacity: 0.6,
+  },
+  submitBtnText: {
+    color: COLORS.white,
     fontSize: 17,
-    fontWeight: '800',
-    letterSpacing: 0.3,
+    fontWeight: 'bold',
   },
 
-  /* Skip */
   skipBtn: {
     alignItems: 'center',
-    marginTop: 18,
-    paddingVertical: 8,
+    paddingVertical: 10,
   },
-  skipTxt: { fontSize: 14, color: '#B0A090' },
+  skipBtnText: {
+    color: COLORS.textGray,
+    fontSize: 13,
+    fontWeight: '600',
+  },
 });

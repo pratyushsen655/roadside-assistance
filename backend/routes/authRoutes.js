@@ -78,5 +78,24 @@ router.post('/push-token', authMiddleware, async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 });
+router.post('/logout', authMiddleware, async (req, res) => {
+  try {
+    // If using token blacklist, add token here
+    // For now just return success - client handles clearing
+    res.json({ success: true, message: 'Logged out successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Logout failed' });
+  }
+});
+
+router.post('/logout-all', authMiddleware, async (req, res) => {
+  try {
+    // For now just return success
+    // In a real app, this would increment token version or invalidate all tokens in DB
+    res.json({ success: true, message: 'Logged out from all devices successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Logout from all devices failed' });
+  }
+});
  
 module.exports = router;

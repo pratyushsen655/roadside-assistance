@@ -27,7 +27,7 @@ export default function EditProfileScreen({ navigation }) {
 
   const getToken = async () => {
     let token = await AsyncStorage.getItem('userToken');
-    if (!token) token = await AsyncStorage.getItem('token');
+    if (!token) token = await AsyncStorage.getItem('userToken'); // fallback
     return token;
   };
 

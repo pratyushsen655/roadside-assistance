@@ -1,69 +1,167 @@
-import React, { useState, useEffect } from 'react';
+/* eslint-disable no-console */
+import React, { useState, useEffect, useContext } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
   FlatList, Modal, TextInput, LayoutAnimation,
-  Platform, UIManager, Alert, LogBox
+  Platform, UIManager, Alert, LogBox, ActivityIndicator
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AuthContext } from '../context/AuthContext';
+import * as Location from 'expo-location';
+import MapView from 'react-native-maps';
+import { Ionicons } from '@expo/vector-icons';
 
 LogBox.ignoreLogs(['setLayoutAnimationEnabledExperimental']);
-
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-const STORAGE_KEY = 'savedAddresses';
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://roadside-assistance-production-ddaf.up.railway.app';
 
 export default function AddressBookScreen({ navigation }) {
+  const { token } = useContext(AuthContext);
   const [addresses, setAddresses] = useState([]);
   const [modalVisible, setModalVisible] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [locationLoading, setLocationLoading] = useState(false);
   
   // Modal states
   const [label, setLabel] = useState('Home');
   const [addressText, setAddressText] = useState('');
+  const [landmark, setLandmark] = useState('');
+  const [lat, setLat] = useState(null);
+  const [lng, setLng] = useState(null);
+
+  const [emptyStateLat, setEmptyStateLat] = useState(null);
+  const [emptyStateLng, setEmptyStateLng] = useState(null);
+  const [emptyStateName, setEmptyStateName] = useState('Locating...');
+  const [emptyStateAddress, setEmptyStateAddress] = useState('Fetching your current location...');
 
   useEffect(() => {
     loadAddresses();
+    fetchEmptyStateLocation();
   }, []);
 
-  const loadAddresses = async () => {
+  const fetchEmptyStateLocation = async () => {
     try {
-      const data = await AsyncStorage.getItem(STORAGE_KEY);
-      if (data) {
-        setAddresses(JSON.parse(data));
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setEmptyStateName('Permission Denied');
+        setEmptyStateAddress('Please enable location permissions to see your current area.');
+        return;
+      }
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      setEmptyStateLat(position.coords.latitude);
+      setEmptyStateLng(position.coords.longitude);
+
+      const geocode = await Location.reverseGeocodeAsync({
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude
+      });
+      if (geocode && geocode.length > 0) {
+        const place = geocode[0];
+        const areaName = place.subregion || place.district || place.city || 'Current Location';
+        const addrString = `${place.name || ''}, ${place.street || ''}, ${place.district || ''}, ${place.city || ''}, ${place.region || ''} - ${place.postalCode || ''}`.replace(/,\s*,/g, ',').replace(/^,\s*/, '').trim();
+        setEmptyStateName(areaName);
+        setEmptyStateAddress(addrString);
+      } else {
+        setEmptyStateName('Current Location');
+        setEmptyStateAddress('Unable to fetch detailed address');
+      }
+    } catch (e) {
+      setEmptyStateName('Location Error');
+      setEmptyStateAddress('Could not determine your location.');
+    }
+  };
+
+  const loadAddresses = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/address`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAddresses(data.addresses);
       }
     } catch (e) {
       console.log('Error loading addresses', e);
     }
+    setLoading(false);
   };
 
-  const saveAddressesToStorage = async (newAddresses) => {
+  const fetchGPSLocation = async () => {
+    setLocationLoading(true);
     try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newAddresses));
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'Location permission is required to auto-fill your address');
+        setLocationLoading(false);
+        return;
+      }
+      
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      setLat(position.coords.latitude);
+      setLng(position.coords.longitude);
+
+      const geocode = await Location.reverseGeocodeAsync({
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude
+      });
+      
+      if (geocode && geocode.length > 0) {
+        const place = geocode[0];
+        const addrString = `${place.name || ''}, ${place.street || ''}, ${place.district || ''}, ${place.city || ''}, ${place.region || ''} - ${place.postalCode || ''}`.replace(/,\s*,/g, ',').replace(/^,\s*/, '').trim();
+        setAddressText(addrString);
+      }
     } catch (e) {
-      console.log('Error saving addresses', e);
+      console.log('Error fetching GPS', e);
+      Alert.alert('Error', 'Failed to fetch GPS location.');
     }
+    setLocationLoading(false);
   };
 
-  const handleAddAddress = () => {
+  const handleFabPress = async () => {
+    setLabel('Home');
+    setAddressText('');
+    setLandmark('');
+    setLat(null);
+    setLng(null);
+    await fetchGPSLocation();
+    setModalVisible(true);
+  };
+
+  const handleAddAddress = async () => {
     if (!addressText.trim()) {
       Alert.alert('Error', 'Please enter a valid address');
       return;
     }
-    const newAddress = {
-      id: Date.now().toString(),
-      label,
-      addressText,
-    };
-    const updated = [...addresses, newAddress];
     
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setAddresses(updated);
-    saveAddressesToStorage(updated);
-    
-    setModalVisible(false);
-    setAddressText('');
-    setLabel('Home');
+    try {
+      const res = await fetch(`${API_URL}/api/address`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          label,
+          address: addressText,
+          landmark,
+          lat,
+          lng
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setAddresses([data.address, ...addresses]); 
+        setModalVisible(false);
+      } else {
+        Alert.alert('Error', data.message || 'Failed to save address');
+      }
+    } catch (e) {
+      Alert.alert('Error', 'Server Error');
+    }
   };
 
   const handleDelete = (id) => {
@@ -72,18 +170,42 @@ export default function AddressBookScreen({ navigation }) {
       { 
         text: 'Delete', 
         style: 'destructive',
-        onPress: () => {
-          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-          const updated = addresses.filter(item => item.id !== id);
-          setAddresses(updated);
-          saveAddressesToStorage(updated);
+        onPress: async () => {
+          try {
+            const res = await fetch(`${API_URL}/api/address/${id}`, {
+              method: 'DELETE',
+              headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const data = await res.json();
+            if (data.success) {
+              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              setAddresses(addresses.filter(item => item._id !== id));
+            }
+          } catch (e) {
+            console.log('Error deleting address', e);
+          }
         }
       }
     ]);
   };
 
-  const handleUseAddress = (address) => {
-    navigation.navigate('Request', { selectedAddress: address.addressText });
+  const handleSetDefault = async (id) => {
+    try {
+      const res = await fetch(`${API_URL}/api/address/${id}/default`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        loadAddresses(); // reload to get updated defaults
+      }
+    } catch (e) {
+      console.log('Error setting default address', e);
+    }
+  };
+
+  const handleUseAddress = (item) => {
+    navigation.navigate('Request', { selectedAddress: item.address, lat: item.location?.lat, lng: item.location?.lng });
   };
 
   const getIcon = (type) => {
@@ -99,27 +221,54 @@ export default function AddressBookScreen({ navigation }) {
       <View style={styles.cardHeader}>
         <View style={styles.labelContainer}>
           <Text style={styles.icon}>{getIcon(item.label)}</Text>
-          <Text style={styles.cardLabel}>{item.label}</Text>
+          <Text style={[styles.cardLabel, { color: '#B34700' }]}>{item.label}</Text>
+          {item.isDefault && <View style={styles.defaultBadge}><Text style={styles.defaultBadgeText}>Default</Text></View>}
         </View>
-        <TouchableOpacity onPress={() => handleDelete(item.id)} style={styles.deleteBtn}>
-          <Text style={styles.deleteIcon}>🗑️</Text>
+      </View>
+      <Text style={styles.addressText}>{item.address}</Text>
+      {item.landmark ? <Text style={styles.landmarkText}>Landmark: {item.landmark}</Text> : null}
+      
+      <View style={styles.actionButtonsRow}>
+        {!item.isDefault && (
+          <TouchableOpacity onPress={() => handleSetDefault(item._id)} style={styles.actionBtn}>
+            <Text style={styles.actionBtnText}>⭐ Set Default</Text>
+          </TouchableOpacity>
+        )}
+        <TouchableOpacity onPress={() => handleDelete(item._id)} style={styles.actionBtn}>
+          <Text style={styles.actionBtnText}>🗑️ Delete</Text>
         </TouchableOpacity>
       </View>
-      <Text style={styles.addressText}>{item.addressText}</Text>
-      <TouchableOpacity 
-        style={styles.useButton} 
-        onPress={() => handleUseAddress(item)}
-      >
+
+      <TouchableOpacity style={styles.useButton} onPress={() => handleUseAddress(item)}>
         <Text style={styles.useButtonText}>Use This Address</Text>
       </TouchableOpacity>
     </View>
   );
 
   const renderEmptyComponent = () => (
-    <View style={styles.emptyContainer}>
-      <Text style={styles.emptyEmoji}>📍</Text>
-      <Text style={styles.emptyText}>No saved addresses yet</Text>
-      <Text style={styles.emptySubtext}>Add a frequently used location to quickly request a mechanic.</Text>
+    <View style={styles.emptyMapContainer}>
+      <View style={styles.mapWrapper}>
+        {emptyStateLat && emptyStateLng ? (
+          <MapView
+            style={styles.emptyMapView}
+            initialRegion={{
+              latitude: emptyStateLat,
+              longitude: emptyStateLng,
+              latitudeDelta: 0.005,
+              longitudeDelta: 0.005,
+            }}
+            scrollEnabled={false}
+            zoomEnabled={false}
+          />
+        ) : (
+          <View style={styles.emptyMapPlaceholder} />
+        )}
+      </View>
+      <View style={styles.emptyInfoContainer}>
+        <Ionicons name="location" size={50} color="#E8192C" />
+        <Text style={styles.emptyAreaName}>{emptyStateName}</Text>
+        <Text style={styles.emptyAddressText}>{emptyStateAddress}</Text>
+      </View>
     </View>
   );
 
@@ -133,24 +282,32 @@ export default function AddressBookScreen({ navigation }) {
         <View style={{ width: 60 }} />
       </View>
 
-      <FlatList
-        data={addresses}
-        keyExtractor={item => item.id}
-        renderItem={renderItem}
-        contentContainerStyle={styles.listContent}
-        ListEmptyComponent={renderEmptyComponent}
-      />
+      {loading ? (
+        <ActivityIndicator size="large" color="#B34700" style={{ marginTop: 100 }} />
+      ) : (
+        <FlatList
+          data={addresses}
+          keyExtractor={item => item._id}
+          renderItem={renderItem}
+          contentContainerStyle={styles.listContent}
+          ListEmptyComponent={renderEmptyComponent}
+        />
+      )}
 
-      <TouchableOpacity style={styles.fab} onPress={() => setModalVisible(true)}>
-        <Text style={styles.fabText}>+</Text>
+      <TouchableOpacity style={styles.fab} onPress={handleFabPress} disabled={locationLoading}>
+        {locationLoading ? (
+          <ActivityIndicator color="#fff" size="small" />
+        ) : (
+          <Text style={styles.fabText}>+</Text>
+        )}
       </TouchableOpacity>
 
-      <Modal visible={modalVisible} transparent animationType="fade">
+      <Modal visible={modalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
             <Text style={styles.modalTitle}>Add Address</Text>
             
-            <Text style={styles.inputLabel}>Label</Text>
+            <Text style={styles.inputLabel}>Label (Home/Work/Other)</Text>
             <View style={styles.chipContainer}>
               {['Home', 'Work', 'Other'].map(type => (
                 <TouchableOpacity
@@ -172,14 +329,27 @@ export default function AddressBookScreen({ navigation }) {
               value={addressText}
               onChangeText={setAddressText}
               multiline
+              numberOfLines={3}
             />
+
+            <Text style={styles.inputLabel}>Landmark (Optional)</Text>
+            <TextInput
+              style={styles.inputSingle}
+              placeholder="Nearby landmark (optional)"
+              value={landmark}
+              onChangeText={setLandmark}
+            />
+
+            <TouchableOpacity style={styles.refetchButton} onPress={fetchGPSLocation}>
+              {locationLoading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.refetchText}>Use Current Location</Text>}
+            </TouchableOpacity>
 
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.cancelButton} onPress={() => setModalVisible(false)}>
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.saveButton} onPress={handleAddAddress}>
-                <Text style={styles.saveButtonText}>Save</Text>
+                <Text style={styles.saveButtonText}>Save Address</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -199,11 +369,14 @@ const styles = StyleSheet.create({
   backButton: { width: 60 },
   backText: { color: '#B34700', fontSize: 16, fontWeight: 'bold' },
   headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#1a1a2e' },
-  listContent: { padding: 20, paddingBottom: 100 },
-  emptyContainer: { alignItems: 'center', justifyContent: 'center', marginTop: 100 },
-  emptyEmoji: { fontSize: 60, marginBottom: 20 },
-  emptyText: { fontSize: 20, fontWeight: 'bold', color: '#1a1a2e', marginBottom: 10 },
-  emptySubtext: { fontSize: 14, color: '#666', textAlign: 'center', paddingHorizontal: 40 },
+  listContent: { padding: 0, paddingBottom: 100, flexGrow: 1 },
+  emptyMapContainer: { flex: 1, backgroundColor: '#fff' },
+  mapWrapper: { height: 350, width: '100%', overflow: 'hidden' },
+  emptyMapView: { flex: 1, opacity: 0.7 },
+  emptyMapPlaceholder: { flex: 1, backgroundColor: '#f0f0f0' },
+  emptyInfoContainer: { alignItems: 'center', paddingTop: 20, paddingHorizontal: 30 },
+  emptyAreaName: { fontSize: 20, fontWeight: 'bold', color: '#E8192C', marginTop: 10, textAlign: 'center' },
+  emptyAddressText: { fontSize: 15, color: '#333', textAlign: 'center', marginTop: 10, lineHeight: 22 },
   card: {
     backgroundColor: '#fff', borderRadius: 12, padding: 20, marginBottom: 15,
     elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
@@ -213,9 +386,13 @@ const styles = StyleSheet.create({
   labelContainer: { flexDirection: 'row', alignItems: 'center' },
   icon: { fontSize: 18, marginRight: 8 },
   cardLabel: { fontSize: 18, fontWeight: 'bold', color: '#1a1a2e' },
-  deleteBtn: { padding: 5 },
-  deleteIcon: { fontSize: 18 },
-  addressText: { fontSize: 15, color: '#666', marginBottom: 20, lineHeight: 22 },
+  defaultBadge: { backgroundColor: '#4CAF50', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, marginLeft: 10 },
+  defaultBadgeText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
+  addressText: { fontSize: 15, color: '#666', marginBottom: 5, lineHeight: 22 },
+  landmarkText: { fontSize: 13, color: '#999', marginBottom: 15 },
+  actionButtonsRow: { flexDirection: 'row', marginBottom: 15 },
+  actionBtn: { marginRight: 15 },
+  actionBtnText: { color: '#555', fontSize: 13 },
   useButton: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#B34700', borderRadius: 8, padding: 12, alignItems: 'center' },
   useButtonText: { color: '#B34700', fontSize: 15, fontWeight: 'bold' },
   fab: {
@@ -226,8 +403,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3, shadowRadius: 5
   },
   fabText: { fontSize: 32, color: '#fff', marginTop: -4 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
-  modalContainer: { backgroundColor: '#fff', borderRadius: 16, padding: 20, elevation: 5 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalContainer: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 40, elevation: 5 },
   modalTitle: { fontSize: 22, fontWeight: 'bold', color: '#1a1a2e', marginBottom: 20 },
   inputLabel: { fontSize: 14, fontWeight: '600', color: '#666', marginBottom: 10 },
   chipContainer: { flexDirection: 'row', marginBottom: 20 },
@@ -241,11 +418,17 @@ const styles = StyleSheet.create({
   chipTextActive: { color: '#fff', fontWeight: 'bold' },
   input: { 
     borderWidth: 1, borderColor: '#ddd', borderRadius: 8, 
-    padding: 15, fontSize: 16, marginBottom: 30, height: 100, textAlignVertical: 'top' 
+    padding: 15, fontSize: 16, marginBottom: 20, height: 80, textAlignVertical: 'top' 
   },
+  inputSingle: {
+    borderWidth: 1, borderColor: '#ddd', borderRadius: 8, 
+    padding: 15, fontSize: 16, marginBottom: 20
+  },
+  refetchButton: { backgroundColor: '#4a90e2', padding: 12, borderRadius: 8, alignItems: 'center', marginBottom: 20 },
+  refetchText: { color: '#fff', fontWeight: 'bold' },
   modalActions: { flexDirection: 'row', justifyContent: 'flex-end' },
   cancelButton: { padding: 15, marginRight: 10 },
   cancelButtonText: { color: '#666', fontSize: 16, fontWeight: 'bold' },
-  saveButton: { backgroundColor: '#B34700', paddingVertical: 15, paddingHorizontal: 30, borderRadius: 8 },
+  saveButton: { backgroundColor: '#B34700', paddingVertical: 15, paddingHorizontal: 30, borderRadius: 8, justifyContent: 'center' },
   saveButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' }
 });

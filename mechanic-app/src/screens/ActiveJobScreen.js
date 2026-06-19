@@ -102,8 +102,14 @@ export default function ActiveJobScreen({ route, navigation }) {
   const socket = getSocket(mechanicToken);
 
   const customerCoords = {
-    latitude: customerLocation?.coordinates[1] || 28.6139,
-    longitude: customerLocation?.coordinates[0] || 77.2090
+    latitude:
+      Array.isArray(customerLocation?.coordinates) && customerLocation.coordinates.length >= 2
+        ? customerLocation.coordinates[1]
+        : 28.6139,
+    longitude:
+      Array.isArray(customerLocation?.coordinates) && customerLocation.coordinates.length >= 2
+        ? customerLocation.coordinates[0]
+        : 77.2090
   };
 
   useEffect(() => {

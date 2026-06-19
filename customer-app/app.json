@@ -16,7 +16,7 @@
         "NSLocationWhenInUseUsageDescription": "We need your location to find nearby mechanics and auto-fill your address.",
         "NSLocationAlwaysUsageDescription": "We need your location to track your mechanic in real time.",
         "NSCameraUsageDescription": "Camera access is needed for capturing photos of the vehicle condition.",
-        "NSMicrophoneUsageDescription": "Microphone access is needed for voice messages in the in‑app chat."
+        "NSMicrophoneUsageDescription": "Microphone access is needed for voice messages in the in-app chat."
       }
     },
     "android": {
@@ -39,8 +39,11 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "a2e4c63a-cec5-407b-9b0f-4450d985ad39"
+        "projectId": "e177a3b6-cd05-4fdd-823b-9c80584e9cd3"
       }
+    },
+    "cli": {
+      "appVersionSource": "native"
     }
   }
 }

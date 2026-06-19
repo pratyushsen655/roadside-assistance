@@ -4,7 +4,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Alert, Dimensions
 } from 'react-native';
 import Animated, { FadeInUp, FadeInDown } from 'react-native-reanimated';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { theme } from '../constants/theme';
 
 const { width } = Dimensions.get('window');
@@ -95,42 +95,33 @@ export default function HelpScreen({ navigation }) {
       {/* Sticky Bottom Navigation Bar */}
       <View style={styles.bottomNavBar}>
         {/* Home */}
-        <TouchableOpacity
-          style={styles.navTab}
-          onPress={() => navigation.navigate('Home')}
-        >
+        <TouchableOpacity style={styles.navTab} onPress={() => navigation.navigate('Home')}>
           <Ionicons name="home-outline" size={24} color="#6B7280" />
           <Text style={styles.navText}>Home</Text>
         </TouchableOpacity>
 
-        {/* Help / Active */}
-        <TouchableOpacity
-          style={styles.navTab}
-          onPress={() => {}}
-        >
-          <Ionicons name="help-circle" size={24} color="#E8192C" />
-          <Text style={[styles.navText, styles.activeNavText]}>Help</Text>
+        {/* Bookings */}
+        <TouchableOpacity style={styles.navTab} onPress={() => navigation.navigate('ServiceHistory')}>
+          <MaterialCommunityIcons name="calendar-check-outline" size={24} color="#6B7280" />
+          <Text style={styles.navText}>Bookings</Text>
         </TouchableOpacity>
 
         {/* SOS - Center floating bell */}
-        <TouchableOpacity
-          style={styles.sosNavButton}
-          onPress={() => navigation.navigate('SOS')}
-          activeOpacity={0.85}
-        >
+        <TouchableOpacity style={styles.sosNavButton} onPress={() => navigation.navigate('SOS')} activeOpacity={0.85}>
           <View style={styles.sosNavCircle}>
-            <Ionicons name="notifications" size={28} color="#FFF" />
+            <Ionicons name="notifications-outline" size={26} color="#FFF" />
           </View>
           <Text style={styles.sosNavText}>SOS</Text>
         </TouchableOpacity>
 
-
+        {/* Help / Active */}
+        <TouchableOpacity style={styles.navTab} onPress={() => {}}>
+          <Ionicons name="help-circle" size={24} color="#E8192C" style={styles.activeNavIcon} />
+          <Text style={[styles.navText, styles.activeNavText]}>Help</Text>
+        </TouchableOpacity>
 
         {/* Account */}
-        <TouchableOpacity
-          style={styles.navTab}
-          onPress={() => navigation.navigate('Account')}
-        >
+        <TouchableOpacity style={styles.navTab} onPress={() => navigation.navigate('Account')}>
           <Ionicons name="person-outline" size={24} color="#6B7280" />
           <Text style={styles.navText}>Account</Text>
         </TouchableOpacity>
@@ -274,58 +265,64 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: theme.colors.white,
-    height: 75,
+    backgroundColor: '#FFFFFF',
+    height: 85,
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
     borderTopWidth: 1,
-    borderTopColor: theme.colors.border,
+    borderTopColor: '#F3F4F6',
     elevation: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    paddingBottom: 10,
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    paddingBottom: 20,
+    paddingTop: 10,
+    borderRadius: 20,
   },
   navTab: {
     alignItems: 'center',
     justifyContent: 'center',
-    width: width * 0.18,
+    width: width * 0.16,
+  },
+  activeNavIcon: {
+    marginBottom: -2,
   },
   navText: {
-    fontSize: 10,
-    color: theme.colors.textSecondary,
+    fontSize: 11,
+    color: '#6B7280',
     marginTop: 4,
     fontWeight: '500',
   },
   activeNavText: {
-    color: theme.colors.primary,
+    color: '#E8192C',
     fontWeight: 'bold',
   },
   sosNavButton: {
     alignItems: 'center',
     justifyContent: 'center',
-    top: -15,
-    width: width * 0.18,
+    width: width * 0.16,
   },
   sosNavCircle: {
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: theme.colors.primary,
+    backgroundColor: '#1E3A8A',
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 6,
-    shadowColor: theme.colors.primary,
+    elevation: 8,
+    shadowColor: '#1E3A8A',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
-    shadowRadius: 6,
+    shadowRadius: 8,
+    borderWidth: 4,
+    borderColor: '#FFF',
   },
   sosNavText: {
-    fontSize: 10,
-    color: theme.colors.primary,
+    fontSize: 12,
+    color: '#1E3A8A',
     marginTop: 4,
-    fontWeight: 'bold',
+    fontWeight: '600',
   }
 });

@@ -94,35 +94,47 @@ export default function TrackingScreen({ route, navigation }) {
 
     // Listen to mechanic location updates
     socket.on('mechanic:location:update', (coords) => {
-      console.log('[Socket] Mechanic location update received:', coords);
-      if (coords && coords.lat && coords.lng) {
-        setMechanicCoords({
-          latitude: coords.lat,
-          longitude: coords.lng
-        });
+      try {
+        console.log('[Socket] Mechanic location update received:', coords);
+        if (coords && typeof coords.lat === 'number' && typeof coords.lng === 'number') {
+          setMechanicCoords({
+            latitude: coords.lat,
+            longitude: coords.lng
+          });
+        }
+      } catch (err) {
+        console.error('[Socket] Error handling mechanic:location:update:', err);
       }
     });
 
     // Listen to job status changes
     socket.on('job:status:changed', (data) => {
-      console.log('[Socket] Job status changed received:', data);
-      if (data && data.status) {
-        setStatus(data.status);
-        if (data.status === 'completed') {
-          navigation.navigate('Payment', {
-            jobId,
-            mechanicName,
-            amount: data.amount || 350
-          });
+      try {
+        console.log('[Socket] Job status changed received:', data);
+        if (data && data.status) {
+          setStatus(data.status);
+          if (data.status === 'completed') {
+            navigation.navigate('Payment', {
+              jobId,
+              mechanicName,
+              amount: data.amount || 350
+            });
+          }
         }
+      } catch (err) {
+        console.error('[Socket] Error handling job:status:changed:', err);
       }
     });
 
     // Listen to new chat messages to increment unread badge
     socket.on('chat:message', (msg) => {
-      console.log('[Socket] Chat message received in Tracking:', msg);
-      if (msg && msg.jobId === jobId && msg.senderType === 'mechanic') {
-        setUnreadCount((prev) => prev + 1);
+      try {
+        console.log('[Socket] Chat message received in Tracking:', msg);
+        if (msg && msg.jobId === jobId && msg.senderType === 'mechanic') {
+          setUnreadCount((prev) => prev + 1);
+        }
+      } catch (err) {
+        console.error('[Socket] Error handling chat:message in Tracking:', err);
       }
     });
 
@@ -133,15 +145,9 @@ export default function TrackingScreen({ route, navigation }) {
     };
   }, [jobId, socket]);
 
-  useEffect(() => {
-    if (status === 'completed') {
-      navigation.navigate('Payment', {
-        jobId,
-        mechanicName,
-        amount: 350 // Default fallback, usually data.amount is supplied via socket
-      });
-    }
-  }, [status]);
+  // NOTE: Navigation to Payment is handled exclusively by the job:status:changed socket
+  // listener above. Do NOT add a status watcher here — it causes double-navigation after
+  // the component is already unmounted, which crashes the app.
 
   const handleCancelJob = async () => {
     Alert.alert(

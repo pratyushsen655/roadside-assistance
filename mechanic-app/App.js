@@ -4,6 +4,7 @@ import { LogBox, InteractionManager } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { AuthProvider } from './src/context/AuthContext';
+import { LanguageProvider } from './src/context/LanguageContext';
 import AppNavigator from './src/navigation/AppNavigator';
 import { createNavigationContainerRef } from '@react-navigation/native';
 import Constants from 'expo-constants';
@@ -32,7 +33,7 @@ if (!isExpoGo) {
   }
 }
 
-// Polyfill InteractionManager using requestIdleCallback to support third-party libraries
+// Polyfill InteractionManager using requestIdleCallback to support third‑party libraries
 if (InteractionManager) {
   const originalRunAfterInteractions = InteractionManager.runAfterInteractions;
   InteractionManager.runAfterInteractions = (task) => {
@@ -43,9 +44,7 @@ if (InteractionManager) {
       });
       return { cancel: () => cancelIdleCallback(handle) };
     }
-    return originalRunAfterInteractions ? originalRunAfterInteractions(task) : {
-      cancel: () => clearTimeout(handle)
-    };
+    return originalRunAfterInteractions ? originalRunAfterInteractions(task) : { cancel: () => clearTimeout(handle) };
   };
 }
 
@@ -64,12 +63,10 @@ export default function App() {
       console.log('[App] Running in Expo Go — push notifications disabled. Use a dev build for full support.');
       return;
     }
-
     try {
       notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
         console.log('Notification received in foreground:', notification);
       });
-
       responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
         try {
           const data = response.notification.request.content.data;
@@ -89,7 +86,6 @@ export default function App() {
     } catch (err) {
       console.log('[App] Notification listener setup failed:', err.message);
     }
-
     return () => {
       try {
         if (notificationListener.current) Notifications.removeNotificationSubscription(notificationListener.current);
@@ -101,11 +97,13 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <ErrorBoundary>
-        <AuthProvider>
-          <StatusBar style="light" />
-          <AppNavigator navigationRef={navigationRef} />
-          <OfflineBanner />
-        </AuthProvider>
+        <LanguageProvider>
+          <AuthProvider>
+            <StatusBar style="light" />
+            <AppNavigator navigationRef={navigationRef} />
+            <OfflineBanner />
+          </AuthProvider>
+        </LanguageProvider>
       </ErrorBoundary>
     </SafeAreaProvider>
   );

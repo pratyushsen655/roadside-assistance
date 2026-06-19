@@ -2,7 +2,8 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { getItem, setItem, removeItem } from '../utils/storage';
 import { registerForPushNotifications, savePushToken } from '../services/notificationService';
-import { AppState } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppState, Alert } from 'react-native';
 
 export const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://roadside-assistance-production-ddaf.up.railway.app';
 
@@ -21,124 +22,114 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const checkSessionTimeout = async () => {
+    const loadStoredAuth = async () => {
       try {
-        const lastBackgroundTime = await getItem('lastBackgroundTime');
-        if (lastBackgroundTime) {
-          const elapsed = Date.now() - Number(lastBackgroundTime);
-          if (elapsed >= 120000) {
-            await removeItem('user');
-            await removeItem('token');
-            await removeItem('lastBackgroundTime');
-            return true;
-          }
-          await removeItem('lastBackgroundTime');
+        setLoading(true);
+        const storedToken = await getItem('userToken');
+        const storedUser = await getItem('userData');
+        
+        if (storedToken && storedUser) {
+          const parsedUser = JSON.parse(storedUser);
+          setToken(storedToken);
+          setUser(parsedUser);
+          // Silently validate token in background - don't logout on network error
+          validateTokenSilently(storedToken);
         }
-      } catch (e) {
-        console.error('Session timeout check error:', e.message);
-      }
-      return false;
-    };
-
-    const loadAuth = async () => {
-      try {
-        const timedOut = await checkSessionTimeout();
-        if (timedOut) {
-          setLoading(false);
-          return;
-        }
-
-        const storedUser = await getItem('user');
-        const storedToken = await getItem('token');
-
-        if (storedUser && storedToken) {
-          try {
-            const res = await fetch(`${API_URL}/api/auth/profile`, {
-              headers: { Authorization: `Bearer ${storedToken}` },
-            });
-            const data = await res.json();
-            if (data.success) {
-              // Refresh user data from server
-              setUser(data.user);
-              setToken(storedToken);
-              await setItem('user', JSON.stringify(data.user));
-            } else {
-              await removeItem('user');
-              await removeItem('token');
-            }
-          } catch {
-            // Network error — keep stored session (offline tolerance)
-            setUser(JSON.parse(storedUser));
-            setToken(storedToken);
-          }
-        }
-      } catch (e) {
-        console.error('Auth restore error:', e.message);
+      } catch (error) {
+        console.log('Auth load error:', error);
       } finally {
         setLoading(false);
       }
     };
-    loadAuth();
+    loadStoredAuth();
   }, []);
 
-  useEffect(() => {
-    const handleAppStateChange = async (nextAppState) => {
-      if (nextAppState === 'background' || nextAppState === 'inactive') {
-        await setItem('lastBackgroundTime', Date.now().toString());
-      } else if (nextAppState === 'active') {
-        try {
-          const lastBackgroundTime = await getItem('lastBackgroundTime');
-          if (lastBackgroundTime) {
-            const elapsed = Date.now() - Number(lastBackgroundTime);
-            if (elapsed >= 120000) {
-              await logout();
-            }
-            await removeItem('lastBackgroundTime');
-          }
-        } catch (e) {
-          console.error('[AuthContext] AppState active check error:', e.message);
+  const validateTokenSilently = async (token) => {
+    try {
+      const res = await fetch(`${API_URL}/api/auth/profile`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (res.status === 401) {
+        // Only logout if explicitly unauthorized, not on network error
+        const data = await res.json();
+        if (data.message?.includes('expired')) {
+          // Token genuinely expired - logout silently
+          await clearAuth();
         }
       }
-    };
-
-    const subscription = AppState.addEventListener('change', handleAppStateChange);
-    return () => {
-      subscription.remove();
-    };
-  }, []);
-
-  /**
-   * Called after OTP verify success.
-   * @param {object} userData  — user object from /verify-otp response
-   * @param {string} authToken — JWT from /verify-otp response
-   */
-  const login = async (userData, authToken) => {
-    setUser(userData);
-    setToken(authToken);
-    await setItem('user', JSON.stringify(userData));
-    await setItem('token', authToken);
-    try {
-      const pushToken = await registerForPushNotifications();
-      if (pushToken) await savePushToken(pushToken);
-    } catch (err) {
-      console.log('[AuthContext] Error registering push notification on login:', err.message);
+    } catch (error) {
+      // Network error - keep user logged in, don't logout
+      console.log('Token validation network error - keeping session:', error);
     }
   };
 
-  /**
-   * Update cached user data (e.g. after CompleteProfile save).
-   */
+  const clearAuth = async () => {
+    await removeItem('userToken');
+    await removeItem('userData');
+    setToken(null);
+    setUser(null);
+  };
+
+  const login = async (userData, authToken) => {
+    try {
+      await setItem('userToken', authToken);
+      await setItem('userData', JSON.stringify(userData));
+      setToken(authToken);
+      setUser(userData);
+      try {
+        const pushToken = await registerForPushNotifications();
+        if (pushToken) await savePushToken(pushToken);
+      } catch (err) {
+        console.log('[AuthContext] Error registering push notification on login:', err.message);
+      }
+    } catch (error) {
+      console.log('Login storage error:', error);
+    }
+  };
+
   const updateUser = async (updates) => {
     const updated = { ...user, ...updates };
     setUser(updated);
-    await setItem('user', JSON.stringify(updated));
+    await setItem('userData', JSON.stringify(updated));
   };
 
   const logout = async () => {
-    setUser(null);
-    setToken(null);
-    await removeItem('user');
-    await removeItem('token');
+    try {
+      // Call backend logout (fire and forget - don't wait)
+      const currentToken = await AsyncStorage.getItem('userToken') || await AsyncStorage.getItem('token');
+      if (currentToken) {
+        fetch(`${API_URL}/api/auth/logout`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${currentToken}` },
+        }).catch(() => {}); // ignore errors
+      }
+    } catch {}
+    
+    try {
+      // Clear ALL possible storage keys (old and new)
+      await AsyncStorage.multiRemove([
+        'userToken',
+        'userData', 
+        'token',
+        'user',
+        'authToken',
+        'currentUser',
+        'pendingReferralCode',
+        'appLanguage',
+        'cachedRequests',
+        'cachedProfile',
+        'cachedNotifications',
+        'savedAddress',
+      ]);
+      // Reset state
+      setToken(null);
+      setUser(null);
+    } catch (error) {
+      console.log('Logout error:', error);
+      // Force clear state even if storage fails
+      setToken(null);
+      setUser(null);
+    }
   };
 
   return (
@@ -149,3 +140,27 @@ export const AuthProvider = ({ children }) => {
 };
 
 export const useAuth = () => useContext(AuthContext);
+
+export const authFetch = async (url, options = {}) => {
+  const token = await getItem('token');
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+      ...options.headers,
+    },
+  });
+  
+  if (response.status === 401) {
+    const data = await response.json();
+    if (data.message?.includes('expired') || data.message?.includes('invalid') || data.message?.includes('Invalid')) {
+      await removeItem('user');
+      await removeItem('token');
+      await removeItem('tokenStoredAt');
+      Alert.alert('Session Expired', 'Please login again to continue.');
+      return null;
+    }
+  }
+  return response;
+};
