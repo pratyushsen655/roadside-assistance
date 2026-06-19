@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView, RefreshControl, Animated, Alert
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import GlobalBottomNav from '../components/GlobalBottomNav';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ? `${process.env.EXPO_PUBLIC_API_URL}/api` : 'https://roadside-assistance-production-ddaf.up.railway.app/api';
 
@@ -199,6 +200,7 @@ export default function NotificationsScreen({ navigation }) {
           ))
         )}
       </ScrollView>
+      <GlobalBottomNav />
     </View>
   );
 }
@@ -220,7 +222,7 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#333' },
   markAllBtn: { width: 100, alignItems: 'flex-end' },
   markAllText: { fontSize: 14, color: '#FF6B00', fontWeight: 'bold' },
-  scrollContent: { padding: 15 },
+  scrollContent: { padding: 15, paddingBottom: 110 },
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 100 },
   emptyIcon: { fontSize: 50, marginBottom: 15 },
   emptyText: { fontSize: 16, color: '#666' },

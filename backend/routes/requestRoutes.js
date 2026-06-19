@@ -33,6 +33,11 @@ router.post('/', authMiddleware, async (req, res) => {
       finalServiceType = 'other';
     }
 
+    let finalVehicleType = vehicleType;
+    if (finalVehicleType === 'e-vehicle') {
+      finalVehicleType = 'ev';
+    }
+
     let geoJsonLocation = finalLocation;
     if (!geoJsonLocation && req.body.latitude !== undefined && req.body.longitude !== undefined) {
       geoJsonLocation = {
@@ -53,7 +58,7 @@ router.post('/', authMiddleware, async (req, res) => {
       customer: req.user.id,
       serviceType: finalServiceType || 'breakdown',
       issueDescription: finalIssueDescription || 'No description provided',
-      vehicleType: vehicleType || 'car',
+      vehicleType: finalVehicleType || 'car',
       vehicleModel: vehicleModel || '',
       vehicleNumber: vehicleNumber || '',
       customerLocation: geoJsonLocation,
@@ -68,11 +73,19 @@ router.post('/', authMiddleware, async (req, res) => {
     // Link customer activeRequestId
     await User.findByIdAndUpdate(req.user.id, { activeRequestId: newRequest._id });
 
-    // Notify all online mechanics of the new request
+    // Notify all online mechanics of the new request within 5 km
     try {
       const { sendMulticastNotification } = require('../services/pushNotificationService');
+      const { calculateHaversineDistance } = require('../services/mapService');
       const onlineMechanics = await Mechanic.find({ isOnline: true });
-      const tokens = onlineMechanics.map(m => m.pushToken || m.fcmToken).filter(t => !!t);
+      const [cLng, cLat] = geoJsonLocation.coordinates;
+      const nearbyMechanics = onlineMechanics.filter(m => {
+        const [mLng, mLat] = m.location?.coordinates || [0, 0];
+        if (mLng === 0 && mLat === 0) return false;
+        const dist = calculateHaversineDistance(cLat, cLng, mLat, mLng);
+        return dist <= 5;
+      });
+      const tokens = nearbyMechanics.map(m => m.pushToken || m.fcmToken).filter(t => !!t);
       if (tokens.length > 0) {
         await sendMulticastNotification(
           tokens,
@@ -106,10 +119,10 @@ router.get('/bidding-settings', authMiddleware, async (req, res) => {
   try {
     const Setting = require('../models/Setting');
     let autoPromptDelay = await Setting.findOne({ key: 'autoPromptDelay' });
-    if (!autoPromptDelay) autoPromptDelay = { value: 120 };
+    if (!autoPromptDelay) autoPromptDelay = /** @type {any} */ ({ value: 120 });
 
     let maxPriceIncrease = await Setting.findOne({ key: 'maxPriceIncrease' });
-    if (!maxPriceIncrease) maxPriceIncrease = { value: 1000 };
+    if (!maxPriceIncrease) maxPriceIncrease = /** @type {any} */ ({ value: 1000 });
 
     res.status(200).json({
       success: true,
@@ -377,22 +390,22 @@ router.put('/:id/increase-price', authMiddleware, async (req, res) => {
     await request.save();
 
     // Notify all eligible mechanics and the customer in real-time
-    if (req.io) {
+    if (/** @type {any} */ (req).io) {
       // Notify customer room
-      req.io.to(`job:${request._id}`).emit('request:price_updated', {
+      /** @type {any} */ (req).io.to(`job:${request._id}`).emit('request:price_updated', {
         jobId: request._id,
         current_price: newPrice,
         price_increase_count: request.price_increase_count
       });
 
       // Broadcast to mechanics room
-      req.io.to('mechanics').emit('request:price_updated', {
+      /** @type {any} */ (req).io.to('mechanics').emit('request:price_updated', {
         jobId: request._id,
         current_price: newPrice
       });
 
       // Also emit a general event
-      req.io.emit('request:price_updated_global', {
+      /** @type {any} */ (req).io.emit('request:price_updated_global', {
         jobId: request._id,
         current_price: newPrice
       });
@@ -461,4 +474,46 @@ router.put('/:id', authMiddleware, async (req, res) => {
   }
 });
 
+// 8. Verify customer start OTP and start work
+router.post('/:id/verify-start', authMiddleware, async (req, res) => {
+  const requestId = req.params.id;
+  const { otp } = req.body;
+
+  if (!otp) {
+    return res.status(400).json({ success: false, message: 'Verification OTP code is required.' });
+  }
+
+  try {
+    const request = await ServiceRequest.findById(requestId);
+    if (!request) {
+      return res.status(404).json({ success: false, message: 'Breakdown request not found.' });
+    }
+
+    if (request.status !== 'arrived') {
+      return res.status(400).json({ success: false, message: 'Cannot start work before arriving at the location.' });
+    }
+
+    if (request.startOTP !== otp) {
+      return res.status(400).json({ success: false, message: 'Invalid verification OTP code. Please ask the customer for the correct PIN.' });
+    }
+
+    request.status = 'work_in_progress';
+    await request.save();
+
+    // Broadcast socket event
+    if (/** @type {any} */ (req).io) {
+      /** @type {any} */ (req).io.to(`job:${request._id}`).emit('job:status:changed', { status: 'work_in_progress' });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'OTP verified successfully. Work has started.',
+      request
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 module.exports = router;
+

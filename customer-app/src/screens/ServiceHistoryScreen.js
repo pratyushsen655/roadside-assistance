@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { AuthContext, API_URL } from '../context/AuthContext';
 import { downloadInvoice } from '../utils/downloadInvoice';
+import GlobalBottomNav from '../components/GlobalBottomNav';
 
 export default function ServiceHistoryScreen({ navigation }) {
   const { token } = useContext(AuthContext);
@@ -190,6 +191,7 @@ export default function ServiceHistoryScreen({ navigation }) {
           </View>
         }
       />
+      <GlobalBottomNav />
     </View>
   );
 }
@@ -256,7 +258,7 @@ const styles = StyleSheet.create({
   },
   listContainer: {
     padding: 16,
-    paddingBottom: 40,
+    paddingBottom: 110,
   },
   jobCard: {
     backgroundColor: '#fff',

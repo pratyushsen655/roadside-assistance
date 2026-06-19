@@ -6,17 +6,20 @@ import {
 import Animated, { FadeInUp, FadeInDown } from 'react-native-reanimated';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { theme } from '../constants/theme';
+import { useTranslation } from 'react-i18next';
+import GlobalBottomNav from '../components/GlobalBottomNav';
 
 const { width } = Dimensions.get('window');
 
 export default function HelpScreen({ navigation }) {
+  const { t } = useTranslation();
 
   return (
     <View style={styles.container}>
       {/* 1. White Top Header Section */}
       <View style={styles.topSection}>
         <Animated.Text entering={FadeInUp.delay(100).duration(400)} style={styles.pageTitle}>
-          Help & Support
+          {t('screens.help', 'Help & Support')}
         </Animated.Text>
 
         {/* Top card: Go to My Cars */}
@@ -27,8 +30,8 @@ export default function HelpScreen({ navigation }) {
             activeOpacity={0.85}
           >
             <View style={styles.myCarsTextContainer}>
-              <Text style={styles.myCarsHeading}>Go to My Cars &gt;</Text>
-              <Text style={styles.myCarsSubtitle}>Manage Your Car & more</Text>
+              <Text style={styles.myCarsHeading}>{t('help.goToMyCars', 'Go to My Cars >')}</Text>
+              <Text style={styles.myCarsSubtitle}>{t('help.manageCarMore', 'Manage Your Car & more')}</Text>
             </View>
             <Image
               source={require('../../assets/icon.png')}
@@ -54,7 +57,7 @@ export default function HelpScreen({ navigation }) {
 
         {/* Empty state message */}
         <Animated.Text entering={FadeInDown.delay(250).duration(500)} style={styles.emptyStateMessage}>
-          You have not placed any orders yet
+          {t('help.noOrdersYet', 'You have not placed any orders yet')}
         </Animated.Text>
 
         {/* Primary CTA button: BROWSE SERVICES */}
@@ -64,7 +67,7 @@ export default function HelpScreen({ navigation }) {
             onPress={() => navigation.navigate('Home')}
             activeOpacity={0.9}
           >
-            <Text style={styles.browseBtnText}>BROWSE SERVICES</Text>
+            <Text style={styles.browseBtnText}>{t('help.browseServices', 'BROWSE SERVICES')}</Text>
           </TouchableOpacity>
         </Animated.View>
 
@@ -74,18 +77,18 @@ export default function HelpScreen({ navigation }) {
             style={styles.faqCard}
             onPress={() => {
               Alert.alert(
-                'Frequently Asked Questions (FAQs)',
-                '1. How do I request roadside help?\nTap SOS or any service on Home screen.\n\n2. What are the charges?\nInitial pricing is shown on request, mechanics will bid live.\n\n3. Can I track my mechanic?\nYes, live tracking is available after dispatch.',
-                [{ text: 'Close' }]
+                t('help.faqTitle', 'Frequently Asked Questions (FAQs)'),
+                t('help.faqContent', '1. How do I request roadside help?\nTap SOS or any service on Home screen.\n\n2. What are the charges?\nInitial pricing is shown on request, mechanics will bid live.\n\n3. Can I track my mechanic?\nYes, live tracking is available after dispatch.'),
+                [{ text: t('common.close', 'Close') }]
               );
             }}
             activeOpacity={0.8}
           >
             <View style={styles.faqLeft}>
               <View style={styles.helpBadge}>
-                <Text style={styles.helpBadgeText}>HELP</Text>
+                <Text style={styles.helpBadgeText}>{t('language.help', 'HELP')}</Text>
               </View>
-              <Text style={styles.faqText}>FAQs</Text>
+              <Text style={styles.faqText}>{t('help.faqs', 'FAQs')}</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
           </TouchableOpacity>
@@ -93,39 +96,7 @@ export default function HelpScreen({ navigation }) {
       </ScrollView>
 
       {/* Sticky Bottom Navigation Bar */}
-      <View style={styles.bottomNavBar}>
-        {/* Home */}
-        <TouchableOpacity style={styles.navTab} onPress={() => navigation.navigate('Home')}>
-          <Ionicons name="home-outline" size={24} color="#6B7280" />
-          <Text style={styles.navText}>Home</Text>
-        </TouchableOpacity>
-
-        {/* Bookings */}
-        <TouchableOpacity style={styles.navTab} onPress={() => navigation.navigate('ServiceHistory')}>
-          <MaterialCommunityIcons name="calendar-check-outline" size={24} color="#6B7280" />
-          <Text style={styles.navText}>Bookings</Text>
-        </TouchableOpacity>
-
-        {/* SOS - Center floating bell */}
-        <TouchableOpacity style={styles.sosNavButton} onPress={() => navigation.navigate('SOS')} activeOpacity={0.85}>
-          <View style={styles.sosNavCircle}>
-            <Ionicons name="notifications-outline" size={26} color="#FFF" />
-          </View>
-          <Text style={styles.sosNavText}>SOS</Text>
-        </TouchableOpacity>
-
-        {/* Help / Active */}
-        <TouchableOpacity style={styles.navTab} onPress={() => {}}>
-          <Ionicons name="help-circle" size={24} color="#E8192C" style={styles.activeNavIcon} />
-          <Text style={[styles.navText, styles.activeNavText]}>Help</Text>
-        </TouchableOpacity>
-
-        {/* Account */}
-        <TouchableOpacity style={styles.navTab} onPress={() => navigation.navigate('Account')}>
-          <Ionicons name="person-outline" size={24} color="#6B7280" />
-          <Text style={styles.navText}>Account</Text>
-        </TouchableOpacity>
-      </View>
+      <GlobalBottomNav />
     </View>
   );
 }

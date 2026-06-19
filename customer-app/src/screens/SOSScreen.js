@@ -7,10 +7,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import MapView, { Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
+import GlobalBottomNav from '../components/GlobalBottomNav';
 
 const { height, width } = Dimensions.get('window');
 
 export default function SOSScreen({ navigation }) {
+  const { t } = useTranslation();
   const [latitude, setLatitude] = useState(28.6139);
   const [longitude, setLongitude] = useState(77.2090);
   const [address, setAddress] = useState('Fetching your location...');
@@ -21,34 +24,50 @@ export default function SOSScreen({ navigation }) {
   useEffect(() => {
     (async () => {
       try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
+        const { status } = await Location.requestForegroundPermissionsAsync().catch(err => {
+          console.log('[SOSScreen] requestForegroundPermissionsAsync error:', err);
+          return { status: 'denied' };
+        });
         if (status === 'granted') {
-          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-          setLatitude(loc.coords.latitude);
-          setLongitude(loc.coords.longitude);
-          
-          const [geo] = await Location.reverseGeocodeAsync({
-            latitude: loc.coords.latitude,
-            longitude: loc.coords.longitude
+          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).catch(err => {
+            console.log('[SOSScreen] getCurrentPositionAsync error:', err);
+            return null;
           });
-          if (geo) {
-            const displayAddress = `${geo.name || geo.street || ''}, ${geo.city || geo.district || ''}`;
-            setAddress(displayAddress || 'HSR Layout, Bengaluru');
-          } else {
-            setAddress('HSR Layout, Bengaluru');
-          }
-
-          // Center map on user location
-          if (mapRef.current) {
-            mapRef.current.animateToRegion({
+          
+          if (loc && loc.coords) {
+            setLatitude(loc.coords.latitude || 28.6139);
+            setLongitude(loc.coords.longitude || 77.2090);
+            
+            const geo = await Location.reverseGeocodeAsync({
               latitude: loc.coords.latitude,
-              longitude: loc.coords.longitude,
-              latitudeDelta: 0.005,
-              longitudeDelta: 0.005,
-            }, 1000);
+              longitude: loc.coords.longitude
+            }).catch(err => {
+              console.log('[SOSScreen] reverseGeocodeAsync error:', err);
+              return [];
+            });
+            
+            if (geo && geo.length > 0) {
+              const place = geo[0];
+              const displayAddress = `${place.name || place.street || ''}, ${place.city || place.district || ''}`;
+              setAddress(displayAddress.trim() || 'HSR Layout, Bengaluru');
+            } else {
+              setAddress('HSR Layout, Bengaluru');
+            }
+
+            // Center map on user location
+            if (mapRef.current) {
+              mapRef.current.animateToRegion({
+                latitude: loc.coords.latitude || 28.6139,
+                longitude: loc.coords.longitude || 77.2090,
+                latitudeDelta: 0.005,
+                longitudeDelta: 0.005,
+              }, 1000);
+            }
+          } else {
+            setAddress(t('request.locationDenied', 'Unable to fetch location. Please share manually.'));
           }
         } else {
-          setAddress('Location permission denied');
+          setAddress(t('request.locationDenied', 'Unable to fetch location. Please share manually.'));
         }
       } catch (err) {
         console.log('Error fetching current address:', err);
@@ -59,17 +78,22 @@ export default function SOSScreen({ navigation }) {
 
   const handleLocateMe = async () => {
     try {
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      setLatitude(loc.coords.latitude);
-      setLongitude(loc.coords.longitude);
-      
-      if (mapRef.current) {
-        mapRef.current.animateToRegion({
-          latitude: loc.coords.latitude,
-          longitude: loc.coords.longitude,
-          latitudeDelta: 0.005,
-          longitudeDelta: 0.005,
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).catch(err => {
+        console.log('[SOSScreen] getCurrentPositionAsync locateMe error:', err);
+        return null;
+      });
+      if (loc && loc.coords) {
+        setLatitude(loc.coords.latitude || 28.6139);
+        setLongitude(loc.coords.longitude || 77.2090);
+        
+        if (mapRef.current) {
+          mapRef.current.animateToRegion({
+            latitude: loc.coords.latitude || 28.6139,
+            longitude: loc.coords.longitude || 77.2090,
+            latitudeDelta: 0.005,
+            longitudeDelta: 0.005,
           }, 800);
+        }
       }
     } catch (err) {
       console.log('Locate me failed:', err);
@@ -79,12 +103,12 @@ export default function SOSScreen({ navigation }) {
   const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://roadside-assistance-production-ddaf.up.railway.app';
 
   const services = [
-    { label: 'Tyre\nPuncture', value: 'tire_repair', icon: 'car-tire-alert', library: 'MaterialCommunityIcons', bg: '#FFF0F0', iconColor: '#E8192C' },
-    { label: 'Fuel\nAssistance', value: 'fuel_delivery', icon: 'gas-station', library: 'MaterialCommunityIcons', bg: '#FFF7ED', iconColor: '#F97316' },
-    { label: 'Battery\nJumpstart', value: 'battery', icon: 'flash', library: 'Ionicons', bg: '#FEF08A', iconColor: '#CA8A04' },
-    { label: 'Car Fluid\nLeakage', value: 'other', icon: 'water', library: 'Ionicons', bg: '#ECFDF5', iconColor: '#059669' },
-    { label: 'Car Engine\nScanning', value: 'engine_repair', icon: 'engine-outline', library: 'MaterialCommunityIcons', bg: '#EEF2F6', iconColor: '#4B5563' },
-    { label: 'Wheel-Lift\nTow (20 Kms)', value: 'towing', icon: 'truck', library: 'FontAwesome5', bg: '#EEF2FF', iconColor: '#4F46E5' },
+    { label: t('services.tyrePuncture', 'Tyre\nPuncture'), value: 'tire_repair', icon: 'car-tire-alert', library: 'MaterialCommunityIcons', bg: '#FFF0F0', iconColor: '#E8192C' },
+    { label: t('services.fuelAssistance', 'Fuel\nAssistance'), value: 'fuel_delivery', icon: 'gas-station', library: 'MaterialCommunityIcons', bg: '#FFF7ED', iconColor: '#F97316' },
+    { label: t('services.batteryJumpstart', 'Battery\nJumpstart'), value: 'battery', icon: 'flash', library: 'Ionicons', bg: '#FEF08A', iconColor: '#CA8A04' },
+    { label: t('services.carFluidLeakage', 'Car Fluid\nLeakage'), value: 'other', icon: 'water', library: 'Ionicons', bg: '#ECFDF5', iconColor: '#059669' },
+    { label: t('services.carEngineScanning', 'Car Engine\nScanning'), value: 'engine_repair', icon: 'engine-outline', library: 'MaterialCommunityIcons', bg: '#EEF2F6', iconColor: '#4B5563' },
+    { label: t('services.wheelLiftTow', 'Wheel-Lift\nTow (20 Kms)'), value: 'towing', icon: 'truck', library: 'FontAwesome5', bg: '#EEF2FF', iconColor: '#4F46E5' },
   ];
 
   const renderServiceIcon = (service) => {
@@ -104,7 +128,7 @@ export default function SOSScreen({ navigation }) {
     try {
       const token = await AsyncStorage.getItem('userToken');
       if (!token) {
-        Alert.alert('Error', 'Please log in to use SOS');
+        Alert.alert(t('common.error', 'Error'), t('request.loginToUseSos', 'Please log in to use SOS'));
         navigation.replace('Login');
         return;
       }
@@ -116,15 +140,15 @@ export default function SOSScreen({ navigation }) {
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          lat: latitude,
-          lng: longitude,
+          lat: latitude || 28.6139,
+          lng: longitude || 77.2090,
           serviceType: service.value,
           description: `SOS: ${service.label.replace('\n', ' ')}`
         })
       });
 
       if (response.status === 401) {
-        Alert.alert('Session Expired', 'Your session has expired. Please login again.');
+        Alert.alert(t('auth.sessionExpired', 'Session Expired'), t('auth.loginAgain', 'Your session has expired. Please login again.'));
         await AsyncStorage.multiRemove(['token', 'user', 'tokenStoredAt']);
         navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
         return;
@@ -132,15 +156,15 @@ export default function SOSScreen({ navigation }) {
 
       if (response.ok) {
         const data = await response.json();
-        Alert.alert('SOS Broadcasting 🚨', `Emergency request for ${service.label.replace('\n', ' ')} has been sent!`);
-        navigation.navigate('SOSConfirmation', { sosId: data._id, lat: latitude, lng: longitude });
+        Alert.alert(t('request.sosBroadcasting', 'SOS Broadcasting 🚨'), t('request.sosSentMsg', 'Emergency request for {{service}} has been sent!', { service: service.label.replace('\n', ' ') }));
+        navigation.navigate('SOSConfirmation', { sosId: data._id, lat: latitude || 28.6139, lng: longitude || 77.2090 });
       } else {
         const data = await response.json();
-        Alert.alert('SOS Failed', data.message || 'Something went wrong.');
+        Alert.alert(t('request.sosFailed', 'SOS Failed'), data.message || t('common.error', 'Something went wrong.'));
       }
     } catch (err) {
       console.log('Error triggering SOS:', err);
-      Alert.alert('SOS Failed', 'Cannot connect to server.');
+      Alert.alert(t('request.sosFailed', 'SOS Failed'), t('common.serverError', 'Cannot connect to server.'));
     } finally {
       setLoading(false);
     }
@@ -154,7 +178,7 @@ export default function SOSScreen({ navigation }) {
       <View style={styles.locationBar}>
         <Ionicons name="location-sharp" size={18} color="#1F2937" style={{ marginRight: 6 }} />
         <Text style={styles.locationText} numberOfLines={1}>
-          {address}
+          {address === 'Fetching your location...' ? t('request.fetchingLocation', 'Fetching your location...') : address}
         </Text>
       </View>
 
@@ -164,13 +188,13 @@ export default function SOSScreen({ navigation }) {
           ref={mapRef}
           style={styles.map}
           initialRegion={{
-            latitude: latitude,
-            longitude: longitude,
+            latitude: latitude || 28.6139,
+            longitude: longitude || 77.2090,
             latitudeDelta: 0.005,
             longitudeDelta: 0.005,
           }}
         >
-          <Marker coordinate={{ latitude, longitude }}>
+          <Marker coordinate={{ latitude: latitude || 28.6139, longitude: longitude || 77.2090 }}>
             <View style={styles.markerContainer}>
               <View style={styles.markerPin} />
             </View>
@@ -198,12 +222,12 @@ export default function SOSScreen({ navigation }) {
 
       {/* 3. Emergency Services List */}
       <View style={styles.servicesContainer}>
-        <Text style={styles.servicesTitle}>Choose your Emergency Service</Text>
+        <Text style={styles.servicesTitle}>{t('request.chooseEmergencyService', 'Choose your Emergency Service')}</Text>
 
         {loading ? (
           <View style={styles.loaderContainer}>
             <ActivityIndicator size="large" color="#E8192C" />
-            <Text style={styles.loaderText}>Broadcasting Emergency Signal...</Text>
+            <Text style={styles.loaderText}>{t('request.broadcastingEmergencySignal', 'Broadcasting Emergency Signal...')}</Text>
           </View>
         ) : (
           <View style={styles.grid}>
@@ -233,45 +257,13 @@ export default function SOSScreen({ navigation }) {
         {/* Assisted Label */}
         <View style={styles.assistedContainer}>
           <View style={styles.assistedLine} />
-          <Text style={styles.assistedText}>465 Customers Assisted Today</Text>
+          <Text style={styles.assistedText}>{t('request.customersAssisted', '465 Customers Assisted Today')}</Text>
           <View style={styles.assistedLine} />
         </View>
       </View>
 
       {/* 4. Bottom Navigation Bar */}
-      <View style={styles.bottomNavBar}>
-        {/* Home */}
-        <TouchableOpacity style={styles.navTab} onPress={() => navigation.navigate('Home')}>
-          <Ionicons name="home-outline" size={24} color="#6B7280" />
-          <Text style={styles.navText}>Home</Text>
-        </TouchableOpacity>
-
-        {/* Bookings */}
-        <TouchableOpacity style={styles.navTab} onPress={() => navigation.navigate('ServiceHistory')}>
-          <MaterialCommunityIcons name="calendar-check-outline" size={24} color="#6B7280" />
-          <Text style={styles.navText}>Bookings</Text>
-        </TouchableOpacity>
-
-        {/* SOS - Active Siren */}
-        <TouchableOpacity style={styles.sosNavButton} activeOpacity={1}>
-          <View style={styles.sosNavCircle}>
-            <Ionicons name="notifications" size={26} color="#FFF" />
-          </View>
-          <Text style={[styles.sosNavText, styles.activeNavText]}>SOS</Text>
-        </TouchableOpacity>
-
-        {/* Help */}
-        <TouchableOpacity style={styles.navTab} onPress={() => navigation.navigate('Help')}>
-          <Ionicons name="help-circle-outline" size={24} color="#6B7280" />
-          <Text style={styles.navText}>Help</Text>
-        </TouchableOpacity>
-
-        {/* Account / Settings */}
-        <TouchableOpacity style={styles.navTab} onPress={() => navigation.navigate('Account')}>
-          <Ionicons name="person-outline" size={24} color="#6B7280" />
-          <Text style={styles.navText}>Account</Text>
-        </TouchableOpacity>
-      </View>
+      <GlobalBottomNav />
     </View>
   );
 }

@@ -42,70 +42,85 @@ router.get('/stats', authMiddleware, async (req, res) => {
 });
 
 // GET /api/mechanic/requests/pending
+// Returns pending requests within 4 km of the mechanic using MongoDB $geoNear.
+// Distance is provided by the DB — no manual haversine calculation.
 router.get('/requests/pending', authMiddleware, async (req, res) => {
   try {
     const ServiceRequest = require('../models/ServiceRequest');
     const Mechanic = require('../models/Mechanic');
+    const { calculateHaversineDistance } = require('../services/mapService');
 
     const mechanic = await Mechanic.findOne({ $or: [{ _id: req.user.id }, { userId: req.user.id }] });
 
-    const query = {
-      status: 'pending',
-      rejectedBy: { $ne: req.user.id }
-    };
-
-    if (mechanic && !mechanic.isOnline) {
+    if (!mechanic || !mechanic.isOnline) {
       return res.status(200).json([]);
     }
 
-    const requests = await ServiceRequest.find(query)
-      .populate('customer', 'name phone')
-      .sort({ last_price_update_time: -1, createdAt: -1 });
+    const [mLng, mLat] = mechanic.location?.coordinates || [0, 0];
 
-    const getDistanceInKm = (lat1, lon1, lat2, lon2) => {
-      const R = 6371;
-      const dLat = (lat2 - lat1) * (Math.PI / 180);
-      const dLon = (lon2 - lon1) * (Math.PI / 180);
-      const a =
-        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
-        Math.sin(dLon / 2) * Math.sin(dLon / 2);
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      return R * c;
-    };
+    // Guard: if mechanic has no valid location stored yet, return empty feed
+    if (mLng === 0 && mLat === 0) {
+      console.warn(`[NearbyRequests] Mechanic ${mechanic._id} has no location set — returning empty feed`);
+      return res.status(200).json([]);
+    }
 
-    const items = requests.map(reqItem => {
-      let distanceVal = 2.5;
-      if (
-        mechanic &&
-        mechanic.location?.coordinates?.length === 2 &&
-        reqItem.customerLocation?.coordinates?.length === 2
-      ) {
-        const [mLng, mLat] = mechanic.location.coordinates;
-        const [cLng, cLat] = reqItem.customerLocation.coordinates;
-        distanceVal = getDistanceInKm(mLat, mLng, cLat, cLng);
+    // Retrieve all pending requests not rejected by this mechanic
+    const rawRequests = await ServiceRequest.find({
+      status: 'pending',
+      rejectedBy: { $ne: mechanic._id }
+    }).populate('customer', 'name phone');
+
+    const items = rawRequests.map(reqItem => {
+      const [cLng, cLat] = reqItem.customerLocation?.coordinates || [0, 0];
+      const distanceKm = parseFloat(calculateHaversineDistance(mLat, mLng, cLat, cLng).toFixed(1));
+
+      // Calculate elapsed time in seconds to determine active search radius
+      const elapsedSeconds = (Date.now() - new Date(reqItem.createdAt).getTime()) / 1000;
+      let activeRadiusKm = 5;
+      if (elapsedSeconds >= 120) {
+        activeRadiusKm = 15;
+      } else if (elapsedSeconds >= 60) {
+        activeRadiusKm = 10;
       }
+
       return {
-        _id: reqItem._id,
-        customerName: (/** @type {any} */ (reqItem.customer))?.name || 'Customer',
-        customerPhone: (/** @type {any} */ (reqItem.customer))?.phone || '',
-        vehicleMake: reqItem.vehicleType ? (reqItem.vehicleType.charAt(0).toUpperCase() + reqItem.vehicleType.slice(1)) : 'Vehicle',
-        vehicleModel: reqItem.vehicleModel ? `${reqItem.vehicleModel} [${reqItem.vehicleNumber || 'N/A'}]` : (reqItem.vehicleNumber || 'Model'),
-        vehicleNumber: reqItem.vehicleNumber || '',
-        issueType: reqItem.serviceType,
-        issueDescription: reqItem.issueDescription || '',
-        distance: `${distanceVal.toFixed(1)} km`,
-        location: reqItem.customerAddress || 'Nearby',
-        customerLocation: reqItem.customerLocation,
-        price: reqItem.current_price || reqItem.amount || (reqItem.pricing?.totalAmount) || 350
+        reqItem,
+        distanceKm,
+        activeRadiusKm
       };
-    });
+    })
+    // Filter to requests that are within the current search radius
+    .filter(item => item.distanceKm <= item.activeRadiusKm)
+    // Sort by distance (nearest first)
+    .sort((a, b) => a.distanceKm - b.distanceKm)
+    // Format response
+    .map(({ reqItem, distanceKm }) => ({
+      _id: reqItem._id,
+      customerName: (/** @type {any} */ (reqItem.customer))?.name || 'Customer',
+      customerPhone: (/** @type {any} */ (reqItem.customer))?.phone || '',
+      vehicleMake: reqItem.vehicleType
+        ? reqItem.vehicleType.charAt(0).toUpperCase() + reqItem.vehicleType.slice(1)
+        : 'Vehicle',
+      vehicleModel: reqItem.vehicleModel
+        ? `${reqItem.vehicleModel} [${reqItem.vehicleNumber || 'N/A'}]`
+        : (reqItem.vehicleNumber || 'Model'),
+      vehicleNumber: reqItem.vehicleNumber || '',
+      issueType: reqItem.serviceType,
+      issueDescription: reqItem.issueDescription || '',
+      distanceKm,
+      location: reqItem.customerAddress || 'Nearby',
+      customerLocation: reqItem.customerLocation,
+      price: reqItem.current_price || reqItem.amount || reqItem.pricing?.totalAmount || 350,
+    }));
 
     res.status(200).json(items);
   } catch (error) {
+    console.error('[NearbyRequests Error]', error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 });
+
+
 
 // PUT /api/mechanic/requests/:id/accept
 router.put('/requests/:id/accept', authMiddleware, async (req, res) => {

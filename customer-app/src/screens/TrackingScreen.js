@@ -71,19 +71,31 @@ export default function TrackingScreen({ route, navigation }) {
       try {
         let { status: permissionStatus } = await Location.requestForegroundPermissionsAsync();
         if (permissionStatus === 'granted') {
-          let loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-          setCustomerCoords({
-            latitude: loc.coords.latitude,
-            longitude: loc.coords.longitude
-          });
+          let loc = null;
+          try {
+            loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          } catch {
+            // GPS unavailable (device indoors, location services off, etc.)
+            // Fall back to last known position so the map still renders
+            loc = await Location.getLastKnownPositionAsync();
+          }
+          if (loc) {
+            setCustomerCoords({
+              latitude: loc.coords.latitude,
+              longitude: loc.coords.longitude
+            });
+          }
+          // else: keep the customerLat/customerLng from route.params (already in default state)
         }
       } catch (err) {
-        console.log('Error requesting location:', err);
+        // Permission denied or another OS-level error — silently keep route.params coords
+        console.log('Location permission/fetch error (using route params fallback):', err?.message);
       } finally {
         setMapLoading(false);
       }
     })();
   }, []);
+
 
   useEffect(() => {
     if (!socket || !jobId) return;

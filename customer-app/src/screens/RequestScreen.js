@@ -5,6 +5,36 @@ import {
   StyleSheet, Alert, ActivityIndicator, ScrollView, Animated, Modal, FlatList
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
+import parseLocationAddress from '../utils/locationParser';
+import MapView, { Marker, Circle } from 'react-native-maps';
+
+// Helper to fetch address components from Google Geocoding API using lat,lng
+const fetchComponentsFromLatLng = async (latitude, longitude) => {
+  try {
+    const res = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${process.env.GOOGLE_MAPS_API_KEY}`);
+    const data = await res.json();
+    if (data.results && data.results.length > 0) {
+      return data.results[0].address_components || [];
+    }
+  } catch (e) {
+    console.log('Error fetching address components (latlng):', e);
+  }
+  return [];
+};
+
+// Helper to fetch address components from an address string
+const fetchComponentsFromAddress = async (address) => {
+  try {
+    const res = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${process.env.GOOGLE_MAPS_API_KEY}`);
+    const data = await res.json();
+    if (data.results && data.results.length > 0) {
+      return data.results[0].address_components || [];
+    }
+  } catch (e) {
+    console.log('Error fetching address components (address):', e);
+  }
+  return [];
+};
 import * as Location from 'expo-location';
 import { getSocket } from '../config/socket';
 
@@ -16,10 +46,12 @@ export default function RequestScreen({ navigation, route }) {
   const [customerAddress, setCustomerAddress] = useState('Current Location');
   const [vehicleType, setVehicleType] = useState('car');
   const [vehicleModelInput, setVehicleModelInput] = useState('');
+  const [locationInfo, setLocationInfo] = useState({ areaName: '', fullAddress: '' });
   const [vehicleNumber, setVehicleNumber] = useState('');
   const [loading, setLoading] = useState(false);
   const [waitingForMechanic, setWaitingForMechanic] = useState(false);
   const [jobId, setJobId] = useState(null);
+  const [searchRadius, setSearchRadius] = useState(5);
   const { token } = useContext(AuthContext);
 
   // Bidding System State
@@ -58,10 +90,14 @@ export default function RequestScreen({ navigation, route }) {
     setFetchingAddresses(false);
   };
 
-  const handleSelectSavedAddress = (item) => {
-    setCustomerAddress(item.address);
+  const handleSelectSavedAddress = async (item) => {
+    const addr = item.address;
+    setCustomerAddress(addr);
     if (item.location?.lat) setLatitude(item.location.lat);
     if (item.location?.lng) setLongitude(item.location.lng);
+    // Fetch components for saved address if lat/lng available
+    const comps = await fetchComponentsFromLatLng(item.location?.lat, item.location?.lng);
+    setLocationInfo(parseLocationAddress(comps, addr));
     setAddressModalVisible(false);
   };
 
@@ -102,9 +138,16 @@ export default function RequestScreen({ navigation, route }) {
             });
             if (geo) {
               const displayAddress = `${geo.name || geo.street || ''}, ${geo.city || geo.district || ''}`;
+              // Fetch detailed components from Google API
+              const components = await fetchComponentsFromLatLng(loc.coords.latitude, loc.coords.longitude);
+              const parsed = parseLocationAddress(components, displayAddress);
+              setLocationInfo(parsed);
               setCustomerAddress(displayAddress || 'HSR Layout, Bengaluru');
             } else {
-              setCustomerAddress('HSR Layout, Bengaluru');
+                const fallbackAddress = 'HSR Layout, Bengaluru';
+                const components = await fetchComponentsFromLatLng(loc.coords.latitude, loc.coords.longitude);
+                setCustomerAddress(fallbackAddress);
+                setLocationInfo(parseLocationAddress(components, fallbackAddress));
             }
           } else {
             Alert.alert('Permission Denied', 'Please enable location permissions to locate you automatically.');
@@ -112,6 +155,7 @@ export default function RequestScreen({ navigation, route }) {
         } catch (err) {
           console.log('Error fetching current address:', err);
           setCustomerAddress('HSR Layout, Bengaluru');
+          setLocationInfo(parseLocationAddress([], 'HSR Layout, Bengaluru'));
         }
       }
     })();
@@ -119,26 +163,35 @@ export default function RequestScreen({ navigation, route }) {
 
   // Update address & geocode if a saved address is selected
   useEffect(() => {
-    if (route.params?.selectedAddress) {
-      setCustomerAddress(route.params.selectedAddress);
-      
-      if (route.params?.lat && route.params?.lng) {
-        setLatitude(route.params.lat);
-        setLongitude(route.params.lng);
-      } else {
-        (async () => {
+    (async () => {
+      if (route.params?.selectedAddress) {
+        const addr = route.params.selectedAddress;
+        setCustomerAddress(addr);
+        
+        // Attempt to fetch components via lat/lng if provided, otherwise via address string
+        let components = [];
+        if (route.params?.lat && route.params?.lng) {
+          setLatitude(route.params.lat);
+          setLongitude(route.params.lng);
+          components = await fetchComponentsFromLatLng(route.params.lat, route.params.lng);
+        } else {
+          // Fallback geocode to get lat/lng then components
           try {
-            const geocoded = await Location.geocodeAsync(route.params.selectedAddress);
+            const geocoded = await Location.geocodeAsync(addr);
             if (geocoded && geocoded.length > 0) {
               setLatitude(geocoded[0].latitude);
               setLongitude(geocoded[0].longitude);
+              components = await fetchComponentsFromLatLng(geocoded[0].latitude, geocoded[0].longitude);
             }
           } catch (err) {
             console.log('Error geocoding selected address:', err);
           }
-        })();
+        }
+        const parsed = parseLocationAddress(components, addr);
+        setLocationInfo(parsed);
       }
-    }
+    })();
+    
     if (route.params?.serviceType) {
       setServiceType(route.params.serviceType);
     }
@@ -208,6 +261,7 @@ export default function RequestScreen({ navigation, route }) {
         if (socket) {
           socket.off('job:accepted:notify');
           socket.off('request:price_updated');
+          socket.off('request:search_radius_update');
         }
       }
     };
@@ -541,6 +595,9 @@ export default function RequestScreen({ navigation, route }) {
         setCurrentBiddingPrice(350);
         setWaitingForMechanic(true);
 
+        // Reset search radius to 5km
+        setSearchRadius(5);
+
         const socket = getSocket(token);
         socket.emit('join:job:room', { jobId: createdJobId });
 
@@ -549,25 +606,37 @@ export default function RequestScreen({ navigation, route }) {
         socket.on('job:accepted:notify', (mechanicDetails) => {
           try {
             console.log('[Socket] Job accepted by mechanic:', mechanicDetails);
+            if (!mechanicDetails) {
+              console.error('[REQUEST_ACCEPTED_LISTENER_ERROR] Received empty mechanicDetails payload');
+              return;
+            }
             setWaitingForMechanic(false);
             clearInterval(countdownIntervalRef.current);
             socket.off('job:accepted:notify');
             socket.off('request:price_updated');
 
-            const coords = data.request?.customerLocation?.coordinates;
+            const coords = data?.request?.customerLocation?.coordinates;
             const custLat = Array.isArray(coords) && coords.length >= 2 ? coords[1] : 28.6139;
             const custLng = Array.isArray(coords) && coords.length >= 2 ? coords[0] : 77.2090;
 
-            navigation.replace('Tracking', {
-              jobId: createdJobId,
-              mechanicId: mechanicDetails?.mechanicId ?? null,
-              mechanicName: mechanicDetails?.mechanicName ?? 'Professional Mechanic',
-              mechanicPhone: mechanicDetails?.mechanicPhone ?? '',
-              customerLat: custLat,
-              customerLng: custLng
-            });
+            try {
+              navigation.replace('RequestAccepted', {
+                requestId: createdJobId,
+              });
+            } catch (navErr) {
+              console.error('[REQUEST_ACCEPTED_LISTENER_ERROR] Navigation replace crashed:', navErr, { requestId: createdJobId });
+              Alert.alert('Error', 'Unable to navigate to status screen.');
+            }
           } catch (err) {
-            console.error('[Socket] Error handling job:accepted:notify in RequestScreen:', err);
+            console.error('[REQUEST_ACCEPTED_LISTENER_ERROR] General error in job:accepted:notify handler:', err, { mechanicDetails });
+          }
+        });
+
+        // Listen for search radius updates from matchmaking loop
+        socket.off('request:search_radius_update');
+        socket.on('request:search_radius_update', (data) => {
+          if (data && data.radiusKm) {
+            setSearchRadius(data.radiusKm);
           }
         });
 
@@ -657,7 +726,13 @@ export default function RequestScreen({ navigation, route }) {
           activeOpacity={0.7}
         >
           <Ionicons name="location-sharp" size={20} color="#E8192C" style={{ marginRight: 8 }} />
-          <Text style={styles.addressBtnText} numberOfLines={1}>{customerAddress}</Text>
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Text style={styles.areaName}>{locationInfo.areaName}</Text>
+              <Ionicons name="chevron-down" size={14} color="#D32F2F" style={{ marginLeft: 4 }} />
+            </View>
+            <Text style={styles.fullAddress} numberOfLines={1} ellipsizeMode="tail">{locationInfo.fullAddress}</Text>
+          </View>
           <Text style={styles.changeText}>Change</Text>
         </TouchableOpacity>
 
@@ -740,45 +815,68 @@ export default function RequestScreen({ navigation, route }) {
         <View style={{ height: 40 }} />
       </ScrollView>
 
-      {/* Waiting Overlay with Bidding Integration */}
+      {/* Waiting Overlay with full-screen map & dashed matching radius */}
       {waitingForMechanic && (
         <View style={styles.waitingOverlay}>
-          <Animated.View style={[styles.pulseCircle, {
-            transform: [{
-              scale: pulseAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: [1, 2.8]
-              })
-            }],
-            opacity: pulseAnim.interpolate({
-              inputRange: [0, 1],
-              outputRange: [0.6, 0]
-            })
-          }]} />
-          <View style={styles.pulseCore}>
-            <Text style={{ fontSize: 36 }}>🚗</Text>
-          </View>
-          <Text style={styles.waitingText}>Finding a nearby mechanic...</Text>
-          <Text style={styles.waitingSubtext}>We are locating the best technician for you.</Text>
-          
-
-          {countdown > 0 ? (
-            <Text style={styles.timerText}>Next offer increase available in {countdown}s</Text>
-          ) : (
-            <TouchableOpacity style={styles.increaseOfferOverlayBtn} onPress={() => setShowBidModal(true)}>
-              <Text style={styles.increaseOfferOverlayBtnText}>⚡ Increase Offer Now</Text>
-            </TouchableOpacity>
-          )}
-
-          <TouchableOpacity
-            style={styles.waitingCancelBtn}
-            onPress={() => {
-              setWaitingForMechanic(false);
-              navigation.goBack();
+          <MapView
+            style={StyleSheet.absoluteFillObject}
+            initialRegion={{
+              latitude: latitude,
+              longitude: longitude,
+              latitudeDelta: 0.25,
+              longitudeDelta: 0.25,
             }}
           >
-            <Text style={styles.waitingCancelText}>Cancel</Text>
-          </TouchableOpacity>
+            <Marker coordinate={{ latitude, longitude }}>
+              <View style={styles.customerMarkerPin}>
+                <Ionicons name="location-sharp" size={36} color="#E8192C" />
+              </View>
+            </Marker>
+            <Circle
+              center={{ latitude, longitude }}
+              radius={searchRadius * 1000}
+              strokeWidth={2}
+              strokeColor="#E8192C"
+              fillColor="rgba(232, 25, 44, 0.08)"
+              lineDashPattern={[6, 6]}
+            />
+          </MapView>
+
+          {/* Top Status Panel */}
+          <View style={styles.topStatusPanel}>
+            <Text style={styles.topStatusTitle}>Searching nearby mechanics...</Text>
+            <Text style={styles.topStatusSubtitle}>Radius: {searchRadius} km</Text>
+            <ActivityIndicator size="small" color="#E8192C" style={{ marginTop: 8 }} />
+          </View>
+
+          {/* Bottom Actions */}
+          <View style={styles.bottomOverlayContainer}>
+            <TouchableOpacity
+              style={styles.cancelOverlayBtn}
+              onPress={async () => {
+                try {
+                  await fetch(`${API_URL}/api/requests/${jobId}`, {
+                    method: 'PUT',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ status: 'cancelled' })
+                  });
+                  const socket = getSocket(token);
+                  if (socket) {
+                    socket.emit('job:status:update', { jobId, status: 'cancelled' });
+                  }
+                } catch (e) {
+                  console.log('Error cancelling request:', e);
+                }
+                setWaitingForMechanic(false);
+                navigation.goBack();
+              }}
+            >
+              <Text style={styles.cancelOverlayBtnText}>Cancel Request</Text>
+            </TouchableOpacity>
+          </View>
 
           {/* Rapido-style Bidding bottom sheet dialog */}
           {showBidModal && (
@@ -921,6 +1019,15 @@ const styles = StyleSheet.create({
     color: '#374151',
     flex: 1,
   },
+  areaName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#D32F2F',
+  },
+  fullAddress: {
+    fontSize: 13,
+    color: '#555',
+  },
   changeText: {
     color: '#E8192C',
     fontWeight: 'bold',
@@ -1055,54 +1162,59 @@ const styles = StyleSheet.create({
   // Waiting Overlay styles
   waitingOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(26, 26, 46, 0.95)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: '#fff',
     zIndex: 1000,
   },
-  pulseCircle: {
-    position: 'absolute',
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: '#E8192C',
-  },
-  pulseCore: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#E8192C',
+  customerMarkerPin: {
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 10,
-    shadowColor: '#E8192C',
-    shadowOpacity: 0.5,
-    shadowRadius: 10,
+  },
+  topStatusPanel: {
+    position: 'absolute',
+    top: 50,
+    left: 20,
+    right: 20,
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
-    marginBottom: 30,
   },
-  waitingText: {
-    color: '#fff',
-    fontSize: 20,
+  topStatusTitle: {
+    fontSize: 16,
     fontWeight: 'bold',
-    marginBottom: 8,
+    color: '#1F2937',
   },
-  waitingSubtext: {
-    color: '#aaa',
+  topStatusSubtitle: {
     fontSize: 14,
-    textAlign: 'center',
-    paddingHorizontal: 40,
-    marginBottom: 40,
-  },
-  waitingCancelBtn: {
-    paddingVertical: 12,
-    paddingHorizontal: 30,
-    borderWidth: 1.5,
-    borderColor: '#E8192C',
-    borderRadius: 25,
-  },
-  waitingCancelText: {
     color: '#E8192C',
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  bottomOverlayContainer: {
+    position: 'absolute',
+    bottom: 40,
+    left: 20,
+    right: 20,
+    alignItems: 'center',
+  },
+  cancelOverlayBtn: {
+    backgroundColor: '#E8192C',
+    paddingVertical: 14,
+    paddingHorizontal: 40,
+    borderRadius: 25,
+    elevation: 4,
+    shadowColor: '#E8192C',
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  cancelOverlayBtnText: {
+    color: '#fff',
     fontWeight: 'bold',
     fontSize: 16,
   },

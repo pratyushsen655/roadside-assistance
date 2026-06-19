@@ -89,11 +89,7 @@ export default function AppSplashScreen({ onFinish, navigation }) {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#B34700" />
-      
-      {/* Background gradient effect */}
-      <View style={styles.topHalf} />
-      <View style={styles.bottomHalf} />
+      <StatusBar barStyle="light-content" backgroundColor="#E8772C" />
 
       {/* Logo */}
       <Animated.View style={[styles.logoContainer, {
@@ -109,9 +105,10 @@ export default function AppSplashScreen({ onFinish, navigation }) {
         </View>
       </Animated.View>
 
+
       {/* App Name */}
       <Animated.Text style={[styles.appName, { opacity: textOpacity }]}>
-        RescueMe
+        RoadMitra
       </Animated.Text>
 
       {/* Tagline */}
@@ -137,25 +134,9 @@ export default function AppSplashScreen({ onFinish, navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#B34700',
+    backgroundColor: '#E8772C',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  topHalf: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: height * 0.6,
-    backgroundColor: '#B34700',
-  },
-  bottomHalf: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: height * 0.4,
-    backgroundColor: '#8B3300',
   },
   logoContainer: {
     marginBottom: 24,

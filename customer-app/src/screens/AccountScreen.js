@@ -9,10 +9,13 @@ import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-ico
 import Skeleton from '../components/Skeleton';
 import { theme } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
+import { useTranslation } from 'react-i18next';
+import GlobalBottomNav from '../components/GlobalBottomNav';
 
 const { width } = Dimensions.get('window');
 
 export default function AccountScreen({ navigation }) {
+  const { t } = useTranslation();
   const { logout } = useAuth();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -35,7 +38,7 @@ export default function AccountScreen({ navigation }) {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (response.status === 401) {
-        Alert.alert('Session Expired', 'Your session has expired. Please login again.');
+        Alert.alert(t('auth.sessionExpired', 'Session Expired'), t('auth.loginAgain', 'Please login again to continue.'));
         await AsyncStorage.multiRemove(['userToken', 'userData', 'tokenStoredAt', 'token', 'user']);
         navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
         return;
@@ -46,14 +49,14 @@ export default function AccountScreen({ navigation }) {
       } else {
         // Mock fallback for guest/dev environments
         setUser({
-          name: 'Guest Customer',
+          name: t('account.guestCustomer', 'Guest Customer'),
           phone: '9876543210'
         });
       }
     } catch (error) {
       console.log('Error loading user profile:', error);
       setUser({
-        name: 'Guest Customer',
+        name: t('account.guestCustomer', 'Guest Customer'),
         phone: '9876543210'
       });
     } finally {
@@ -65,12 +68,12 @@ export default function AccountScreen({ navigation }) {
 
   const handleLogout = () => {
     Alert.alert(
-      'Logout',
-      'Choose logout option:',
+      t('account.logOut', 'Log Out'),
+      t('account.chooseLogoutOption', 'Choose logout option:'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel', 'Cancel'), style: 'cancel' },
         {
-          text: 'Logout This Device',
+          text: t('account.logoutThisDevice', 'Logout This Device'),
           onPress: async () => {
             try {
               await logout();
@@ -81,7 +84,7 @@ export default function AccountScreen({ navigation }) {
           },
         },
         {
-          text: 'Logout All Devices',
+          text: t('account.logoutAllDevices', 'Logout All Devices'),
           style: 'destructive',
           onPress: async () => {
             try {
@@ -153,7 +156,7 @@ export default function AccountScreen({ navigation }) {
         {/* Header Section */}
         <Animated.View entering={FadeInUp.delay(100).duration(400)} style={styles.header}>
           <Text style={styles.greetingText}>
-            Hello, <Text style={styles.boldText}>{user?.name || 'Customer'}</Text>
+            {t('account.hello', 'Hello,')} <Text style={styles.boldText}>{user?.name || t('account.guestCustomer', 'Customer')}</Text>
           </Text>
           <Text style={styles.phoneText}>
             🇮🇳 +91 {formatPhoneNumber(user?.phone)}
@@ -171,7 +174,7 @@ export default function AccountScreen({ navigation }) {
               <MaterialCommunityIcons name="package-variant-closed" size={24} color="#E8192C" />
               <Ionicons name="time" size={12} color="#E8192C" style={styles.clockSubIcon} />
             </View>
-            <Text style={styles.actionLabel}>Order History</Text>
+            <Text style={styles.actionLabel}>{t('account.orderHistory', 'Order History')}</Text>
           </TouchableOpacity>
 
           {/* My Vehicles */}
@@ -182,7 +185,7 @@ export default function AccountScreen({ navigation }) {
             <View style={styles.actionIconBg}>
               <Ionicons name="car" size={24} color="#E8192C" />
             </View>
-            <Text style={styles.actionLabel}>My Vehicles</Text>
+            <Text style={styles.actionLabel}>{t('account.myVehicles', 'My Vehicles')}</Text>
           </TouchableOpacity>
 
           {/* Help & Support */}
@@ -190,15 +193,15 @@ export default function AccountScreen({ navigation }) {
             style={styles.actionItem}
             onPress={() => {
               Alert.alert(
-                'Help & Support',
-                'Need assistance? Call us 24/7 at +1-800-555-0199 or email support@roadsideassistance.com.'
+                t('account.helpSupport', 'Help & Support'),
+                t('account.helpSupportAlert', 'Need assistance? Call us 24/7 at +1-800-555-0199 or email support@roadsideassistance.com.')
               );
             }}
           >
             <View style={styles.actionIconBg}>
               <Ionicons name="headset" size={24} color="#E8192C" />
             </View>
-            <Text style={styles.actionLabel}>Help & Support</Text>
+            <Text style={styles.actionLabel}>{t('account.helpSupport', 'Help & Support')}</Text>
           </TouchableOpacity>
         </Animated.View>
 
@@ -216,9 +219,9 @@ export default function AccountScreen({ navigation }) {
               <View style={styles.menuIconCircle}>
                 <Ionicons name="person-outline" size={20} color="#374151" />
               </View>
-              <Text style={styles.menuLabel}>Profile</Text>
+              <Text style={styles.menuLabel}>{t('account.profile', 'Profile')}</Text>
               <View style={styles.incompleteBadge}>
-                <Text style={styles.incompleteBadgeText}>Incomplete</Text>
+                <Text style={styles.incompleteBadgeText}>{t('account.incomplete', 'Incomplete')}</Text>
               </View>
             </View>
             <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
@@ -228,14 +231,14 @@ export default function AccountScreen({ navigation }) {
           <TouchableOpacity
             style={styles.menuItem}
             onPress={() => {
-              Alert.alert('Preferences', 'Preference settings coming soon!');
+              Alert.alert(t('account.preferences', 'Preferences'), t('account.preferencesSoon', 'Preference settings coming soon!'));
             }}
           >
             <View style={styles.menuItemLeft}>
               <View style={styles.menuIconCircle}>
                 <Ionicons name="sliders-outline" size={20} color="#374151" />
               </View>
-              <Text style={styles.menuLabel}>Set Preferences</Text>
+              <Text style={styles.menuLabel}>{t('account.preferences', 'Set Preferences')}</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
           </TouchableOpacity>
@@ -249,40 +252,22 @@ export default function AccountScreen({ navigation }) {
               <View style={styles.menuIconCircle}>
                 <Ionicons name="gift-outline" size={20} color="#374151" />
               </View>
-              <Text style={styles.menuLabel}>Refer and Earn</Text>
+              <Text style={styles.menuLabel}>{t('account.referEarn', 'Refer and Earn')}</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
           </TouchableOpacity>
 
-          {/* Register as Partner */}
-          <TouchableOpacity
-            style={styles.menuItem}
-            onPress={() => {
-              Alert.alert(
-                'Register as Partner',
-                'Become a towing or service partner with us. Register details at partners@roadside.com'
-              );
-            }}
-          >
-            <View style={styles.menuItemLeft}>
-              <View style={styles.menuIconCircle}>
-                <FontAwesome5 name="handshake" size={16} color="#374151" />
-              </View>
-              <Text style={styles.menuLabel}>Register as Partner</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
-          </TouchableOpacity>
         </Animated.View>
 
         {/* Settings Section with Switch */}
         <Animated.View entering={FadeInDown.delay(350).duration(500)} style={styles.settingsSection}>
-          <Text style={styles.settingsSectionTitle}>Settings</Text>
+          <Text style={styles.settingsSectionTitle}>{t('account.settings', 'Settings')}</Text>
           <View style={styles.settingsItem}>
             <View style={styles.settingsLeft}>
               <View style={styles.menuIconCircle}>
                 <Ionicons name="notifications-outline" size={20} color="#374151" />
               </View>
-              <Text style={styles.settingsLabel}>App Notifications</Text>
+              <Text style={styles.settingsLabel}>{t('account.appNotifications', 'App Notifications')}</Text>
             </View>
             <Switch
               trackColor={{ false: '#E5E7EB', true: '#FED7D7' }}
@@ -303,7 +288,7 @@ export default function AccountScreen({ navigation }) {
               <View style={styles.menuIconCircle}>
                 <Ionicons name="globe-outline" size={20} color="#374151" />
               </View>
-              <Text style={styles.settingsLabel}>App Language</Text>
+              <Text style={styles.settingsLabel}>{t('account.appLanguage', 'App Language')}</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
           </TouchableOpacity>
@@ -312,7 +297,7 @@ export default function AccountScreen({ navigation }) {
         {/* Log Out Option */}
         <Animated.View entering={FadeInDown.delay(380).duration(500)}>
           <TouchableOpacity style={styles.logoutContainer} onPress={handleLogout}>
-            <Text style={styles.logoutText}>Log Out</Text>
+            <Text style={styles.logoutText}>{t('account.logOut', 'Log Out')}</Text>
             <Ionicons name="chevron-forward" size={20} color="#111827" />
           </TouchableOpacity>
         </Animated.View>
@@ -320,8 +305,8 @@ export default function AccountScreen({ navigation }) {
         {/* Footer links */}
         <Animated.View entering={FadeInDown.delay(400).duration(500)} style={styles.footer}>
           <View style={styles.footerLinks}>
-            <TouchableOpacity onPress={() => Alert.alert('Privacy Policy', 'Standard roadside app privacy terms.')}>
-              <Text style={styles.footerLinkText}>Privacy Policy</Text>
+            <TouchableOpacity onPress={() => Alert.alert(t('account.privacyPolicy', 'Privacy Policy'), t('account.privacyPolicyDetail', 'Standard roadside app privacy terms.'))}>
+              <Text style={styles.footerLinkText}>{t('account.privacyPolicy', 'Privacy Policy')}</Text>
             </TouchableOpacity>
             <Text style={styles.footerDot}>•</Text>
             <Text style={styles.footerVersionText}>v3.2.5</Text>
@@ -330,39 +315,7 @@ export default function AccountScreen({ navigation }) {
       </ScrollView>
 
       {/* Sticky Bottom Navigation Bar */}
-      <View style={styles.bottomNavBar}>
-        {/* Home */}
-        <TouchableOpacity style={styles.navTab} onPress={() => navigation.navigate('Home')}>
-          <Ionicons name="home-outline" size={24} color="#6B7280" />
-          <Text style={styles.navText}>Home</Text>
-        </TouchableOpacity>
-
-        {/* Bookings */}
-        <TouchableOpacity style={styles.navTab} onPress={() => navigation.navigate('ServiceHistory')}>
-          <MaterialCommunityIcons name="calendar-check-outline" size={24} color="#6B7280" />
-          <Text style={styles.navText}>Bookings</Text>
-        </TouchableOpacity>
-
-        {/* SOS - Center floating bell */}
-        <TouchableOpacity style={styles.sosNavButton} onPress={() => navigation.navigate('SOS')} activeOpacity={0.85}>
-          <View style={styles.sosNavCircle}>
-            <Ionicons name="notifications-outline" size={26} color="#FFF" />
-          </View>
-          <Text style={styles.sosNavText}>SOS</Text>
-        </TouchableOpacity>
-
-        {/* Help */}
-        <TouchableOpacity style={styles.navTab} onPress={() => navigation.navigate('Help')}>
-          <Ionicons name="help-circle-outline" size={24} color="#6B7280" />
-          <Text style={styles.navText}>Help</Text>
-        </TouchableOpacity>
-
-        {/* Account / Active */}
-        <TouchableOpacity style={styles.navTab} onPress={() => {}}>
-          <Ionicons name="person" size={24} color="#E8192C" style={styles.activeNavIcon} />
-          <Text style={[styles.navText, styles.activeNavText]}>Account</Text>
-        </TouchableOpacity>
-      </View>
+      <GlobalBottomNav />
     </View>
   );
 }

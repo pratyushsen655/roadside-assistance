@@ -26,6 +26,10 @@ import AccountScreen from '../screens/AccountScreen';
 import HelpScreen from '../screens/HelpScreen';
 import ForgotPasswordScreen from '../screens/ForgotPasswordScreen';
 import LanguageSelectionScreen from '../screens/LanguageSelectionScreen';
+import RequestAcceptedScreen from '../screens/RequestAcceptedScreen';
+import BikeServiceRatesScreen from '../screens/BikeServiceRatesScreen';
+import CarServiceRatesScreen from '../screens/CarServiceRatesScreen';
+import SOSCustomerBoardScreen from '../screens/SOSCustomerBoardScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -57,17 +61,20 @@ export default function RootNavigator() {
           <Stack.Screen name="Account" component={AccountScreen} options={{ headerShown: false }} />
           <Stack.Screen name="SOS" component={SOSScreen} />
           <Stack.Screen name="SOSConfirmation" component={SOSConfirmationScreen} />
+          <Stack.Screen name="SOSCustomerBoard" component={SOSCustomerBoardScreen} />
           <Stack.Screen name="Tracking" component={TrackingScreen} options={{ headerShown: false }} />
           <Stack.Screen name="Payment" component={PaymentScreen} options={{ headerShown: false }} />
           <Stack.Screen name="ServiceHistory" component={ServiceHistoryScreen} options={{ headerShown: false }} />
           <Stack.Screen name="RateJob" component={RateJobScreen} options={{ headerShown: false }} />
           <Stack.Screen name="MechanicProfile" component={MechanicProfileScreen} options={{ headerShown: false }} />
-          {/* Language selection accessible from settings */}
+          <Stack.Screen name="RequestAccepted" component={RequestAcceptedScreen} options={{ headerShown: false }} />
           <Stack.Screen
             name="LanguageSelection"
             component={LanguageSelectionScreen}
             options={{ headerShown: false, animation: 'slide_from_bottom' }}
           />
+          <Stack.Screen name="BikeServiceRates" component={BikeServiceRatesScreen} />
+          <Stack.Screen name="CarServiceRates" component={CarServiceRatesScreen} />
         </>
       ) : (
         <>

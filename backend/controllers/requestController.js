@@ -106,8 +106,8 @@ exports.createRequest = async (req, res, next) => {
 
     // 4. Trigger Real-time broadcasts if booking is INSTANT
     if (serviceRequest.bookingType === 'instant') {
-      // Find matches using AI scoring service
-      const optimalMatches = await aiService.findOptimalMechanics(serviceRequest, 10);
+      // Find matches using AI scoring service — hard 4 km radius (same as feed endpoint)
+      const optimalMatches = await aiService.findOptimalMechanics(serviceRequest, 4);
       
       // Get all fcmTokens and socketIds of mechanics
       const mechanicTokens = [];

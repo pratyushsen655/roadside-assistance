@@ -3,15 +3,18 @@ import React, { useState, useEffect, useContext } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
   FlatList, Modal, TextInput, LayoutAnimation,
-  Platform, UIManager, Alert, LogBox, ActivityIndicator
+  Platform, UIManager, Alert, ActivityIndicator
 } from 'react-native';
 import { AuthContext } from '../context/AuthContext';
 import * as Location from 'expo-location';
 import MapView from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 
-LogBox.ignoreLogs(['setLayoutAnimationEnabledExperimental']);
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+// Enable LayoutAnimation on Android Old Architecture only
+// (New Architecture handles this natively — calling the experimental
+// API there is a no-op and prints a warning, so we skip it)
+const isOldArchitecture = !('__turboModuleProxy' in global);
+if (Platform.OS === 'android' && isOldArchitecture && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 

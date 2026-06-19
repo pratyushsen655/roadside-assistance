@@ -77,7 +77,7 @@ export default function ReferralScreen({ navigation }) {
   };
 
   const appLink = `https://play.google.com/store/apps/details?id=com.praty.roadsideassist&referral=${data.referralCode}`;
-  const shareMessage = `🚗 Stranded on the road? Get instant mechanic help!\n\n📲 Download RescueMe app:\n${appLink}\n\n🎁 Use my referral code *${data.referralCode}* at signup to get ₹30 off your first service!\n\n🔧 Fast • Reliable • 24/7 Roadside Assistance`;
+  const shareMessage = `🚗 Stranded on the road? Get instant mechanic help!\n\n📲 Download RoadMitra app:\n${appLink}\n\n🎁 Use my referral code *${data.referralCode}* at signup to get ₹30 off your first service!\n\n🔧 Fast • Reliable • 24/7 Roadside Assistance`;
 
   const shareOnWhatsApp = async () => {
     const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(shareMessage)}`;
@@ -94,7 +94,7 @@ export default function ReferralScreen({ navigation }) {
       await Share.share({
         message: shareMessage,
         url: appLink,
-        title: 'Download RescueMe - Roadside Assistance',
+        title: 'Download RoadMitra - Roadside Assistance',
       });
     } catch (error) {
       Alert.alert('Error', 'Could not open share menu');

@@ -20,7 +20,11 @@ const TrustBadges = () => {
           <View style={[styles.circle, { width: badgeSize, height: badgeSize, borderRadius: badgeSize / 2 }]}>
             <MaterialCommunityIcons name={item.icon} size={badgeSize * 0.5} color={'#E8192C'} />
           </View>
+<<<<<<< Updated upstream
           <Text style={styles.label}>{item.label[0]}{'\n'}{item.label[1]}</Text>
+=======
+          <Text style={styles.label}>{`${item.label[0]}\n${item.label[1]}`}</Text>
+>>>>>>> Stashed changes
         </View>
       ))}
     </View>

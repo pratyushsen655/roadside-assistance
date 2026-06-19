@@ -220,7 +220,7 @@ export default function LoginScreen({ navigation }) {
         <View style={styles.logoCircle}>
           <Text style={styles.logoEmoji}>🚗</Text>
         </View>
-        <Text style={styles.heroTitle}>Roadside Assistance</Text>
+        <Text style={styles.heroTitle}>RoadMitra</Text>
         <Text style={styles.heroSub}>Fast help, wherever you are</Text>
       </View>
 

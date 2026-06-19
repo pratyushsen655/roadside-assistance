@@ -24,9 +24,22 @@ router.post('/', authMiddleware, async (req, res) => {
       description: description || 'Emergency SOS Request'
     });
 
-    // Broadcast new SOS to all mechanics listening
+    // Broadcast new SOS to mechanics within 5 km
     if (/** @type {any} */ (req).io) {
-      /** @type {any} */ (req).io.to('mechanics').emit('sos:new', sos);
+      try {
+        const { calculateHaversineDistance } = require('../services/mapService');
+        const onlineMechanics = await Mechanic.find({ isOnline: true });
+        for (const mech of onlineMechanics) {
+          const [mLng, mLat] = mech.location?.coordinates || [0, 0];
+          if (mLng === 0 && mLat === 0) continue;
+          const dist = calculateHaversineDistance(lat, lng, mLat, mLng);
+          if (dist <= 5) {
+            /** @type {any} */ (req).io.to(`mechanic:${mech._id}`).emit('sos:new', sos);
+          }
+        }
+      } catch (err) {
+        console.error('Error broadcasting new SOS:', err.message);
+      }
     }
 
     res.status(201).json(sos);
@@ -35,11 +48,48 @@ router.post('/', authMiddleware, async (req, res) => {
   }
 });
 
-// GET /api/sos/active — return all SOS records with status: pending
+// GET /api/sos/active — return all SOS records with status: pending and within matching radius
 router.get('/active', authMiddleware, async (req, res) => {
   try {
+    const Mechanic = require('../models/Mechanic');
+    const { calculateHaversineDistance } = require('../services/mapService');
+
+    const mechanic = await Mechanic.findOne({ $or: [{ _id: req.user.id }, { userId: req.user.id }] });
+    if (!mechanic) {
+      return res.status(200).json([]);
+    }
+
+    const [mLng, mLat] = mechanic.location?.coordinates || [0, 0];
+    if (mLng === 0 && mLat === 0) {
+      return res.status(200).json([]);
+    }
+
     const activeSos = await SOS.find({ status: 'pending' });
-    res.status(200).json(activeSos);
+
+    const filteredSos = activeSos.map(sosItem => {
+      const distanceKm = parseFloat(calculateHaversineDistance(mLat, mLng, sosItem.location.lat, sosItem.location.lng).toFixed(1));
+      const elapsedSeconds = (Date.now() - new Date(sosItem.createdAt).getTime()) / 1000;
+      let activeRadiusKm = 5;
+      if (elapsedSeconds >= 120) {
+        activeRadiusKm = 15;
+      } else if (elapsedSeconds >= 60) {
+        activeRadiusKm = 10;
+      }
+
+      return {
+        sosItem,
+        distanceKm,
+        activeRadiusKm
+      };
+    })
+    .filter(item => item.distanceKm <= item.activeRadiusKm)
+    .map(({ sosItem, distanceKm }) => {
+      const obj = sosItem.toObject();
+      obj.distanceKm = distanceKm;
+      return obj;
+    });
+
+    res.status(200).json(filteredSos);
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

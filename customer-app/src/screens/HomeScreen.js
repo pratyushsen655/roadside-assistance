@@ -9,15 +9,19 @@ import Animated, { FadeInUp, FadeInDown } from 'react-native-reanimated';
 import { Ionicons, MaterialCommunityIcons, Feather, FontAwesome5 } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Location from 'expo-location';
-import TrustBadges from '../components/TrustBadges';
+import { useTranslation } from 'react-i18next';
+
 import Skeleton from '../components/Skeleton';
 import { theme } from '../constants/theme';
+import GlobalBottomNav from '../components/GlobalBottomNav';
+import LocationSelectorBar from '../components/LocationSelectorBar';
 
 const { width } = Dimensions.get('window');
 
 const NAV_BAR_HEIGHT = 60;
 
 export default function HomeScreen({ navigation }) {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -29,17 +33,17 @@ export default function HomeScreen({ navigation }) {
   // Compute greeting based on current hour
   const computeGreeting = () => {
     const hour = new Date().getHours();
-    if (hour >= 5 && hour < 12) return 'Good Morning';
-    if (hour >= 12 && hour < 17) return 'Good Afternoon';
-    if (hour >= 17 && hour < 21) return 'Good Evening';
-    return 'Good Night';
+    if (hour >= 5 && hour < 12) return t('home.goodMorning', 'Good Morning 👋').replace(' 👋', '');
+    if (hour >= 12 && hour < 17) return t('home.goodAfternoon', 'Good Afternoon');
+    if (hour >= 17 && hour < 21) return t('home.goodEvening', 'Good Evening');
+    return t('home.goodNight', 'Good Night');
   };
 
   // Update greeting whenever the screen gains focus
   useFocusEffect(
     React.useCallback(() => {
       setGreeting(computeGreeting());
-    }, [])
+    }, [t])
   );
 
   const scrollRef = useRef(null);
@@ -88,7 +92,7 @@ export default function HomeScreen({ navigation }) {
       
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        setCurrentLocation('Location permission denied');
+        setCurrentLocation(t('request.locationDenied', 'Location permission denied'));
         return;
       }
 
@@ -128,7 +132,7 @@ export default function HomeScreen({ navigation }) {
         
         const cleanLocation = parts.length > 0 
           ? parts.join(', ') 
-          : place.formattedAddress || 'Current Location';
+          : place.formattedAddress || t('request.currentLocation', 'Current Location');
         
         setCurrentLocation(cleanLocation);
         
@@ -139,11 +143,11 @@ export default function HomeScreen({ navigation }) {
           timestamp: Date.now(),
         }));
       } else {
-        setCurrentLocation('Current Location');
+        setCurrentLocation(t('request.currentLocation', 'Current Location'));
       }
     } catch (error) {
       console.log('Location error:', error);
-      setCurrentLocation('Unable to fetch location');
+      setCurrentLocation(t('request.locationError', 'Unable to fetch location'));
     } finally {
       setLocationLoading(false);
     }
@@ -177,18 +181,18 @@ export default function HomeScreen({ navigation }) {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (response.status === 401) {
-        Alert.alert('Session Expired', 'Your session has expired. Please login again.');
+        Alert.alert(t('auth.sessionExpired', 'Session Expired'), t('auth.loginAgain', 'Please login again to continue.'));
         await AsyncStorage.multiRemove(['userToken', 'userData', 'tokenStoredAt', 'token', 'user']);
         navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
         return;
       }
       const data = await response.json();
       if (!data.success) {
-        Alert.alert('Error', data.message || 'Failed to load profile');
+        Alert.alert(t('common.error', 'Error'), data.message || t('common.error', 'Failed to load profile'));
       }
     } catch (error) {
       console.log('Error loading user:', error);
-      Alert.alert('Error', 'Failed to reach server. Please check your network connection.');
+      Alert.alert(t('common.error', 'Error'), t('common.serverError', 'Failed to reach server. Please check your network connection.'));
     } finally {
       setTimeout(() => {
         setLoading(false);
@@ -220,41 +224,19 @@ export default function HomeScreen({ navigation }) {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      <LocationSelectorBar currentLocation={currentLocation} />
       <ScrollView
         ref={scrollRef}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {/* 1. Header (Greeting and Location) */}
+        {/* 1. Header (Greeting and Subtitle) */}
         <View style={styles.headerRow}>
           <View style={styles.headerLeft}>
             <Text style={styles.greetingText}>{greeting} 👋</Text>
-            <Text style={styles.subtitleText}>How can we help with{'\n'}your vehicle today?</Text>
-            <TrustBadges />
+            <Text style={styles.subtitleText}>{t('home.subtitle', 'How can we help with\nyour vehicle today?')}</Text>
           </View>
-          <TouchableOpacity style={styles.locationHeader} onPress={fetchCurrentLocation}>
-            <Text style={styles.locationPin}>📍</Text>
-            <View style={styles.locationTextContainer}>
-              {locationLoading ? (
-                <ActivityIndicator size="small" color="#B34700" />
-              ) : (
-                <>
-                  {/* Main area name - bold and prominent */}
-                  <Text style={styles.locationMain} numberOfLines={1}>
-                    {currentLocation?.split(',')[0] || 'Current Location'}
-                  </Text>
-                  {/* Full location - smaller gray text below */}
-                  {currentLocation?.includes(',') && (
-                    <Text style={styles.locationSub} numberOfLines={1}>
-                      {currentLocation}
-                    </Text>
-                  )}
-                </>
-              )}
-            </View>
-            <Text style={styles.locationChevron}>⌄</Text>
-          </TouchableOpacity>
         </View>
 
         {/* 2. Search Bar */}
@@ -262,7 +244,7 @@ export default function HomeScreen({ navigation }) {
           <Ionicons name="search" size={20} color="#9CA3AF" style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search services, repairs, items..."
+            placeholder={t('home.searchPlaceholder', 'Search services, repairs, items...')}
             placeholderTextColor="#9CA3AF"
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -279,14 +261,14 @@ export default function HomeScreen({ navigation }) {
           {/* Card 1: Car */}
           <TouchableOpacity
             style={styles.categoryCard}
-            onPress={() => navigation.navigate('Request', { vehicleType: 'car', serviceType: 'other' })}
+            onPress={() => navigation.navigate('CarServiceRates')}
             activeOpacity={0.8}
           >
             <View style={styles.cardHeader}>
               <Text style={{ fontSize: 48, marginRight: 12 }}>🚗</Text>
               <View style={styles.cardTextContainer}>
-                <Text style={styles.categoryCardText}>Car</Text>
-                <Text style={styles.categorySubText}>Repair & Services</Text>
+                <Text style={styles.categoryCardText}>{t('vehicle.car', 'Car')}</Text>
+                <Text style={styles.categorySubText}>{t('vehicle.repairServices', 'Repair & Services')}</Text>
               </View>
             </View>
             <View style={styles.chevronWrapper}>
@@ -297,14 +279,14 @@ export default function HomeScreen({ navigation }) {
           {/* Card 2: Bike */}
           <TouchableOpacity
             style={styles.categoryCard}
-            onPress={() => navigation.navigate('Request', { vehicleType: 'bike', serviceType: 'other' })}
+            onPress={() => navigation.navigate('BikeServiceRates')}
             activeOpacity={0.8}
           >
             <View style={styles.cardHeader}>
               <Text style={{ fontSize: 48, marginRight: 12 }}>🏍️</Text>
               <View style={styles.cardTextContainer}>
-                <Text style={styles.categoryCardText}>Bike</Text>
-                <Text style={styles.categorySubText}>Repair & Services</Text>
+                <Text style={styles.categoryCardText}>{t('vehicle.bike', 'Bike')}</Text>
+                <Text style={styles.categorySubText}>{t('vehicle.repairServices', 'Repair & Services')}</Text>
               </View>
             </View>
             <View style={styles.chevronWrapper}>
@@ -315,14 +297,14 @@ export default function HomeScreen({ navigation }) {
           {/* Card 3: Auto */}
           <TouchableOpacity
             style={styles.categoryCard}
-            onPress={() => navigation.navigate('Request', { vehicleType: 'auto', serviceType: 'other' })}
+            onPress={() => navigation.navigate('CarServiceRates')}
             activeOpacity={0.8}
           >
             <View style={styles.cardHeader}>
               <Text style={{ fontSize: 48, marginRight: 12 }}>🛺</Text>
               <View style={styles.cardTextContainer}>
-                <Text style={styles.categoryCardText}>Auto</Text>
-                <Text style={styles.categorySubText}>Repair & Services</Text>
+                <Text style={styles.categoryCardText}>{t('vehicle.auto', 'Auto')}</Text>
+                <Text style={styles.categorySubText}>{t('vehicle.repairServices', 'Repair & Services')}</Text>
               </View>
             </View>
             <View style={styles.chevronWrapper}>
@@ -333,14 +315,14 @@ export default function HomeScreen({ navigation }) {
           {/* Card 4: E-Vehicle */}
           <TouchableOpacity
             style={styles.categoryCard}
-            onPress={() => navigation.navigate('Request', { vehicleType: 'e-vehicle', serviceType: 'other' })}
+            onPress={() => navigation.navigate('CarServiceRates')}
             activeOpacity={0.8}
           >
             <View style={styles.cardHeader}>
               <Text style={{ fontSize: 48, marginRight: 12 }}>⚡</Text>
               <View style={styles.cardTextContainer}>
-                <Text style={styles.categoryCardText}>E-Vehicle</Text>
-                <Text style={styles.categorySubText}>Repair & Services</Text>
+                <Text style={styles.categoryCardText}>{t('vehicle.eVehicle', 'E-Vehicle')}</Text>
+                <Text style={styles.categorySubText}>{t('vehicle.repairServices', 'Repair & Services')}</Text>
               </View>
             </View>
             <View style={styles.chevronWrapper}>
@@ -352,101 +334,24 @@ export default function HomeScreen({ navigation }) {
         {/* 5. Other Card */}
         <TouchableOpacity
           style={styles.otherCard}
-          onPress={() => navigation.navigate('Request', { vehicleType: 'other', serviceType: 'other' })}
+          onPress={() => navigation.navigate('CarServiceRates')}
           activeOpacity={0.8}
         >
           <View style={styles.otherCardContent}>
             <Text style={{ fontSize: 48, marginRight: 12 }}>🔧</Text>
             <View style={styles.otherCardTextContainer}>
-              <Text style={styles.otherCardTitle}>Other</Text>
-              <Text style={styles.otherCardSub}>Explore more services</Text>
+              <Text style={styles.otherCardTitle}>{t('vehicle.other', 'Other')}</Text>
+              <Text style={styles.otherCardSub}>{t('vehicle.exploreMore', 'Explore more services')}</Text>
             </View>
           </View>
           <View style={[styles.chevronWrapper, { backgroundColor: '#F3F4F6' }]}>
             <Ionicons name="chevron-forward" size={16} color="#374151" />
           </View>
         </TouchableOpacity>
-
-        {/* 6. Why choose us? */}
-        <View style={styles.whyChooseContainer}>
-          <Text style={styles.whyChooseTitle}>Why choose us?</Text>
-          <View style={styles.featuresRow}>
-            <View style={styles.featureItem}>
-              <View style={styles.featureIconContainer}>
-                <MaterialCommunityIcons name="shield-check-outline" size={24} color="#E8192C" />
-              </View>
-              <Text style={styles.featureText}>Trusted{'\n'}Professionals</Text>
-            </View>
-            <View style={styles.featureItem}>
-              <View style={styles.featureIconContainer}>
-                <MaterialCommunityIcons name="brightness-percent" size={24} color="#E8192C" />
-              </View>
-              <Text style={styles.featureText}>Affordable{'\n'}Pricing</Text>
-            </View>
-            <View style={styles.featureItem}>
-              <View style={styles.featureIconContainer}>
-                <MaterialCommunityIcons name="clock-outline" size={24} color="#E8192C" />
-              </View>
-              <Text style={styles.featureText}>On-time{'\n'}Service</Text>
-            </View>
-            <View style={styles.featureItem}>
-              <View style={styles.featureIconContainer}>
-                <MaterialCommunityIcons name="headset" size={24} color="#E8192C" />
-              </View>
-              <Text style={styles.featureText}>Customer{'\n'}Support</Text>
-            </View>
-          </View>
-        </View>
-
       </ScrollView>
 
-      {/* Bottom Navigation Bar */}
-      <Animated.View
-        entering={FadeInDown.delay(300).duration(500)}
-        style={[
-          styles.bottomNavBar,
-          { paddingBottom: Math.max(insets.bottom, 8) }
-        ]}
-      >
-        <TouchableOpacity style={styles.navTab} onPress={() => scrollRef.current?.scrollTo({ y: 0, animated: true })}>
-          <Ionicons name="home-outline" size={24} color="#E8192C" style={styles.activeNavIcon} />
-          <Text style={[styles.navText, styles.activeNavText]}>Home</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.navTab} onPress={() => navigation.navigate('ServiceHistory')}>
-          <MaterialCommunityIcons name="calendar-check-outline" size={24} color="#6B7280" />
-          <Text style={styles.navText}>Bookings</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.sosNavButton} onPress={async () => {
-          try {
-            const { status } = await Location.requestForegroundPermissionsAsync();
-            if (status !== 'granted') {
-              Alert.alert('Permission required', 'Location permission is needed to use SOS.');
-              return;
-            }
-            navigation.navigate('SOS');
-          } catch (e) {
-            console.error('Error navigating to SOS:', e);
-            Alert.alert('Error', 'Unable to open SOS screen.');
-          }
-        }} activeOpacity={0.85}>
-          <View style={styles.sosNavCircle}>
-            <Ionicons name="notifications-outline" size={26} color="#FFF" />
-          </View>
-          <Text style={styles.sosNavText}>SOS</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.navTab} onPress={() => navigation.navigate('Help')}>
-          <Ionicons name="help-circle-outline" size={24} color="#6B7280" />
-          <Text style={styles.navText}>Help</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.navTab} onPress={() => navigation.navigate('Account')}>
-          <Ionicons name="person-outline" size={24} color="#6B7280" />
-          <Text style={styles.navText}>Account</Text>
-        </TouchableOpacity>
-      </Animated.View>
+      {/* Global Bottom Navigation Bar */}
+      <GlobalBottomNav />
     </View>
   );
 }
