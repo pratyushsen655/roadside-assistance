@@ -20,8 +20,7 @@ const TrustBadges = () => {
           <View style={[styles.circle, { width: badgeSize, height: badgeSize, borderRadius: badgeSize / 2 }]}>
             <MaterialCommunityIcons name={item.icon} size={badgeSize * 0.5} color={'#E8192C'} />
           </View>
-          <Text style={styles.label}>{item.label[0]}{'
-'}{item.label[1]}</Text>
+          <Text style={styles.label}>{item.label[0]}{'\n'}{item.label[1]}</Text>
         </View>
       ))}
     </View>
@@ -58,3 +57,4 @@ const styles = StyleSheet.create({
 });
 
 export default TrustBadges;
+
