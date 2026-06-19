@@ -11,7 +11,6 @@ import { theme } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 
 const { width } = Dimensions.get('window');
-import { useAuth } from '../context/AuthContext';
 
 export default function AccountScreen({ navigation }) {
   const { logout } = useAuth();
