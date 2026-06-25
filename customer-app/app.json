@@ -27,7 +27,12 @@
         "ACCESS_COARSE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION",
         "INTERNET"
-      ]
+      ],
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyAzK4H6wmJV6pZaP1xHJBt6pUM3gJjNrQg"
+        }
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"

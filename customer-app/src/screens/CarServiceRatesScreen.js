@@ -18,10 +18,10 @@ const { width } = Dimensions.get('window');
 
 const BASE_SERVICES = [
   { id: '1', name: 'Engine Diagnosis', desc: 'OBD scan + report', baseRate: 349, icon: 'engine-outline', lib: 'MaterialCommunityIcons' },
-  { id: '2', name: 'Oil & Filter Change', desc: 'Engine oil + oil filter', baseRate: 499, icon: 'oil', lib: 'FontAwesome5' },
+  { id: '2', name: 'Oil & Filter Change', desc: 'Engine oil + oil filter', baseRate: 499, icon: 'oil-can', lib: 'FontAwesome5' },
   { id: '3', name: 'Tyre Puncture Fix', desc: 'Tubeless puncture repair', baseRate: 99, icon: 'car-tire-alert', lib: 'MaterialCommunityIcons' },
   { id: '4', name: 'Battery Jump Start', desc: 'Jump start + battery test', baseRate: 149, icon: 'flash-outline', lib: 'Ionicons' },
-  { id: '5', name: 'Tyre Replacement Assist', desc: 'Spare tyre fitting help', baseRate: 79, icon: 'wrench-outline', lib: 'Ionicons' },
+  { id: '5', name: 'Tyre Replacement Assist', desc: 'Spare tyre fitting help', baseRate: 79, icon: 'build-outline', lib: 'Ionicons' },
   { id: '6', name: 'AC Gas Refill', desc: 'Refrigerant top-up', baseRate: 799, icon: 'snowflake', lib: 'FontAwesome5' },
   { id: '7', name: 'Brake Pad Check', desc: 'Inspection + pad report', baseRate: 99, icon: 'alert-octagon-outline', lib: 'MaterialCommunityIcons' },
   { id: '8', name: 'Radiator Coolant Top-up', desc: 'Overheating prevention', baseRate: 149, icon: 'water-outline', lib: 'Ionicons' },
@@ -73,7 +73,7 @@ export default function CarServiceRatesScreen({ navigation }) {
     if (service.lib === 'MaterialCommunityIcons') {
       return <MaterialCommunityIcons name={service.icon} size={size} color={color} />;
     } else if (service.lib === 'FontAwesome5') {
-      return <FontAwesome5 name={service.icon} size={20} color={color} />;
+      return <FontAwesome5 name={service.icon} size={20} color={color} solid />;
     } else {
       return <Ionicons name={service.icon} size={size} color={color} />;
     }

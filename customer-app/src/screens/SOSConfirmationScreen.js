@@ -12,6 +12,14 @@ export default function SOSConfirmationScreen({ route, navigation }) {
   const [status, setStatus] = useState('pending'); // pending, accepted
   const [mechanic, setMechanic] = useState(null);
   const [searchRadius, setSearchRadius] = useState(5);
+
+  const isMounted = useRef(true);
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
   
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
@@ -54,18 +62,20 @@ export default function SOSConfirmationScreen({ route, navigation }) {
               const mPhone = details?.mechanicPhone || '';
               const mId = details?.mechanicId || '';
 
-              try {
-                navigation.replace('SOSCustomerBoard', {
-                  sosId,
-                  customerLat: lat,
-                  customerLng: lng,
-                  mechanicName: mName,
-                  mechanicPhone: mPhone,
-                  mechanicId: mId
-                });
-              } catch (navErr) {
-                console.error('[REQUEST_ACCEPTED_LISTENER_ERROR] SOS navigation replaces crashed:', navErr, { sosId });
-                Alert.alert('Error', 'Unable to redirect to SOS customer board.');
+              if (isMounted.current && navigation) {
+                try {
+                  navigation.replace('SOSCustomerBoard', {
+                    sosId,
+                    customerLat: lat,
+                    customerLng: lng,
+                    mechanicName: mName,
+                    mechanicPhone: mPhone,
+                    mechanicId: mId
+                  });
+                } catch (navErr) {
+                  console.error('[REQUEST_ACCEPTED_LISTENER_ERROR] SOS navigation replaces crashed:', navErr, { sosId });
+                  Alert.alert('Error', 'Unable to redirect to SOS customer board.');
+                }
               }
             } catch (err) {
               console.error('[REQUEST_ACCEPTED_LISTENER_ERROR] General error in SOS accepted handler:', err, { details });
@@ -74,9 +84,11 @@ export default function SOSConfirmationScreen({ route, navigation }) {
 
           // Listen for search radius updates
           socket.off('request:search_radius_update');
-          socket.on('request:search_radius_update', (data) => {
-            if (data && data.radiusKm) {
-              setSearchRadius(data.radiusKm);
+          socket.on('request:search_radius_update', (radiusData) => {
+            if (radiusData && radiusData.radiusKm) {
+              if (isMounted.current) {
+                setSearchRadius(radiusData.radiusKm);
+              }
             }
           });
         }

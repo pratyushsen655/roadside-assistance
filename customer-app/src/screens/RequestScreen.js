@@ -11,8 +11,15 @@ import MapView, { Marker, Circle } from 'react-native-maps';
 // Helper to fetch address components from Google Geocoding API using lat,lng
 const fetchComponentsFromLatLng = async (latitude, longitude) => {
   try {
-    const res = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${process.env.GOOGLE_MAPS_API_KEY}`);
+    const key = process.env.GOOGLE_MAPS_API_KEY || process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${key}`;
+    console.log('[fetchComponentsFromLatLng DEBUG] Fetching URL:', url);
+    console.log('[fetchComponentsFromLatLng DEBUG] GOOGLE_MAPS_API_KEY is:', process.env.GOOGLE_MAPS_API_KEY);
+    console.log('[fetchComponentsFromLatLng DEBUG] EXPO_PUBLIC_GOOGLE_MAPS_API_KEY is:', process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY);
+    const res = await fetch(url);
     const data = await res.json();
+    console.log('[fetchComponentsFromLatLng DEBUG] Response status:', data.status);
+    console.log('[fetchComponentsFromLatLng DEBUG] Full Response:', JSON.stringify(data).substring(0, 300));
     if (data.results && data.results.length > 0) {
       return data.results[0].address_components || [];
     }
@@ -41,6 +48,14 @@ import { getSocket } from '../config/socket';
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://roadside-assistance-production-ddaf.up.railway.app';
 
 export default function RequestScreen({ navigation, route }) {
+  const isMounted = useRef(true);
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
   const [serviceType, setServiceType] = useState('tire_repair');
   const [description, setDescription] = useState('');
   const [customerAddress, setCustomerAddress] = useState('Current Location');
@@ -72,6 +87,42 @@ export default function RequestScreen({ navigation, route }) {
   const [savedAddresses, setSavedAddresses] = useState([]);
   const [addressModalVisible, setAddressModalVisible] = useState(false);
   const [fetchingAddresses, setFetchingAddresses] = useState(false);
+
+  const [fareEstimate, setFareEstimate] = useState(null);
+  const [fetchingEstimate, setFetchingEstimate] = useState(false);
+
+  const fetchFareEstimate = async () => {
+    if (!latitude || !longitude || !token) return;
+    setFetchingEstimate(true);
+    try {
+      const response = await fetch(`${API_URL}/api/requests/estimate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          serviceType,
+          vehicleType,
+          latitude,
+          longitude
+        })
+      });
+      const data = await response.json();
+      if (data.success && data.fare) {
+        setFareEstimate(data.fare);
+        setCurrentBiddingPrice(data.fare.totalPrice);
+      }
+    } catch (err) {
+      console.log('Error fetching fare estimate:', err);
+    } finally {
+      setFetchingEstimate(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchFareEstimate();
+  }, [serviceType, vehicleType, latitude, longitude, token]);
 
   const handleOpenSavedAddresses = async () => {
     setAddressModalVisible(true);
@@ -127,15 +178,20 @@ export default function RequestScreen({ navigation, route }) {
         try {
           const { status } = await Location.requestForegroundPermissionsAsync();
           if (status === 'granted') {
+            console.log('[Geocoding DEBUG] Location permission granted');
             setCustomerAddress('Fetching address...');
+            console.log('[Geocoding DEBUG] Calling Location.getCurrentPositionAsync...');
             const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+            console.log('[Geocoding DEBUG] getCurrentPositionAsync resolved:', loc.coords);
             setLatitude(loc.coords.latitude);
             setLongitude(loc.coords.longitude);
             
+            console.log('[Geocoding DEBUG] Calling Location.reverseGeocodeAsync...');
             const [geo] = await Location.reverseGeocodeAsync({
               latitude: loc.coords.latitude,
               longitude: loc.coords.longitude
             });
+            console.log('[Geocoding DEBUG] reverseGeocodeAsync resolved:', geo);
             if (geo) {
               const displayAddress = `${geo.name || geo.street || ''}, ${geo.city || geo.district || ''}`;
               // Fetch detailed components from Google API
@@ -591,90 +647,40 @@ export default function RequestScreen({ navigation, route }) {
       const data = await response.json();
       if (data.success && data.request) {
         const createdJobId = data.request._id;
-        setJobId(createdJobId);
-        setCurrentBiddingPrice(350);
-        setWaitingForMechanic(true);
-
-        // Reset search radius to 5km
-        setSearchRadius(5);
-
-        const socket = getSocket(token);
-        socket.emit('join:job:room', { jobId: createdJobId });
-
-        // Remove any stale listeners before registering to prevent duplicates
-        socket.off('job:accepted:notify');
-        socket.on('job:accepted:notify', (mechanicDetails) => {
-          try {
-            console.log('[Socket] Job accepted by mechanic:', mechanicDetails);
-            if (!mechanicDetails) {
-              console.error('[REQUEST_ACCEPTED_LISTENER_ERROR] Received empty mechanicDetails payload');
-              return;
-            }
-            setWaitingForMechanic(false);
-            clearInterval(countdownIntervalRef.current);
-            socket.off('job:accepted:notify');
-            socket.off('request:price_updated');
-
-            const coords = data?.request?.customerLocation?.coordinates;
-            const custLat = Array.isArray(coords) && coords.length >= 2 ? coords[1] : 28.6139;
-            const custLng = Array.isArray(coords) && coords.length >= 2 ? coords[0] : 77.2090;
-
-            try {
-              navigation.replace('RequestAccepted', {
-                requestId: createdJobId,
-              });
-            } catch (navErr) {
-              console.error('[REQUEST_ACCEPTED_LISTENER_ERROR] Navigation replace crashed:', navErr, { requestId: createdJobId });
-              Alert.alert('Error', 'Unable to navigate to status screen.');
-            }
-          } catch (err) {
-            console.error('[REQUEST_ACCEPTED_LISTENER_ERROR] General error in job:accepted:notify handler:', err, { mechanicDetails });
-          }
-        });
-
-        // Listen for search radius updates from matchmaking loop
-        socket.off('request:search_radius_update');
-        socket.on('request:search_radius_update', (data) => {
-          if (data && data.radiusKm) {
-            setSearchRadius(data.radiusKm);
-          }
-        });
-
-        // Listen for real-time price updates
-        socket.on('request:price_updated', (updateData) => {
-          if (updateData && updateData.current_price) {
-            setCurrentBiddingPrice(updateData.current_price);
-            // Reset countdown for next bid prompt
-            setCountdown(autoPromptDelay);
-            setShowBidModal(false);
-            
-            clearInterval(countdownIntervalRef.current);
-            countdownIntervalRef.current = setInterval(() => {
-              setCountdown(prev => {
-                if (prev <= 1) {
-                  clearInterval(countdownIntervalRef.current);
-                  setShowBidModal(true);
-                  return 0;
-                }
-                return prev - 1;
-              });
-            }, 1000);
-          }
+        if (isMounted.current) {
+          setLoading(false);
+        }
+        navigation.replace('Searching', {
+          jobId: createdJobId,
+          serviceType,
+          vehicleType,
+          vehicleModel: vehicleModelInput,
+          customerAddress,
+          latitude,
+          longitude,
+          initialPrice: fareEstimate?.totalPrice || 350
         });
       } else {
         Alert.alert('Error', data.message || 'Failed to submit request');
       }
     } catch (error) {
+      console.error('[REQUEST_SCREEN_SUBMIT_ERROR] Error submitting request:', error);
       Alert.alert('Error', 'Cannot connect to server');
     }
-    setLoading(false);
+    if (isMounted.current) {
+      setLoading(false);
+    }
   };
 
   const handleIncreasePrice = async (amountToAdd) => {
-    setBidError('');
+    if (isMounted.current) {
+      setBidError('');
+    }
     const totalIncrease = (currentBiddingPrice - 350) + Number(amountToAdd);
     if (totalIncrease > maxPriceIncrease) {
-      setBidError(`Maximum total increase limit of ₹${maxPriceIncrease} reached.`);
+      if (isMounted.current) {
+        setBidError(`Maximum total increase limit of ₹${maxPriceIncrease} reached.`);
+      }
       return;
     }
 
@@ -689,15 +695,22 @@ export default function RequestScreen({ navigation, route }) {
       });
       const data = await response.json();
       if (data.success) {
-        setCustomBidAmount('');
-        setShowBidModal(false);
-        // Socket listener will sync this, but set locally for immediate response
-        setCurrentBiddingPrice(data.request.current_price);
+        if (isMounted.current) {
+          setCustomBidAmount('');
+          setShowBidModal(false);
+          // Socket listener will sync this, but set locally for immediate response
+          setCurrentBiddingPrice(data.request.current_price);
+        }
       } else {
-        setBidError(data.message || 'Failed to update offer');
+        if (isMounted.current) {
+          setBidError(data.message || 'Failed to update offer');
+        }
       }
     } catch (err) {
-      setBidError('Server is unreachable. Check connection.');
+      console.error('[REQUEST_SCREEN_INCREASE_PRICE_ERROR] Error increasing price:', err);
+      if (isMounted.current) {
+        setBidError('Server is unreachable. Check connection.');
+      }
     }
   };
 
@@ -798,6 +811,31 @@ export default function RequestScreen({ navigation, route }) {
 
         {renderVehicleRateList()}
 
+        {/* Price Breakdown Card */}
+        {fareEstimate && (
+          <View style={styles.breakdownCard}>
+            <View style={styles.breakdownHeader}>
+              <Text style={styles.breakdownTitle}>💰 Price Estimate</Text>
+              {fetchingEstimate && <ActivityIndicator size="small" color="#E8192C" />}
+            </View>
+            <View style={styles.breakdownRow}>
+              <Text style={styles.breakdownLabel}>Base rate:</Text>
+              <Text style={styles.breakdownVal}>₹{fareEstimate.baseRate}</Text>
+            </View>
+            <View style={styles.breakdownRow}>
+              <Text style={styles.breakdownLabel}>Distance charge:</Text>
+              <Text style={styles.breakdownVal}>
+                ₹{fareEstimate.distanceCharge} ({fareEstimate.distanceKm.toFixed(1)} km × ₹30)
+              </Text>
+            </View>
+            <View style={styles.breakdownDivider} />
+            <View style={styles.breakdownRow}>
+              <Text style={styles.breakdownTotalLabel}>Total Amount:</Text>
+              <Text style={styles.breakdownTotalVal}>₹{fareEstimate.totalPrice}</Text>
+            </View>
+          </View>
+        )}
+
         {/* Send Request Button */}
         <TouchableOpacity style={styles.button} onPress={handleRequest} activeOpacity={0.9}>
           {loading ? <ActivityIndicator color="#fff" /> : (
@@ -815,118 +853,7 @@ export default function RequestScreen({ navigation, route }) {
         <View style={{ height: 40 }} />
       </ScrollView>
 
-      {/* Waiting Overlay with full-screen map & dashed matching radius */}
-      {waitingForMechanic && (
-        <View style={styles.waitingOverlay}>
-          <MapView
-            style={StyleSheet.absoluteFillObject}
-            initialRegion={{
-              latitude: latitude,
-              longitude: longitude,
-              latitudeDelta: 0.25,
-              longitudeDelta: 0.25,
-            }}
-          >
-            <Marker coordinate={{ latitude, longitude }}>
-              <View style={styles.customerMarkerPin}>
-                <Ionicons name="location-sharp" size={36} color="#E8192C" />
-              </View>
-            </Marker>
-            <Circle
-              center={{ latitude, longitude }}
-              radius={searchRadius * 1000}
-              strokeWidth={2}
-              strokeColor="#E8192C"
-              fillColor="rgba(232, 25, 44, 0.08)"
-              lineDashPattern={[6, 6]}
-            />
-          </MapView>
 
-          {/* Top Status Panel */}
-          <View style={styles.topStatusPanel}>
-            <Text style={styles.topStatusTitle}>Searching nearby mechanics...</Text>
-            <Text style={styles.topStatusSubtitle}>Radius: {searchRadius} km</Text>
-            <ActivityIndicator size="small" color="#E8192C" style={{ marginTop: 8 }} />
-          </View>
-
-          {/* Bottom Actions */}
-          <View style={styles.bottomOverlayContainer}>
-            <TouchableOpacity
-              style={styles.cancelOverlayBtn}
-              onPress={async () => {
-                try {
-                  await fetch(`${API_URL}/api/requests/${jobId}`, {
-                    method: 'PUT',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      'Authorization': `Bearer ${token}`
-                    },
-                    body: JSON.stringify({ status: 'cancelled' })
-                  });
-                  const socket = getSocket(token);
-                  if (socket) {
-                    socket.emit('job:status:update', { jobId, status: 'cancelled' });
-                  }
-                } catch (e) {
-                  console.log('Error cancelling request:', e);
-                }
-                setWaitingForMechanic(false);
-                navigation.goBack();
-              }}
-            >
-              <Text style={styles.cancelOverlayBtnText}>Cancel Request</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Rapido-style Bidding bottom sheet dialog */}
-          {showBidModal && (
-            <View style={styles.modalBackdrop}>
-              <View style={styles.bidModalContent}>
-                <Text style={styles.bidModalTitle}>Increase Your Offer ⚡</Text>
-                <Text style={styles.bidModalSub}>Higher price = Faster mechanic response.</Text>
-                
-                {bidError ? <Text style={styles.bidErrorText}>{bidError}</Text> : null}
-
-                <View style={styles.quickBidRow}>
-                  {[50, 100, 200].map(amt => (
-                    <TouchableOpacity
-                      key={amt}
-                      style={styles.quickBidBtn}
-                      onPress={() => handleIncreasePrice(amt)}
-                    >
-                      <Text style={styles.quickBidBtnText}>+₹{amt}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                <View style={styles.customBidContainer}>
-                  <TextInput
-                    style={styles.customBidInput}
-                    placeholder="Enter custom increase"
-                    placeholderTextColor="#999"
-                    value={customBidAmount}
-                    onChangeText={setCustomBidAmount}
-                    keyboardType="numeric"
-                  />
-                  <TouchableOpacity
-                    style={styles.customBidSubmitBtn}
-                    onPress={() => {
-                      if (!customBidAmount) return;
-                      handleIncreasePrice(customBidAmount);
-                    }}
-                  >
-                    <Text style={styles.customBidSubmitText}>Add</Text>
-                  </TouchableOpacity>
-                </View>
-
-                <TouchableOpacity style={styles.closeBidModalBtn} onPress={() => setShowBidModal(false)}>
-                  <Text style={styles.closeBidModalText}>Keep Waiting (₹{currentBiddingPrice})</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-        </View>
-      )}
 
       <Modal visible={addressModalVisible} transparent animationType="slide">
         <View style={styles.modalBackdrop}>
@@ -1421,5 +1348,55 @@ const styles = StyleSheet.create({
     color: '#374151',
     marginTop: 14,
     marginBottom: 6,
+  },
+  breakdownCard: {
+    backgroundColor: '#FFF8F8',
+    borderWidth: 1.5,
+    borderColor: '#FCA5A5',
+    borderRadius: 12,
+    padding: 16,
+    marginVertical: 15,
+  },
+  breakdownHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  breakdownTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#E8192C',
+  },
+  breakdownRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    alignItems: 'center',
+  },
+  breakdownLabel: {
+    fontSize: 14,
+    color: '#4B5563',
+    fontWeight: '500',
+  },
+  breakdownVal: {
+    fontSize: 14,
+    color: '#1F2937',
+    fontWeight: 'bold',
+  },
+  breakdownDivider: {
+    height: 1,
+    backgroundColor: '#FFEAEA',
+    marginVertical: 8,
+  },
+  breakdownTotalLabel: {
+    fontSize: 15,
+    color: '#1F2937',
+    fontWeight: 'bold',
+  },
+  breakdownTotalVal: {
+    fontSize: 18,
+    color: '#E8192C',
+    fontWeight: 'bold',
   },
 });

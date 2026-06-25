@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useContext } from 'react';
+import React, { useEffect, useState, useContext, useRef } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Linking, Alert, Dimensions, ActivityIndicator
 } from 'react-native';
@@ -21,9 +21,29 @@ const getDistanceInKm = (lat1, lon1, lat2, lon2) => {
   return R * c;
 };
 
+// Check if coordinate is a valid latitude/longitude number pair
+const isValidCoordinate = (coord) => {
+  return coord && 
+         typeof coord.latitude === 'number' && !isNaN(coord.latitude) &&
+         typeof coord.longitude === 'number' && !isNaN(coord.longitude);
+};
+
 export default function TrackingScreen({ route, navigation }) {
-  const { jobId, mechanicId, mechanicName, mechanicPhone, customerLat, customerLng } = route.params || {};
+  const params = route.params || {};
+  const { jobId, mechanicId, mechanicName, mechanicPhone, customerLat, customerLng } = params;
+
+  if (!jobId) console.warn('[WARNING] TrackingScreen: jobId is missing in route params');
+  if (!mechanicId) console.warn('[WARNING] TrackingScreen: mechanicId is missing in route params');
+  
   const { token } = useContext(AuthContext);
+
+  const isMounted = useRef(true);
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
 
   const [customerCoords, setCustomerCoords] = useState({
     latitude: customerLat || 28.6139,
@@ -48,7 +68,9 @@ export default function TrackingScreen({ route, navigation }) {
         if (res.ok && data && data.ratings) {
           if (data.ratings.length > 0) {
             const avg = data.ratings.reduce((sum, r) => sum + r.rating, 0) / data.ratings.length;
-            setMechanicRating(Math.round(avg * 10) / 10);
+            if (isMounted.current) {
+              setMechanicRating(Math.round(avg * 10) / 10);
+            }
           }
         }
       } catch (err) {
@@ -60,7 +82,9 @@ export default function TrackingScreen({ route, navigation }) {
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
-      setUnreadCount(0);
+      if (isMounted.current) {
+        setUnreadCount(0);
+      }
     });
     return unsubscribe;
   }, [navigation]);
@@ -80,18 +104,21 @@ export default function TrackingScreen({ route, navigation }) {
             loc = await Location.getLastKnownPositionAsync();
           }
           if (loc) {
-            setCustomerCoords({
-              latitude: loc.coords.latitude,
-              longitude: loc.coords.longitude
-            });
+            if (isMounted.current) {
+              setCustomerCoords({
+                latitude: loc.coords.latitude,
+                longitude: loc.coords.longitude
+              });
+            }
           }
-          // else: keep the customerLat/customerLng from route.params (already in default state)
         }
       } catch (err) {
         // Permission denied or another OS-level error — silently keep route.params coords
         console.log('Location permission/fetch error (using route params fallback):', err?.message);
       } finally {
-        setMapLoading(false);
+        if (isMounted.current) {
+          setMapLoading(false);
+        }
       }
     })();
   }, []);
@@ -109,10 +136,12 @@ export default function TrackingScreen({ route, navigation }) {
       try {
         console.log('[Socket] Mechanic location update received:', coords);
         if (coords && typeof coords.lat === 'number' && typeof coords.lng === 'number') {
-          setMechanicCoords({
-            latitude: coords.lat,
-            longitude: coords.lng
-          });
+          if (isMounted.current) {
+            setMechanicCoords({
+              latitude: coords.lat,
+              longitude: coords.lng
+            });
+          }
         }
       } catch (err) {
         console.error('[Socket] Error handling mechanic:location:update:', err);
@@ -124,13 +153,17 @@ export default function TrackingScreen({ route, navigation }) {
       try {
         console.log('[Socket] Job status changed received:', data);
         if (data && data.status) {
-          setStatus(data.status);
+          if (isMounted.current) {
+            setStatus(data.status);
+          }
           if (data.status === 'completed') {
-            navigation.navigate('Payment', {
-              jobId,
-              mechanicName,
-              amount: data.amount || 350
-            });
+            if (isMounted.current && navigation) {
+              navigation.navigate('Payment', {
+                jobId,
+                mechanicName,
+                amount: data.amount || 350
+              });
+            }
           }
         }
       } catch (err) {
@@ -143,7 +176,9 @@ export default function TrackingScreen({ route, navigation }) {
       try {
         console.log('[Socket] Chat message received in Tracking:', msg);
         if (msg && msg.jobId === jobId && msg.senderType === 'mechanic') {
-          setUnreadCount((prev) => prev + 1);
+          if (isMounted.current) {
+            setUnreadCount((prev) => prev + 1);
+          }
         }
       } catch (err) {
         console.error('[Socket] Error handling chat:message in Tracking:', err);
@@ -184,14 +219,23 @@ export default function TrackingScreen({ route, navigation }) {
               const json = await response.json();
               if (response.ok) {
                 // emit cancelled event
-                socket.emit('job:status:update', { jobId, status: 'cancelled' });
+                try {
+                  socket.emit('job:status:update', { jobId, status: 'cancelled' });
+                } catch (socketErr) {
+                  console.error('[Tracking] Error emitting cancel status update:', socketErr);
+                }
                 Alert.alert('Cancelled', 'Your request has been cancelled.', [
-                  { text: 'OK', onPress: () => navigation.navigate('Home') }
+                  { text: 'OK', onPress: () => {
+                    if (isMounted.current && navigation) {
+                      navigation.navigate('Home');
+                    }
+                  } }
                 ]);
               } else {
                 Alert.alert('Error', json.message || 'Failed to cancel job');
               }
             } catch (err) {
+              console.error('[Tracking] Error during request cancel fetch:', err);
               Alert.alert('Error', 'Failed to reach server');
             }
           }
@@ -254,14 +298,16 @@ export default function TrackingScreen({ route, navigation }) {
           }}
         >
           {/* Customer Location */}
-          <Marker coordinate={customerCoords} title="You">
-            <View style={styles.customerPin}>
-              <Text style={{ fontSize: 24 }}>📍</Text>
-            </View>
-          </Marker>
+          {isValidCoordinate(customerCoords) && (
+            <Marker coordinate={customerCoords} title="You">
+              <View style={styles.customerPin}>
+                <Text style={{ fontSize: 24 }}>📍</Text>
+              </View>
+            </Marker>
+          )}
 
           {/* Mechanic Location */}
-          {mechanicCoords && (
+          {isValidCoordinate(mechanicCoords) && (
             <Marker coordinate={mechanicCoords} title="Mechanic">
               <View style={styles.mechanicPin}>
                 <Text style={{ fontSize: 24 }}>🔧</Text>
@@ -270,7 +316,7 @@ export default function TrackingScreen({ route, navigation }) {
           )}
 
           {/* Route Line */}
-          {mechanicCoords && (
+          {isValidCoordinate(customerCoords) && isValidCoordinate(mechanicCoords) && (
             <Polyline
               coordinates={[customerCoords, mechanicCoords]}
               strokeColor="#1E88E5"

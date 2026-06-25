@@ -30,6 +30,8 @@ import RequestAcceptedScreen from '../screens/RequestAcceptedScreen';
 import BikeServiceRatesScreen from '../screens/BikeServiceRatesScreen';
 import CarServiceRatesScreen from '../screens/CarServiceRatesScreen';
 import SOSCustomerBoardScreen from '../screens/SOSCustomerBoardScreen';
+import SearchingScreen from '../screens/SearchingScreen';
+
 
 const Stack = createNativeStackNavigator();
 
@@ -68,6 +70,8 @@ export default function RootNavigator() {
           <Stack.Screen name="RateJob" component={RateJobScreen} options={{ headerShown: false }} />
           <Stack.Screen name="MechanicProfile" component={MechanicProfileScreen} options={{ headerShown: false }} />
           <Stack.Screen name="RequestAccepted" component={RequestAcceptedScreen} options={{ headerShown: false }} />
+          <Stack.Screen name="Searching" component={SearchingScreen} options={{ headerShown: false }} />
+
           <Stack.Screen
             name="LanguageSelection"
             component={LanguageSelectionScreen}

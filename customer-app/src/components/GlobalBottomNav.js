@@ -2,34 +2,59 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Dimensions } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
+import { useNavigation, useNavigationState } from '@react-navigation/native';
 
 const { width } = Dimensions.get('window');
 
-export default function GlobalBottomNav() {
-  const navigation = useNavigation();
-  const route = useRoute();
+export default function GlobalBottomNav({ state: propState, navigation: propNavigation }) {
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
 
-  const currentRouteName = route.name;
+  // Try to use navigation from props first, then from hooks
+  let navigation;
+  try {
+    navigation = propNavigation || useNavigation();
+  } catch (e) {
+    // Return null if rendered outside navigation context (e.g., intermediate transitions)
+    return null;
+  }
+
+  const state = propState || useNavigationState(s => s);
+
+  if (!state || !state.routes) {
+    return null;
+  }
+
+  // Find the active route name
+  const getActiveRouteName = (navState) => {
+    if (!navState || !navState.routes) return null;
+    const route = navState.routes[navState.index];
+    if (route.state) {
+      return getActiveRouteName(route.state);
+    }
+    return route.name;
+  };
+
+  const currentRouteName = getActiveRouteName(state) || 'Home';
 
   const navigateToTab = (screenName) => {
-    if (currentRouteName !== screenName) {
-      // If navigating to Home, and it exists in history, we can reset or navigate
-      // Use navigate to prevent reset of navigation state unless necessary
+    if (currentRouteName === screenName) return;
+    try {
       navigation.navigate(screenName);
+    } catch (e) {
+      console.warn(`[GlobalBottomNav] Failed to navigate to ${screenName}:`, e.message);
     }
   };
 
   return (
-    <View style={[styles.bottomNavBar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+    <View style={[styles.bottomNavBar, { bottom: Math.max(insets.bottom, 16) }]}>
       {/* Home Tab */}
       <TouchableOpacity 
         style={styles.navTab} 
         onPress={() => navigateToTab('Home')}
+        activeOpacity={0.7}
       >
         <Ionicons 
           name={currentRouteName === 'Home' ? 'home' : 'home-outline'} 
@@ -46,6 +71,7 @@ export default function GlobalBottomNav() {
       <TouchableOpacity 
         style={styles.navTab} 
         onPress={() => navigateToTab('ServiceHistory')}
+        activeOpacity={0.7}
       >
         <MaterialCommunityIcons 
           name={currentRouteName === 'ServiceHistory' ? 'calendar-check' : 'calendar-check-outline'} 
@@ -58,27 +84,21 @@ export default function GlobalBottomNav() {
         </Text>
       </TouchableOpacity>
 
-      {/* Notifications Tab - highlighted center */}
+      {/* SOS Tab - Center Highlighted Button */}
       <TouchableOpacity 
         style={styles.sosNavButton} 
-        onPress={() => navigateToTab('Notifications')} 
+        onPress={() => navigateToTab('SOS')} 
         activeOpacity={0.85}
       >
-        <View style={[
-          styles.sosNavCircle, 
-          currentRouteName === 'Notifications' && styles.activeSosNavCircle
-        ]}>
+        <View style={styles.sosNavCircle}>
           <Ionicons 
-            name={currentRouteName === 'Notifications' ? 'notifications' : 'notifications-outline'} 
+            name="notifications-outline" 
             size={26} 
             color="#FFF" 
           />
         </View>
-        <Text style={[
-          styles.sosNavText, 
-          currentRouteName === 'Notifications' && styles.activeSosNavText
-        ]}>
-          {t('nav.notifications', 'Notifications')}
+        <Text style={styles.sosNavText}>
+          {t('nav.sos', 'SOS')}
         </Text>
       </TouchableOpacity>
 
@@ -86,6 +106,7 @@ export default function GlobalBottomNav() {
       <TouchableOpacity 
         style={styles.navTab} 
         onPress={() => navigateToTab('Help')}
+        activeOpacity={0.7}
       >
         <Ionicons 
           name={currentRouteName === 'Help' ? 'help-circle' : 'help-circle-outline'} 
@@ -102,6 +123,7 @@ export default function GlobalBottomNav() {
       <TouchableOpacity 
         style={styles.navTab} 
         onPress={() => navigateToTab('Account')}
+        activeOpacity={0.7}
       >
         <Ionicons 
           name={currentRouteName === 'Account' ? 'person' : 'person-outline'} 
@@ -120,23 +142,21 @@ export default function GlobalBottomNav() {
 const styles = StyleSheet.create({
   bottomNavBar: {
     position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
+    left: 16,
+    right: 16,
     backgroundColor: '#FFFFFF',
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
-    borderTopWidth: 1,
-    borderTopColor: '#F0F0F0',
-    elevation: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    elevation: 8,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: -3 },
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    paddingTop: 10,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    paddingVertical: 10,
+    borderRadius: 24,
   },
   navTab: {
     alignItems: 'center',
@@ -148,10 +168,11 @@ const styles = StyleSheet.create({
     transform: [{ scale: 1.05 }],
   },
   navText: {
-    fontSize: 10,
+    fontSize: 11,
     color: '#6B7280',
     marginTop: 4,
     fontWeight: '500',
+    textAlign: 'center',
   },
   activeNavText: {
     color: '#E8192C',
@@ -160,38 +181,29 @@ const styles = StyleSheet.create({
   sosNavButton: {
     alignItems: 'center',
     justifyContent: 'center',
-    width: width * 0.2,
-    marginTop: -15,
+    width: width * 0.18,
+    marginTop: -20,
   },
   sosNavCircle: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: '#6B7280', // neutral when inactive
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#0A4A83',
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
+    elevation: 6,
+    shadowColor: '#0A4A83',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
     shadowRadius: 6,
-    borderWidth: 4,
+    borderWidth: 3,
     borderColor: '#FFF',
   },
-  activeSosNavCircle: {
-    backgroundColor: '#1E3A8A', // highlighted blue color as request
-    shadowColor: '#1E3A8A',
-    shadowOpacity: 0.4,
-  },
   sosNavText: {
-    fontSize: 10,
-    color: '#6B7280',
+    fontSize: 11,
+    color: '#0A4A83',
     marginTop: 4,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  activeSosNavText: {
-    color: '#1E3A8A',
     fontWeight: 'bold',
+    textAlign: 'center',
   },
 });

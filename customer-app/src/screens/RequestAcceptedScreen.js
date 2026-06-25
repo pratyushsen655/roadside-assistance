@@ -1,5 +1,5 @@
 // src/screens/RequestAcceptedScreen.js
-import React, { useEffect, useState, useContext } from 'react';
+import React, { useEffect, useState, useContext, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, ActivityIndicator, Alert, Linking, Modal } from 'react-native';
 import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 import MapView, { Marker, Polyline } from 'react-native-maps';
@@ -19,6 +19,13 @@ const haversine = (lat1, lon1, lat2, lon2) => {
   const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
+};
+
+// Check if coordinate is a valid latitude/longitude number pair
+const isValidCoordinate = (coord) => {
+  return coord && 
+         typeof coord.latitude === 'number' && !isNaN(coord.latitude) &&
+         typeof coord.longitude === 'number' && !isNaN(coord.longitude);
 };
 
 const steps = ['Request Sent', 'Accepted', 'Arrived', 'Completed'];
@@ -108,6 +115,14 @@ export default function RequestAcceptedScreen() {
   const { requestId } = route.params || {};
   const { token } = useContext(AuthContext);
 
+  const isMounted = useRef(true);
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
   const [loading, setLoading] = useState(true);
   const [request, setRequest] = useState(null);
   const [mechanic, setMechanic] = useState(null);
@@ -126,21 +141,27 @@ export default function RequestAcceptedScreen() {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await res.json();
+        console.log('[API] Request Accepted Screen - Full Payload Received:', data);
         if (data.success && data.request) {
-          setRequest(data.request);
-          setStatus(data.request.status || 'accepted');
-          setMechanic(data.request.mechanic || null);
-          if (data.request.etaMinutes) setEta(`${data.request.etaMinutes} mins`);
-          if (data.request.mechanicLocation) {
-            setMechanicLoc(data.request.mechanicLocation);
+          if (isMounted.current) {
+            setRequest(data.request);
+            setStatus(data.request.status || 'accepted');
+            setMechanic(data.request.mechanic || null);
+            if (data.request.etaMinutes) setEta(`${data.request.etaMinutes} mins`);
+            if (data.request.mechanicLocation) {
+              setMechanicLoc(data.request.mechanicLocation);
+            }
           }
         } else {
           Alert.alert('Error', data.message || 'Unable to load request');
         }
       } catch (e) {
+        console.error('[REQUEST_ACCEPTED_FETCH_ERROR] Error fetching request:', e);
         Alert.alert('Error', 'Network error while fetching request');
       } finally {
-        setLoading(false);
+        if (isMounted.current) {
+          setLoading(false);
+        }
       }
     };
     fetchData();
@@ -158,7 +179,9 @@ export default function RequestAcceptedScreen() {
     const locationHandler = coords => {
       try {
         if (coords && typeof coords.lat === 'number' && typeof coords.lng === 'number') {
-          setMechanicLoc({ latitude: coords.lat, longitude: coords.lng });
+          if (isMounted.current) {
+            setMechanicLoc({ latitude: coords.lat, longitude: coords.lng });
+          }
         }
       } catch (err) {
         console.error('[REQUEST_ACCEPTED_LISTENER_ERROR] Error handling mechanic location update:', err);
@@ -166,7 +189,11 @@ export default function RequestAcceptedScreen() {
     };
     const etaHandler = etaMinutes => {
       try {
-        if (typeof etaMinutes === 'number') setEta(`${etaMinutes} mins`);
+        if (typeof etaMinutes === 'number') {
+          if (isMounted.current) {
+            setEta(`${etaMinutes} mins`);
+          }
+        }
       } catch (err) {
         console.error('[REQUEST_ACCEPTED_LISTENER_ERROR] Error handling ETA update:', err);
       }
@@ -174,10 +201,16 @@ export default function RequestAcceptedScreen() {
     const statusHandler = data => {
       try {
         if (data && data.status) {
-          setStatus(data.status);
+          if (isMounted.current) {
+            setStatus(data.status);
+          }
           if (data.status === 'completed') {
             Alert.alert('Service Completed', 'The mechanic has completed the service request.', [
-              { text: 'Okay', onPress: () => navigation.navigate('Home') }
+              { text: 'Okay', onPress: () => {
+                if (isMounted.current && navigation) {
+                  navigation.navigate('Home');
+                }
+              } }
             ]);
           }
         }
@@ -203,7 +236,9 @@ export default function RequestAcceptedScreen() {
       if (mechanicLoc && request?.customerLocation?.coordinates) {
         const [custLng, custLat] = request.customerLocation.coordinates;
         const dist = haversine(custLat, custLng, mechanicLoc.latitude, mechanicLoc.longitude);
-        setDistance(dist.toFixed(1));
+        if (isMounted.current) {
+          setDistance(dist.toFixed(1));
+        }
       }
     } catch (err) {
       console.error('[REQUEST_ACCEPTED_MAP_ERROR] Error calculating distance:', err);
@@ -255,14 +290,19 @@ export default function RequestAcceptedScreen() {
       const data = await res.json();
       if (data.success) {
         Alert.alert('Cancelled', 'Your request has been cancelled');
-        navigation.navigate('Home');
+        if (isMounted.current && navigation) {
+          navigation.navigate('Home');
+        }
       } else {
         Alert.alert('Error', data.message || 'Cancellation failed');
       }
     } catch (e) {
+      console.error('[REQUEST_ACCEPTED_CANCEL_ERROR] Error cancelling request:', e);
       Alert.alert('Error', 'Network error while cancelling');
     }
-    setShowCancelModal(false);
+    if (isMounted.current) {
+      setShowCancelModal(false);
+    }
   };
 
   // Determine current step index based on status
@@ -376,8 +416,10 @@ export default function RequestAcceptedScreen() {
               longitudeDelta: 0.02,
             }}
           >
-            <Marker coordinate={customerCoords} pinColor="red" title="Your Location" />
-            {mechanicLoc && (
+            {isValidCoordinate(customerCoords) && (
+              <Marker coordinate={customerCoords} pinColor="red" title="Your Location" />
+            )}
+            {isValidCoordinate(mechanicLoc) && (
               <Marker coordinate={mechanicLoc} title="Mechanic">
                 <View style={styles.mechanicMarkerPin}>
                   {mechanic?.photo ? (
@@ -388,7 +430,7 @@ export default function RequestAcceptedScreen() {
                 </View>
               </Marker>
             )}
-            {mechanicLoc && (
+            {isValidCoordinate(mechanicLoc) && isValidCoordinate(customerCoords) && (
               <Polyline
                 coordinates={[mechanicLoc, customerCoords]}
                 strokeColor="#3498DB"

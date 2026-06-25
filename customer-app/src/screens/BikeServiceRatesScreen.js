@@ -18,7 +18,7 @@ const { width } = Dimensions.get('window');
 
 const BIKE_SERVICES = [
   { id: '1', name: 'Engine Repair', desc: 'Diagnosis + basic repair', rate: '₹299', icon: 'engine-outline', lib: 'MaterialCommunityIcons' },
-  { id: '2', name: 'Oil Change', desc: 'Engine oil + labour', rate: '₹149', icon: 'oil', lib: 'FontAwesome5' },
+  { id: '2', name: 'Oil Change', desc: 'Engine oil + labour', rate: '₹149', icon: 'oil-can', lib: 'FontAwesome5' },
   { id: '3', name: 'Tyre Puncture Fix', desc: 'On-spot puncture repair', rate: '₹79', icon: 'car-tire-alert', lib: 'MaterialCommunityIcons' },
   { id: '4', name: 'Battery Jump Start', desc: 'Dead battery revival', rate: '₹99', icon: 'flash-outline', lib: 'Ionicons' },
   { id: '5', name: 'Chain Repair / Adjustment', desc: 'Chain fix or tightening', rate: '₹59', icon: 'link', lib: 'Feather' },
@@ -48,8 +48,7 @@ export default function BikeServiceRatesScreen({ navigation }) {
     if (service.lib === 'MaterialCommunityIcons') {
       return <MaterialCommunityIcons name={service.icon} size={size} color={color} />;
     } else if (service.lib === 'FontAwesome5') {
-      return <FontAwesome5 name={service.icon} size={20} color={color} />;
-    } else {
+     return <FontAwesome5 name={service.icon} size={20} color={color} solid />;    } else {
       return <Ionicons name={service.icon} size={size} color={color} />;
     }
   };

@@ -236,7 +236,7 @@ export default function AccountScreen({ navigation }) {
           >
             <View style={styles.menuItemLeft}>
               <View style={styles.menuIconCircle}>
-                <Ionicons name="sliders-outline" size={20} color="#374151" />
+                <Ionicons name="options-outline" size={20} color="#374151" />
               </View>
               <Text style={styles.menuLabel}>{t('account.preferences', 'Set Preferences')}</Text>
             </View>

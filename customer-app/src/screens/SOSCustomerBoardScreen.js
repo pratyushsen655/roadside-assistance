@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useRef } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Linking, Alert, Dimensions, TextInput, ActivityIndicator
 } from 'react-native';
@@ -21,9 +21,24 @@ const getDistanceInKm = (lat1, lon1, lat2, lon2) => {
   return R * c;
 };
 
+// Check if coordinate is a valid latitude/longitude number pair
+const isValidCoordinate = (coord) => {
+  return coord && 
+         typeof coord.latitude === 'number' && !isNaN(coord.latitude) &&
+         typeof coord.longitude === 'number' && !isNaN(coord.longitude);
+};
+
 export default function SOSCustomerBoardScreen({ route, navigation }) {
   const { sosId, mechanicId, mechanicName, mechanicPhone, customerLat, customerLng } = route.params || {};
   const { token } = useContext(AuthContext);
+
+  const isMounted = useRef(true);
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
 
   const [customerCoords] = useState({
     latitude: customerLat || 28.6139,
@@ -52,33 +67,55 @@ export default function SOSCustomerBoardScreen({ route, navigation }) {
 
     // Listen for mechanic location updates
     socket.on('mechanic:location:update', (coords) => {
-      if (coords && typeof coords.lat === 'number' && typeof coords.lng === 'number') {
-        setMechanicCoords({
-          latitude: coords.lat,
-          longitude: coords.lng
-        });
+      try {
+        if (coords && typeof coords.lat === 'number' && typeof coords.lng === 'number') {
+          if (isMounted.current) {
+            setMechanicCoords({
+              latitude: coords.lat,
+              longitude: coords.lng
+            });
+          }
+        }
+      } catch (err) {
+        console.error('[SOS_CUSTOMER_BOARD_SOCKET_ERROR] Error handling mechanic location update:', err);
       }
     });
 
     // Listen for job status changes
     socket.on('job:status:changed', (data) => {
-      if (data && data.status) {
-        setStatus(data.status);
-        if (data.status === 'completed') {
-          Alert.alert('Service Completed', 'The mechanic has finished the emergency work.', [
-            { text: 'Go Home', onPress: () => navigation.navigate('Home') }
-          ]);
+      try {
+        if (data && data.status) {
+          if (isMounted.current) {
+            setStatus(data.status);
+          }
+          if (data.status === 'completed') {
+            Alert.alert('Service Completed', 'The mechanic has finished the emergency work.', [
+              { text: 'Go Home', onPress: () => {
+                if (isMounted.current && navigation) {
+                  navigation.navigate('Home');
+                }
+              } }
+            ]);
+          }
         }
+      } catch (err) {
+        console.error('[SOS_CUSTOMER_BOARD_SOCKET_ERROR] Error handling job status changes:', err);
       }
     });
 
     // Listen for real-time messages
     socket.on('chat:message', (msg) => {
-      if (msg && msg.jobId === sosId && msg.senderType === 'mechanic') {
-        setMessages((prev) => [
-          ...prev,
-          { id: msg._id, text: msg.message, sender: 'mechanic' }
-        ]);
+      try {
+        if (msg && msg.jobId === sosId && msg.senderType === 'mechanic') {
+          if (isMounted.current) {
+            setMessages((prev) => [
+              ...prev,
+              { id: msg._id || String(Date.now()), text: msg.message, sender: 'mechanic' }
+            ]);
+          }
+        }
+      } catch (err) {
+        console.error('[SOS_CUSTOMER_BOARD_SOCKET_ERROR] Error handling chat message:', err);
       }
     });
 
@@ -91,16 +128,22 @@ export default function SOSCustomerBoardScreen({ route, navigation }) {
 
   // Calculate distance & ETA dynamically
   useEffect(() => {
-    if (mechanicCoords) {
-      const dist = getDistanceInKm(
-        customerCoords.latitude,
-        customerCoords.longitude,
-        mechanicCoords.latitude,
-        mechanicCoords.longitude
-      );
-      // Roughly 3 minutes per km
-      const calculatedEta = Math.max(1, Math.round(dist * 3));
-      setEta(calculatedEta);
+    try {
+      if (mechanicCoords) {
+        const dist = getDistanceInKm(
+          customerCoords.latitude,
+          customerCoords.longitude,
+          mechanicCoords.latitude,
+          mechanicCoords.longitude
+        );
+        // Roughly 3 minutes per km
+        const calculatedEta = Math.max(1, Math.round(dist * 3));
+        if (isMounted.current) {
+          setEta(calculatedEta);
+        }
+      }
+    } catch (err) {
+      console.error('[SOS_CUSTOMER_BOARD_ETA_ERROR] Error calculating ETA:', err);
     }
   }, [mechanicCoords, customerCoords]);
 
@@ -108,18 +151,24 @@ export default function SOSCustomerBoardScreen({ route, navigation }) {
     if (!inputText.trim()) return;
 
     if (socket && sosId) {
-      socket.emit('chat:send', {
-        jobId: sosId,
-        message: inputText,
-        senderType: 'customer',
-        senderId: token // or user ID
-      });
+      try {
+        socket.emit('chat:send', {
+          jobId: sosId,
+          message: inputText,
+          senderType: 'customer',
+          senderId: token // or user ID
+        });
+      } catch (err) {
+        console.error('[SOS_CUSTOMER_BOARD_CHAT_ERROR] Error emitting chat message:', err);
+      }
 
-      setMessages((prev) => [
-        ...prev,
-        { id: String(Date.now()), text: inputText, sender: 'customer' }
-      ]);
-      setInputText('');
+      if (isMounted.current) {
+        setMessages((prev) => [
+          ...prev,
+          { id: String(Date.now()), text: inputText, sender: 'customer' }
+        ]);
+        setInputText('');
+      }
     }
   };
 
@@ -191,14 +240,16 @@ export default function SOSCustomerBoardScreen({ route, navigation }) {
           }}
         >
           {/* Customer pin (orange/yellow) */}
-          <Marker coordinate={customerCoords} title="Your Location">
-            <View style={styles.customerMarkerBg}>
-              <Ionicons name="location" size={28} color="#FF9F0A" />
-            </View>
-          </Marker>
+          {isValidCoordinate(customerCoords) && (
+            <Marker coordinate={customerCoords} title="Your Location">
+              <View style={styles.customerMarkerBg}>
+                <Ionicons name="location" size={28} color="#FF9F0A" />
+              </View>
+            </Marker>
+          )}
 
           {/* Mechanic pin (red pulsing) */}
-          {mechanicCoords && (
+          {isValidCoordinate(mechanicCoords) && (
             <Marker coordinate={mechanicCoords} title="Mechanic Location">
               <View style={styles.mechanicMarkerBg}>
                 <Ionicons name="car-sport" size={28} color="#E8192C" />
@@ -207,7 +258,7 @@ export default function SOSCustomerBoardScreen({ route, navigation }) {
           )}
 
           {/* Route line (teal/cyan) */}
-          {mechanicCoords && (
+          {isValidCoordinate(customerCoords) && isValidCoordinate(mechanicCoords) && (
             <Polyline
               coordinates={[customerCoords, mechanicCoords]}
               strokeWidth={4}
