@@ -41,6 +41,7 @@ export default function SOSConfirmationScreen({ route, navigation }) {
 
   useEffect(() => {
     let socket;
+    let reconnectHandler;
     (async () => {
       try {
         const token = await AsyncStorage.getItem('userToken');
@@ -51,6 +52,12 @@ export default function SOSConfirmationScreen({ route, navigation }) {
           // Join socket room
           socket.emit('join:job:room', { jobId: sosId });
           console.log(`[Socket] Customer joined SOS room job:${sosId}`);
+
+          reconnectHandler = () => {
+            console.log('[Socket] Reconnected - rejoining job room:', sosId);
+            socket.emit('join:job:room', { jobId: sosId });
+          };
+          socket.on('connect', reconnectHandler);
 
           // Listen for mechanic acceptance
           socket.on('job:accepted:notify', (details) => {
@@ -101,6 +108,9 @@ export default function SOSConfirmationScreen({ route, navigation }) {
       if (socket) {
         socket.off('job:accepted:notify');
         socket.off('request:search_radius_update');
+        if (reconnectHandler) {
+          socket.off('connect', reconnectHandler);
+        }
       }
     };
   }, [sosId]);

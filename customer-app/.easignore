@@ -3,7 +3,9 @@
 node_modules/
 backend/
 admin-panel/
+my-app/
 *.log
 .DS_Store
 .git
 .gitignore
+

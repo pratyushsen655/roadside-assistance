@@ -65,6 +65,12 @@ export default function SOSCustomerBoardScreen({ route, navigation }) {
     // Join SOS/job room
     socket.emit('join:job:room', { jobId: sosId });
 
+    const reconnectHandler = () => {
+      console.log('[Socket] Reconnected - rejoining job room:', sosId);
+      socket.emit('join:job:room', { jobId: sosId });
+    };
+    socket.on('connect', reconnectHandler);
+
     // Listen for mechanic location updates
     socket.on('mechanic:location:update', (coords) => {
       try {
@@ -123,6 +129,7 @@ export default function SOSCustomerBoardScreen({ route, navigation }) {
       socket.off('mechanic:location:update');
       socket.off('job:status:changed');
       socket.off('chat:message');
+      socket.off('connect', reconnectHandler);
     };
   }, [sosId, socket]);
 

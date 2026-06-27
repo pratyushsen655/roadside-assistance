@@ -359,8 +359,8 @@ export default function HomeScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FAFAFA' },
   loadingContainer: { flex: 1, padding: 20, backgroundColor: '#FFF', paddingTop: 50 },
-  scrollContent: { paddingHorizontal: 20, paddingTop: 50, paddingBottom: 120 },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 },
+  scrollContent: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 120 },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
   headerLeft: { flex: 1, paddingRight: 10 },
   greetingText: { fontSize: 22, fontWeight: 'bold', color: '#111827', marginBottom: 4 },
   subtitleText: { fontSize: 14, color: '#6B7280', lineHeight: 20 },

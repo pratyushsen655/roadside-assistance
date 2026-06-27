@@ -127,8 +127,15 @@ export default function SearchingScreen({ navigation, route }) {
 
     // Join room for this request
     const socket = getSocket(token);
+    let reconnectHandler;
     if (socket) {
       socket.emit('join:job:room', { jobId });
+
+      reconnectHandler = () => {
+        console.log('[Socket] Reconnected - rejoining job room:', jobId);
+        socket.emit('join:job:room', { jobId });
+      };
+      socket.on('connect', reconnectHandler);
 
       // Listen for mechanic acceptance
       socket.off('job:accepted:notify');
@@ -196,6 +203,9 @@ export default function SearchingScreen({ navigation, route }) {
         socket.off('job:accepted:notify');
         socket.off('request:search_radius_update');
         socket.off('request:price_updated');
+        if (reconnectHandler) {
+          socket.off('connect', reconnectHandler);
+        }
       }
     };
   }, [token, jobId]);

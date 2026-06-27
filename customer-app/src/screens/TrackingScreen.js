@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import * as Location from 'expo-location';
+import { Ionicons } from '@expo/vector-icons';
 import { AuthContext } from '../context/AuthContext';
 import { getSocket } from '../config/socket';
 
@@ -54,6 +55,30 @@ export default function TrackingScreen({ route, navigation }) {
   const [mapLoading, setMapLoading] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
   const [mechanicRating, setMechanicRating] = useState(4.8);
+  const [arrivalOtp, setArrivalOtp] = useState(route.params?.arrivalOtp || '');
+
+  // Fetch request details to get the OTP
+  useEffect(() => {
+    if (!jobId || !token) return;
+    const fetchRequestDetails = async () => {
+      try {
+        const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://roadside-assistance-production-ddaf.up.railway.app';
+        const res = await fetch(`${API_URL}/api/requests/${jobId}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (data.success && data.request) {
+          if (isMounted.current) {
+            setArrivalOtp(data.request.arrivalOtp || '');
+            setStatus(data.request.status || 'accepted');
+          }
+        }
+      } catch (err) {
+        console.log('Error fetching request details in TrackingScreen:', err);
+      }
+    };
+    fetchRequestDetails();
+  }, [jobId, token]);
 
   // Initialize Socket
   const socket = getSocket(token);
@@ -131,6 +156,12 @@ export default function TrackingScreen({ route, navigation }) {
     socket.emit('join:job:room', { jobId });
     console.log(`[Socket] Customer joined room job:${jobId}`);
 
+    const reconnectHandler = () => {
+      console.log('[Socket] Reconnected - rejoining job room:', jobId);
+      socket.emit('join:job:room', { jobId });
+    };
+    socket.on('connect', reconnectHandler);
+
     // Listen to mechanic location updates
     socket.on('mechanic:location:update', (coords) => {
       try {
@@ -185,10 +216,27 @@ export default function TrackingScreen({ route, navigation }) {
       }
     });
 
+    const arrivalOtpHandler = (data) => {
+      try {
+        console.log('[Socket] TrackingScreen - Arrival OTP received:', data);
+        if (data && data.otp) {
+          if (isMounted.current) {
+            setArrivalOtp(data.otp);
+          }
+        }
+      } catch (err) {
+        console.error('[Socket] Error handling arrival_otp in TrackingScreen:', err);
+      }
+    };
+
+    socket.on('arrival_otp', arrivalOtpHandler);
+
     return () => {
       socket.off('mechanic:location:update');
       socket.off('job:status:changed');
       socket.off('chat:message');
+      socket.off('arrival_otp', arrivalOtpHandler);
+      socket.off('connect', reconnectHandler);
     };
   }, [jobId, socket]);
 
@@ -253,6 +301,7 @@ export default function TrackingScreen({ route, navigation }) {
       case 'arrived':
         return { text: '🟠 Arrived', color: '#F57C00' };
       case 'in_progress':
+      case 'work_in_progress':
         return { text: '🟢 In Progress', color: '#388E3C' };
       case 'completed':
         return { text: '✅ Completed', color: '#2E7D32' };
@@ -390,6 +439,23 @@ export default function TrackingScreen({ route, navigation }) {
             </Text>
           </View>
         </View>
+
+        {/* OTP Display */}
+        {status === 'arrived' && arrivalOtp ? (
+          <View style={styles.otpContainer}>
+            <View style={styles.otpHeaderRow}>
+              <Ionicons name="shield-checkmark" size={18} color="#27AE60" style={{ marginRight: 6 }} />
+              <Text style={styles.otpLabel}>Share OTP with Mechanic</Text>
+            </View>
+            <View style={styles.otpBoxes}>
+              {String(arrivalOtp).split('').map((digit, i) => (
+                <View key={i} style={styles.otpBox}>
+                  <Text style={styles.otpDigit}>{digit}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        ) : null}
 
         {isCancellable && (
           <TouchableOpacity style={styles.cancelBtn} onPress={handleCancelJob}>
@@ -591,5 +657,46 @@ const styles = StyleSheet.create({
     color: '#C62828',
     fontWeight: 'bold',
     fontSize: 16,
+  },
+  otpContainer: {
+    backgroundColor: '#F4FBF7',
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 10,
+    marginBottom: 10,
+    borderStyle: 'dashed',
+    borderWidth: 1.5,
+    borderColor: '#27AE60',
+    alignItems: 'center',
+  },
+  otpHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  otpLabel: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#1F2937',
+  },
+  otpBoxes: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  otpBox: {
+    width: 40,
+    height: 44,
+    borderWidth: 1.5,
+    borderColor: '#27AE60',
+    borderRadius: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+  },
+  otpDigit: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#27AE60',
   },
 });

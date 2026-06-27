@@ -6,6 +6,7 @@ import MapView, { Marker, Polyline } from 'react-native-maps';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { AuthContext } from '../context/AuthContext';
 import { getSocket } from '../config/socket';
+import RazorpayCheckout from 'react-native-razorpay';
 
 // Inline API URL fallback
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://roadside-assistance-production-ddaf.up.railway.app';
@@ -131,41 +132,132 @@ export default function RequestAcceptedScreen() {
   const [mechanicLoc, setMechanicLoc] = useState(null);
   const [distance, setDistance] = useState(null);
   const [showCancelModal, setShowCancelModal] = useState(false);
+  const [arrivalOtp, setArrivalOtp] = useState('');
+  const [paymentInProgress, setPaymentInProgress] = useState(false);
+
+  const fetchRequestDetails = async () => {
+    if (!requestId || !token) return;
+    try {
+      const res = await fetch(`${API_URL}/api/requests/${requestId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      console.log('[API] Request Accepted Screen - Full Payload Received:', data);
+      if (data.success && data.request) {
+        if (isMounted.current) {
+          setRequest(data.request);
+          setStatus(data.request.status || 'accepted');
+          setMechanic(data.request.mechanic || null);
+          setArrivalOtp(data.request.arrivalOtp || '');
+          if (data.request.etaMinutes) setEta(`${data.request.etaMinutes} mins`);
+          if (data.request.mechanicLocation) {
+            setMechanicLoc(data.request.mechanicLocation);
+          }
+        }
+      } else {
+        Alert.alert('Error', data.message || 'Unable to load request');
+      }
+    } catch (e) {
+      console.error('[REQUEST_ACCEPTED_FETCH_ERROR] Error fetching request:', e);
+      Alert.alert('Error', 'Network error while fetching request');
+    } finally {
+      if (isMounted.current) {
+        setLoading(false);
+      }
+    }
+  };
 
   // Fetch request details on mount
   useEffect(() => {
-    if (!requestId || !token) return;
-    const fetchData = async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/requests/${requestId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await res.json();
-        console.log('[API] Request Accepted Screen - Full Payload Received:', data);
-        if (data.success && data.request) {
-          if (isMounted.current) {
-            setRequest(data.request);
-            setStatus(data.request.status || 'accepted');
-            setMechanic(data.request.mechanic || null);
-            if (data.request.etaMinutes) setEta(`${data.request.etaMinutes} mins`);
-            if (data.request.mechanicLocation) {
-              setMechanicLoc(data.request.mechanicLocation);
-            }
-          }
-        } else {
-          Alert.alert('Error', data.message || 'Unable to load request');
-        }
-      } catch (e) {
-        console.error('[REQUEST_ACCEPTED_FETCH_ERROR] Error fetching request:', e);
-        Alert.alert('Error', 'Network error while fetching request');
-      } finally {
-        if (isMounted.current) {
-          setLoading(false);
-        }
-      }
-    };
-    fetchData();
+    fetchRequestDetails();
   }, [requestId, token]);
+
+  const handlePayment = async () => {
+    if (paymentInProgress || !request) return;
+    setPaymentInProgress(true);
+    try {
+      const finalPrice = request.accepted_price || request.pricing?.totalAmount || request.amount || 350;
+      
+      const response = await fetch(`${API_URL}/api/payments/create-order`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          requestId: request._id,
+          amount: finalPrice
+        })
+      });
+      const data = await response.json();
+      
+      if (!data.success) {
+        Alert.alert('Payment Error', data.message || 'Failed to create payment order');
+        setPaymentInProgress(false);
+        return;
+      }
+
+      // Open Razorpay Checkout
+      const options = {
+        description: 'Roadside Assistance Service',
+        image: 'https://i.imgur.com/3g7A62K.png',
+        key: data.keyId || 'rzp_test_YourKeyId',
+        amount: Math.round(Number(finalPrice) * 100), // in paise
+        currency: 'INR',
+        order_id: data.orderId,
+        name: 'RoadMitra RescueMe',
+        prefill: {
+          email: 'customer@roadmitra.com',
+          contact: '9999999999',
+          name: 'Customer App User'
+        },
+        theme: { color: '#27AE60' }
+      };
+
+      RazorpayCheckout.open(options)
+        .then(async (paymentData) => {
+          console.log('[Razorpay] Payment Success:', paymentData);
+          // Verify signature on backend
+          const verifyRes = await fetch(`${API_URL}/api/payments/verify`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              razorpay_order_id: paymentData.razorpay_order_id,
+              razorpay_payment_id: paymentData.razorpay_payment_id,
+              razorpay_signature: paymentData.razorpay_signature,
+              requestId: request._id
+            })
+          });
+          const verifyData = await verifyRes.json();
+          if (verifyData.success) {
+            Alert.alert('Success', 'Payment completed successfully!', [
+              {
+                text: 'Okay',
+                onPress: () => {
+                  navigation.navigate('Home');
+                }
+              }
+            ]);
+          } else {
+            Alert.alert('Verification Failed', verifyData.message || 'Could not verify payment signature.');
+          }
+        })
+        .catch((err) => {
+          console.log('[Razorpay] Payment Cancelled/Failed:', err);
+          Alert.alert('Payment Cancelled', 'Razorpay checkout was closed or payment failed.');
+        })
+        .finally(() => {
+          setPaymentInProgress(false);
+        });
+    } catch (err) {
+      console.error('[Payment Flow Error]', err);
+      Alert.alert('Error', 'An unexpected error occurred during checkout.');
+      setPaymentInProgress(false);
+    }
+  };
 
   // Socket listeners for live location, status, & ETA updates
   useEffect(() => {
@@ -175,6 +267,12 @@ export default function RequestAcceptedScreen() {
 
     // Join room for the specific request
     socket.emit('join:job:room', { jobId: requestId });
+
+    const reconnectHandler = () => {
+      console.log('[Socket] Reconnected - rejoining job room:', requestId);
+      socket.emit('join:job:room', { jobId: requestId });
+    };
+    socket.on('connect', reconnectHandler);
 
     const locationHandler = coords => {
       try {
@@ -199,19 +297,14 @@ export default function RequestAcceptedScreen() {
       }
     };
     const statusHandler = data => {
+      console.log('[Socket Listener] job:status:changed fired with data:', data);
       try {
         if (data && data.status) {
           if (isMounted.current) {
             setStatus(data.status);
           }
           if (data.status === 'completed') {
-            Alert.alert('Service Completed', 'The mechanic has completed the service request.', [
-              { text: 'Okay', onPress: () => {
-                if (isMounted.current && navigation) {
-                  navigation.navigate('Home');
-                }
-              } }
-            ]);
+            fetchRequestDetails();
           }
         }
       } catch (err) {
@@ -219,16 +312,65 @@ export default function RequestAcceptedScreen() {
       }
     };
 
+    const paymentCompletedHandler = data => {
+      try {
+        console.log('[Socket] Payment Completed event received:', data);
+        if (isMounted.current) {
+          setRequest(prev => prev ? { ...prev, paymentStatus: 'paid' } : null);
+          Alert.alert('Payment Successful', 'Thank you for your payment!', [
+            { text: 'Okay', onPress: () => {
+              if (isMounted.current && navigation) {
+                navigation.navigate('Home');
+              }
+            } }
+          ]);
+        }
+      } catch (err) {
+        console.error('[REQUEST_ACCEPTED_LISTENER_ERROR] Error handling payment:completed:', err);
+      }
+    };
+
+    const arrivalOtpHandler = data => {
+      try {
+        console.log('[Socket] RequestAcceptedScreen - Arrival OTP received:', data);
+        if (data && data.otp) {
+          if (isMounted.current) {
+            setArrivalOtp(data.otp);
+          }
+        }
+      } catch (err) {
+        console.error('[Socket] Error handling arrival_otp in RequestAcceptedScreen:', err);
+      }
+    };
+
     socket.on('mechanic:location:update', locationHandler);
     socket.on('mechanic:eta:update', etaHandler);
     socket.on('job:status:changed', statusHandler);
+    socket.on('payment:completed', paymentCompletedHandler);
+    socket.on('arrival_otp', arrivalOtpHandler);
 
     return () => {
       socket.off('mechanic:location:update', locationHandler);
       socket.off('mechanic:eta:update', etaHandler);
       socket.off('job:status:changed', statusHandler);
+      socket.off('payment:completed', paymentCompletedHandler);
+      socket.off('arrival_otp', arrivalOtpHandler);
+      socket.off('connect', reconnectHandler);
     };
   }, [token, requestId]);
+
+  // Auto trigger payment checkout when status turns completed and paymentStatus is pending (and paymentMethod isn't cash)
+  useEffect(() => {
+    if (
+      status === 'completed' &&
+      request &&
+      request.paymentStatus === 'pending' &&
+      request.paymentMethod !== 'cash' &&
+      !paymentInProgress
+    ) {
+      handlePayment();
+    }
+  }, [status, request]);
 
   // Calculate distance whenever locations change
   useEffect(() => {
@@ -483,18 +625,49 @@ export default function RequestAcceptedScreen() {
         </View>
 
         {/* OTP Verification Card */}
-        {(request.startOTP || request.otp) && <OTPDisplay otp={request.startOTP || request.otp} />}
+        {status === 'arrived' && arrivalOtp ? <OTPDisplay otp={arrivalOtp} /> : null}
 
         {/* Bottom Actions */}
         <View style={styles.bottomActions}>
-          <TouchableOpacity style={styles.trackBtn} onPress={() => navigation.navigate('Tracking', { jobId: requestId })}>
-            <Ionicons name="navigate" size={20} color="#fff" />
-            <Text style={styles.trackBtnText}>Track Mechanic</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowCancelModal(true)}>
-            <Ionicons name="close" size={20} color="#E74C3C" />
-            <Text style={styles.cancelBtnText}>Cancel Request</Text>
-          </TouchableOpacity>
+          {status === 'completed' ? (
+            request.paymentStatus === 'paid' || request.paymentMethod === 'cash' ? (
+              <TouchableOpacity
+                style={styles.trackBtn}
+                onPress={() => navigation.navigate('Home')}
+              >
+                <Ionicons name="home" size={20} color="#fff" />
+                <Text style={styles.trackBtnText}>Return Home</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={[styles.trackBtn, paymentInProgress && { opacity: 0.7 }]}
+                onPress={handlePayment}
+                disabled={paymentInProgress}
+              >
+                {paymentInProgress ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <>
+                    <Ionicons name="card" size={20} color="#fff" />
+                    <Text style={styles.trackBtnText}>
+                      Pay ₹{request.accepted_price || request.pricing?.totalAmount || request.amount || 350} Now
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            )
+          ) : (
+            <>
+              <TouchableOpacity style={styles.trackBtn} onPress={() => navigation.navigate('Tracking', { jobId: requestId })}>
+                <Ionicons name="navigate" size={20} color="#fff" />
+                <Text style={styles.trackBtnText}>Track Mechanic</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowCancelModal(true)}>
+                <Ionicons name="close" size={20} color="#E74C3C" />
+                <Text style={styles.cancelBtnText}>Cancel Request</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       </ScrollView>
 

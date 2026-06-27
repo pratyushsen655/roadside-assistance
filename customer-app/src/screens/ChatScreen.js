@@ -62,9 +62,15 @@ export default function ChatScreen({ route, navigation }) {
     fetchChatHistory();
     markAsRead();
 
+    const reconnectHandler = () => {
+      console.log('[Socket] Reconnected - rejoining job room:', jobId);
+      socket.emit('join:job:room', { jobId });
+    };
+
     if (socket) {
       // 2. Join the dedicated request room
       socket.emit('join:job:room', { jobId });
+      socket.on('connect', reconnectHandler);
 
       // 3. Listen to incoming messages
       socket.on('chat:message', (message) => {
@@ -95,6 +101,7 @@ export default function ChatScreen({ route, navigation }) {
         socket.off('chat:message');
         socket.off('chat:typing');
         socket.off('chat:stop:typing');
+        socket.off('connect', reconnectHandler);
       }
     };
   }, [jobId, socket]);
