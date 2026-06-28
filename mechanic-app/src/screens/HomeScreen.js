@@ -225,6 +225,7 @@ export default function HomeScreen() {
       const unsubscribe = navigation.addListener('focus', () => {
         fetchStats();
         fetchProfileOnlineStatus();
+        fetchPendingRequests();
       });
 
       return unsubscribe;
@@ -254,6 +255,24 @@ export default function HomeScreen() {
         socket.on('request_claimed', () => {
           fetchPendingRequests();
         });
+
+        socket.on('incoming_request_timeout', (data) => {
+          if (data && data.requestId) {
+            console.log('[Socket] Request timed out, removing from list:', data.requestId);
+            if (isMounted.current) {
+              setRequests(prev => prev.filter(r => r._id !== data.requestId));
+            }
+          }
+        });
+
+        socket.on('request_cancelled', (data) => {
+          if (data && data.requestId) {
+            console.log('[Socket] Request cancelled, removing from list:', data.requestId);
+            if (isMounted.current) {
+              setRequests(prev => prev.filter(r => r._id !== data.requestId));
+            }
+          }
+        });
       }
 
       interval = setInterval(() => {
@@ -267,6 +286,8 @@ export default function HomeScreen() {
         socket.off('request:price_updated');
         socket.off('request:price_updated_global');
         socket.off('request_claimed');
+        socket.off('incoming_request_timeout');
+        socket.off('request_cancelled');
       }
     }
     return () => {
@@ -275,6 +296,8 @@ export default function HomeScreen() {
         socket.off('request:price_updated');
         socket.off('request:price_updated_global');
         socket.off('request_claimed');
+        socket.off('incoming_request_timeout');
+        socket.off('request_cancelled');
       }
     };
   }, [isOnline, mechanicToken]);
@@ -590,6 +613,10 @@ export default function HomeScreen() {
         }, 100);
       } else {
         Alert.alert('Error', data.message || 'Failed to accept request');
+        // Immediately clear the stale request from the local state list
+        if (isMounted.current) {
+          setRequests(prev => prev.filter(r => r._id !== id));
+        }
       }
     } catch (error) {
       console.error('[ACCEPT_REQUEST_ERROR] Failed during accept flow:', error, { id });
