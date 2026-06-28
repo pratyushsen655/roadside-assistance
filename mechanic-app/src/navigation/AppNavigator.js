@@ -146,10 +146,11 @@ const AppNavigator = ({ navigationRef }) => {
 
     // 1. Setup Socket.io Global Listener (Layer 6 Foreground Case)
     let socket;
+    let handleSocketIncomingRequest;
     try {
       socket = getSocket(mechanicToken);
       if (socket) {
-        const handleSocketIncomingRequest = (data) => {
+        handleSocketIncomingRequest = (data) => {
           console.log('[Socket Global Listener] Incoming request received:', data);
           if (navigationRef.current?.isReady()) {
             navigationRef.current?.navigate('IncomingRequest', { requestData: data });
@@ -157,13 +158,6 @@ const AppNavigator = ({ navigationRef }) => {
         };
 
         socket.on('incoming_request', handleSocketIncomingRequest);
-
-        // Cleanup socket listener
-        return () => {
-          if (socket) {
-            socket.off('incoming_request', handleSocketIncomingRequest);
-          }
-        };
       }
     } catch (err) {
       console.log('[Socket Global Listener] Failed to hook socket listener:', err.message);
@@ -186,6 +180,9 @@ const AppNavigator = ({ navigationRef }) => {
     }
 
     return () => {
+      if (socket && handleSocketIncomingRequest) {
+        socket.off('incoming_request', handleSocketIncomingRequest);
+      }
       if (subscription) {
         subscription.remove();
       }
