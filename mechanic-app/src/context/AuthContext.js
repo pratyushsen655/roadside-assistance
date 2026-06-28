@@ -8,6 +8,8 @@ export const AuthProvider = ({ children }) => {
   const [mechanicToken, setMechanicToken] = useState(null);
   const [mechanic, setMechanic] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [mechanicLocation, setMechanicLocation] = useState(null);
+  const [locationPermissionGranted, setLocationPermissionGranted] = useState(true);
 
   useEffect(() => {
     const loadToken = async () => {
@@ -17,6 +19,19 @@ export const AuthProvider = ({ children }) => {
           setMechanicToken(token);
           // Normally we'd also fetch the mechanic data here, but for now just mock it
           setMechanic({ name: 'Mechanic User', phone: '+919999999999' });
+
+          // Sync push/FCM token on startup
+          setTimeout(async () => {
+            try {
+              const pushToken = await registerForPushNotifications();
+              if (pushToken) {
+                await savePushToken(pushToken);
+                console.log('[AuthContext] Push token registered and saved on startup:', pushToken);
+              }
+            } catch (err) {
+              console.log('[AuthContext] Push token registration error on startup:', err.message);
+            }
+          }, 1000);
         }
       } catch (error) {
         console.error('Error loading token', error);
@@ -50,7 +65,10 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ mechanicToken, mechanic, login, logout, isLoading, setMechanicToken }}>
+    <AuthContext.Provider value={{
+      mechanicToken, mechanic, login, logout, isLoading, setMechanicToken,
+      mechanicLocation, setMechanicLocation, locationPermissionGranted, setLocationPermissionGranted
+    }}>
       {children}
     </AuthContext.Provider>
   );

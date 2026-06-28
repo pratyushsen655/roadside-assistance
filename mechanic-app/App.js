@@ -66,11 +66,23 @@ export default function App() {
     try {
       notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
         console.log('Notification received in foreground:', notification);
+        const data = notification.request.content.data;
+        if (data && data.requestId) {
+          console.log('[App] Ringing notification received in foreground. Navigating...');
+          if (navigationRef.isReady()) {
+            navigationRef.navigate('IncomingRequest', { requestData: data });
+          }
+        }
       });
       responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
         try {
           const data = response.notification.request.content.data;
-          if (data && data.screen) {
+          if (data && data.requestId) {
+            console.log('[App] Ringing notification tapped. Navigating...');
+            if (navigationRef.isReady()) {
+              navigationRef.navigate('IncomingRequest', { requestData: data });
+            }
+          } else if (data && data.screen) {
             let params = data.params;
             if (typeof params === 'string') {
               try { params = JSON.parse(params); } catch (e) {}

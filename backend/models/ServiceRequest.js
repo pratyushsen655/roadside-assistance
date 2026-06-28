@@ -16,7 +16,13 @@ const ServiceRequestSchema = new mongoose.Schema({
   paymentMethod: { type: String, enum: ['cash', 'upi', 'card', 'razorpay'], default: 'cash' },
   razorpayOrderId: { type: String, default: '' },
   razorpayPaymentId: { type: String, default: '' },
+  razorpayQrCodeId: { type: String, default: '' },
+  razorpayPaymentLinkId: { type: String, default: '' },
   startOTP: { type: String, default: '' },
+  arrivalOtp: { type: String, default: '' },
+  otpGeneratedAt: { type: Date, default: null },
+  otpVerified: { type: Boolean, default: false },
+  otpAttempts: { type: Number, default: 0 },
   completedAt: { type: Date, default: null },
   bookingType: { type: String, enum: ['instant', 'scheduled'], default: 'instant' },
   scheduledTime: { type: Date, default: null },
@@ -38,7 +44,20 @@ const ServiceRequestSchema = new mongoose.Schema({
   }],
   last_price_update_time: { type: Date, default: Date.now },
   accepted_price: { type: Number, default: null },
-  accepted_mechanic_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Mechanic', default: null }
+  accepted_mechanic_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Mechanic', default: null },
+  baseRate: { type: Number, default: 0 },
+  distanceCharge: { type: Number, default: 0 },
+  totalPrice: { type: Number, default: 0 },
+  notifiedMechanics: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Mechanic' }],
+  currentNotifiedMechanic: { type: mongoose.Schema.Types.ObjectId, ref: 'Mechanic', default: null },
+  dispatchHistory: [{
+    mechanicId: { type: mongoose.Schema.Types.ObjectId, ref: 'Mechanic' },
+    action: { type: String, enum: ['offered', 'accepted', 'rejected', 'timeout'] },
+    timestamp: { type: Date, default: Date.now }
+  }]
 }, { timestamps: true });
 ServiceRequestSchema.index({ customerLocation: '2dsphere' });
+
+
+
 module.exports = mongoose.model('ServiceRequest', ServiceRequestSchema);

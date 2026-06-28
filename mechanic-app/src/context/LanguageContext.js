@@ -6,13 +6,13 @@ import i18n from '../i18n';
 // Supported languages list (used by LanguageSelectionScreen)
 export const SUPPORTED_LANGUAGES = [
   { code: 'en', label: 'English', nativeLabel: 'English', script: 'A' },
-  { code: 'hi', label: 'Hindi', nativeLabel: 'हिन्दी', script: 'अ' },
-  { code: 'mr', label: 'Marathi', nativeLabel: 'मराठी', script: 'अ' },
+  { code: 'hi', label: 'Hindi', nativeLabel: 'हिन्दी', script: 'आ' },
+  { code: 'mr', label: 'Marathi', nativeLabel: 'मराठी', script: 'आ' },
   { code: 'ml', label: 'Malayalam', nativeLabel: 'മലയാളം', script: 'അ' },
-  { code: 'kn', label: 'Kannada', nativeLabel: 'ಕನ್ನಡ', script: 'अ' },
-  { code: 'te', label: 'Telugu', nativeLabel: 'తెలుగు', script: 'अ' },
+  { code: 'kn', label: 'Kannada', nativeLabel: 'ಕನ್ನಡ', script: 'ಕ' },
+  { code: 'te', label: 'Telugu', nativeLabel: 'తెలుగు', script: 'తె' },
   { code: 'bn', label: 'Bengali', nativeLabel: 'বাংলা', script: 'অ' },
-  { code: 'ta', label: 'Tamil', nativeLabel: 'தமிழ்', script: 'अ' },
+  { code: 'ta', label: 'Tamil', nativeLabel: 'தமிழ்', script: 'அ' },
 ];
 
 // Context default values
@@ -34,7 +34,8 @@ export const LanguageProvider = ({ children }) => {
       let savedExists = false;
       try {
         const saved = await AsyncStorage.getItem('appLanguage');
-        if (saved && i18n.languages?.includes(saved)) {
+        const supportedCodes = SUPPORTED_LANGUAGES.map(l => l.code);
+        if (saved && supportedCodes.includes(saved)) {
           setLanguageState(saved);
           savedExists = true;
           if (i18n.language !== saved) {

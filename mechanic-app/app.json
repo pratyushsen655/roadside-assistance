@@ -1,33 +1,54 @@
 {
   "expo": {
-    "name": "mechanic-app",
+    "name": "RoadMitra Mechanic",
     "slug": "mechanic-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "The app accesses your photos to let you upload registration documents.",
+        "NSCameraUsageDescription": "The app accesses your camera to let you take photos for registration documents."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "foregroundImage": "./assets/icon.png"
       },
-      "package": "com.prateeksen655.mechanicapp"
+      "package": "com.prateeksen655.mechanicapp",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.RECORD_AUDIO"
+      ],
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyAzK4H6wmJV6pZaP1xHJBt6pUM3gJjNrQg"
+        }
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "The app accesses your photos to let you upload registration documents.",
+          "cameraPermission": "The app accesses your camera to let you take photos for registration documents."
+        }
+      ]
     ],
     "extra": {
       "eas": {
-        "projectId": "96e1e692-31a6-4db5-936a-981a02a8a11f"
+        "projectId": "cfe1992e-b179-4174-948d-53e8c00f74f8"
       }
-    }
+    },
+    "owner": "prateeksen123"
   }
 }

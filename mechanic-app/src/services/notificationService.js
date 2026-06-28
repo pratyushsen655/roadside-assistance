@@ -54,9 +54,22 @@ export const registerForPushNotifications = async () => {
       console.log('[NotificationService] Error getting projectId:', e);
     }
 
-    const token = (await Notifications.getExpoPushTokenAsync({
-      ...(projectId ? { projectId } : {})
-    })).data;
+    let token = null;
+    try {
+      if (Platform.OS === 'android') {
+        token = (await Notifications.getDevicePushTokenAsync()).data;
+        console.log('[NotificationService] Native device FCM token fetched:', token);
+      }
+    } catch (e) {
+      console.log('[NotificationService] Failed to get native device token, falling back to Expo token:', e.message);
+    }
+
+    if (!token) {
+      token = (await Notifications.getExpoPushTokenAsync({
+        ...(projectId ? { projectId } : {})
+      })).data;
+      console.log('[NotificationService] Expo push token fetched:', token);
+    }
 
     if (Platform.OS === 'android') {
       Notifications.setNotificationChannelAsync('default', {
@@ -64,6 +77,14 @@ export const registerForPushNotifications = async () => {
         importance: Notifications.AndroidImportance.MAX,
         vibrationPattern: [0, 250, 250, 250],
         lightColor: '#00BFA5',
+      });
+      // Also register channel for full screen intents
+      Notifications.setNotificationChannelAsync('incoming_requests', {
+        name: 'Incoming Service Requests',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 1000, 500, 1000],
+        lightColor: '#E8192C',
+        bypassDnd: true,
       });
     }
 

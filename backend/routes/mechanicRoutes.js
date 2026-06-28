@@ -71,8 +71,24 @@ router.get('/requests/pending', authMiddleware, async (req, res) => {
     }).populate('customer', 'name phone');
 
     const items = rawRequests.map(reqItem => {
-      const [cLng, cLat] = reqItem.customerLocation?.coordinates || [0, 0];
-      const distanceKm = parseFloat(calculateHaversineDistance(mLat, mLng, cLat, cLng).toFixed(1));
+      const coords = reqItem.customerLocation?.coordinates;
+      const cLng = coords ? coords[0] : 0;
+      const cLat = coords ? coords[1] : 0;
+      
+      let distanceKm = null;
+      let coordsMissing = false;
+
+      console.log(`[NearbyRequests DEBUG] reqItem: ${reqItem._id}, mechanic: ${mechanic._id}`);
+      console.log(`[NearbyRequests DEBUG] mLng: ${mLng}, mLat: ${mLat}`);
+      console.log(`[NearbyRequests DEBUG] cLng: ${cLng}, cLat: ${cLat}`);
+
+      if (cLng === 0 && cLat === 0) {
+        console.warn(`[NearbyRequests] Customer location coordinates missing/null for request ${reqItem._id}`);
+        coordsMissing = true;
+      } else {
+        distanceKm = parseFloat(calculateHaversineDistance(mLat, mLng, cLat, cLng).toFixed(1));
+        console.log(`[NearbyRequests DEBUG] Calculated distanceKm: ${distanceKm}`);
+      }
 
       // Calculate elapsed time in seconds to determine active search radius
       const elapsedSeconds = (Date.now() - new Date(reqItem.createdAt).getTime()) / 1000;
@@ -86,15 +102,20 @@ router.get('/requests/pending', authMiddleware, async (req, res) => {
       return {
         reqItem,
         distanceKm,
+        coordsMissing,
         activeRadiusKm
       };
     })
-    // Filter to requests that are within the current search radius
-    .filter(item => item.distanceKm <= item.activeRadiusKm)
-    // Sort by distance (nearest first)
-    .sort((a, b) => a.distanceKm - b.distanceKm)
-    // Format response
-    .map(({ reqItem, distanceKm }) => ({
+    // Filter to requests that are within the current search radius or have coordinates missing (so we can show the fallback UI)
+    .filter(item => item.coordsMissing || item.distanceKm <= item.activeRadiusKm)
+    // Sort by distance (nearest first), pushing coordinate-missing requests to the bottom
+    .sort((a, b) => {
+      if (a.coordsMissing && b.coordsMissing) return 0;
+      if (a.coordsMissing) return 1;
+      if (b.coordsMissing) return -1;
+      return a.distanceKm - b.distanceKm;
+    })
+    .map(({ reqItem, distanceKm, coordsMissing }) => ({
       _id: reqItem._id,
       customerName: (/** @type {any} */ (reqItem.customer))?.name || 'Customer',
       customerPhone: (/** @type {any} */ (reqItem.customer))?.phone || '',
@@ -108,9 +129,12 @@ router.get('/requests/pending', authMiddleware, async (req, res) => {
       issueType: reqItem.serviceType,
       issueDescription: reqItem.issueDescription || '',
       distanceKm,
+      coordsMissing,
       location: reqItem.customerAddress || 'Nearby',
       customerLocation: reqItem.customerLocation,
-      price: reqItem.current_price || reqItem.amount || reqItem.pricing?.totalAmount || 350,
+      price: reqItem.totalPrice || reqItem.current_price || reqItem.amount || reqItem.pricing?.totalAmount || 350,
+      baseRate: reqItem.baseRate || 350,
+      distanceCharge: reqItem.distanceCharge || 0
     }));
 
     res.status(200).json(items);
@@ -128,27 +152,57 @@ router.put('/requests/:id/accept', authMiddleware, async (req, res) => {
     const ServiceRequest = require('../models/ServiceRequest');
     const Mechanic = require('../models/Mechanic');
 
-    const request = await ServiceRequest.findById(req.params.id).populate('customer', 'name phone');
-    if (!request) {
-      return res.status(404).json({ success: false, message: 'Request not found' });
+    const mechanic = await Mechanic.findOne({ $or: [{ _id: req.user.id }, { userId: req.user.id }] });
+    if (!mechanic) {
+      return res.status(404).json({ success: false, message: 'Mechanic profile not found' });
     }
 
-    request.mechanic = /** @type {any} */ (req.user.id);
-    request.status = 'accepted';
+    // Atomic find and update to prevent race conditions
+    const request = await ServiceRequest.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        status: { $in: ['pending', 'assigned'] },
+        $or: [
+          { currentNotifiedMechanic: mechanic._id },
+          { currentNotifiedMechanic: null }
+        ]
+      },
+      {
+        $set: {
+          mechanic: mechanic._id,
+          status: 'accepted',
+          accepted_mechanic_id: mechanic._id
+        }
+      },
+      { new: true }
+    ).populate('customer', 'name phone');
+
+    if (!request) {
+      return res.status(400).json({ success: false, message: 'Request is no longer available. Already accepted by another mechanic or expired.' });
+    }
+
     if (!request.pricing || request.pricing.totalAmount === 0) {
       request.pricing = { baseFare: 150, totalAmount: 350 };
       request.amount = 350;
       request.current_price = 350;
     }
     request.accepted_price = request.current_price || request.amount || (request.pricing ? request.pricing.totalAmount : 350);
-    request.accepted_mechanic_id = /** @type {any} */ (req.user.id);
+
+    request.dispatchHistory.push({
+      mechanicId: mechanic._id,
+      action: 'accepted',
+      timestamp: new Date()
+    });
+
     await request.save();
 
-    const mechanic = await Mechanic.findOneAndUpdate(
-      { $or: [{ _id: req.user.id }, { userId: req.user.id }] },
-      { activeRequestId: request._id, status: 'busy' },
-      { new: true }
-    );
+    // Clear 30s background timeout
+    const { clearDispatchTimeout } = require('../services/matchingService');
+    clearDispatchTimeout(request._id);
+
+    mechanic.activeRequestId = request._id;
+    mechanic.status = 'busy';
+    await mechanic.save();
 
     if (/** @type {any} */ (req).io) {
       /** @type {any} */ (req).io.to(`job:${request._id}`).emit('job:accepted:notify', {
@@ -195,14 +249,45 @@ router.put('/requests/:id/accept', authMiddleware, async (req, res) => {
 router.put('/requests/:id/reject', authMiddleware, async (req, res) => {
   try {
     const ServiceRequest = require('../models/ServiceRequest');
-    const request = await ServiceRequest.findByIdAndUpdate(
-      req.params.id,
-      { $addToSet: { rejectedBy: req.user.id } },
-      { new: true }
-    );
+    const Mechanic = require('../models/Mechanic');
+
+    const mechanic = await Mechanic.findOne({ $or: [{ _id: req.user.id }, { userId: req.user.id }] });
+    if (!mechanic) {
+      return res.status(404).json({ success: false, message: 'Mechanic profile not found' });
+    }
+
+    const request = await ServiceRequest.findById(req.params.id);
     if (!request) {
       return res.status(404).json({ success: false, message: 'Request not found' });
     }
+
+    const mechanicObjectId = mechanic._id;
+
+    // Add mechanic to rejected list
+    const hasRejected = request.rejectedBy.some(id => id.toString() === mechanicObjectId.toString());
+    if (!hasRejected) {
+      request.rejectedBy.push(mechanicObjectId);
+    }
+
+    request.dispatchHistory.push({
+      mechanicId: mechanicObjectId,
+      action: 'rejected',
+      timestamp: new Date()
+    });
+
+    await request.save();
+
+    console.log(`[Rejection] Mechanic ${mechanicObjectId} declined request ${request._id}`);
+
+    // Clear background timeout
+    const { clearDispatchTimeout, dispatchNextMechanic } = require('../services/matchingService');
+    clearDispatchTimeout(request._id);
+
+    // If the rejecting mechanic was the current target, dispatch to next nearest
+    if (request.currentNotifiedMechanic && request.currentNotifiedMechanic.toString() === mechanicObjectId.toString()) {
+      await dispatchNextMechanic(request, /** @type {any} */ (req).io);
+    }
+
     res.status(200).json({ success: true, message: 'Request rejected successfully' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -326,11 +411,17 @@ router.get('/profile', authMiddleware, async (req, res) => {
 router.put('/profile', authMiddleware, async (req, res) => {
   try {
     const Mechanic = require('../models/Mechanic');
-    const { name, phone, bio } = req.body;
+    const { name, phone, bio, shopName, shopAddress, city, email, vehicleSpecializations, documents } = req.body;
     const updateData = {};
     if (name !== undefined) updateData.name = name;
     if (phone !== undefined) updateData.phone = phone;
     if (bio !== undefined) updateData.bio = bio;
+    if (shopName !== undefined) updateData.shopName = shopName;
+    if (shopAddress !== undefined) updateData.shopAddress = shopAddress;
+    if (city !== undefined) updateData.city = city;
+    if (email !== undefined) updateData.email = email;
+    if (vehicleSpecializations !== undefined) updateData.vehicleSpecializations = vehicleSpecializations;
+    if (documents !== undefined) updateData.documents = documents;
 
     const mechanic = await Mechanic.findOneAndUpdate(
       { $or: [{ _id: req.user.id }, { userId: req.user.id }] },
@@ -341,6 +432,43 @@ router.put('/profile', authMiddleware, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Mechanic not found' });
     }
     res.status(200).json({ success: true, message: 'Profile updated successfully', mechanic });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// PUT /api/mechanic/location
+router.put('/location', authMiddleware, async (req, res) => {
+  try {
+    const Mechanic = require('../models/Mechanic');
+    const { latitude, longitude } = req.body;
+
+    if (latitude === undefined || longitude === undefined) {
+      return res.status(400).json({ success: false, message: 'Latitude and longitude are required' });
+    }
+
+    const mechanic = await Mechanic.findOneAndUpdate(
+      { $or: [{ _id: req.user.id }, { userId: req.user.id }] },
+      {
+        $set: {
+          location: {
+            type: 'Point',
+            coordinates: [Number(longitude), Number(latitude)]
+          }
+        }
+      },
+      { new: true }
+    );
+
+    if (!mechanic) {
+      return res.status(404).json({ success: false, message: 'Mechanic not found' });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Location updated successfully',
+      location: mechanic.location
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -361,20 +489,24 @@ router.put('/jobs/:id/status', authMiddleware, async (req, res) => {
     request.status = status;
     let earningsEarned = 0;
 
-    let totalAmount = 350;
+     let totalAmount = request.totalPrice || 350;
     if (status === 'completed') {
-      let baseFare = 349;
-      const serviceType = request.serviceType;
-      if (serviceType === 'flat_tire' || serviceType === 'puncture_repair') {
-        baseFare = 299;
-      } else if (serviceType === 'battery_jump') {
-        baseFare = 399;
-      } else if (serviceType === 'fuel_delivery') {
-        baseFare = 249;
-      } else if (serviceType === 'engine_repair') {
-        baseFare = 599;
+      let baseFare = request.baseRate || 349;
+      if (!request.totalPrice) {
+        const serviceType = request.serviceType;
+        if (serviceType === 'flat_tire' || serviceType === 'puncture_repair') {
+          baseFare = 299;
+        } else if (serviceType === 'battery_jump') {
+          baseFare = 399;
+        } else if (serviceType === 'fuel_delivery') {
+          baseFare = 249;
+        } else if (serviceType === 'engine_repair') {
+          baseFare = 599;
+        }
+        totalAmount = baseFare + 29;
       }
-      totalAmount = baseFare + 29;
+      
+      earningsEarned = totalAmount;
 
       request.pricing = { baseFare, totalAmount };
       request.amount = totalAmount;

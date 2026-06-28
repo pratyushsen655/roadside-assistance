@@ -8,6 +8,18 @@ export const getSocket = (token) => {
       transports: ['websocket'],
       auth: { token }
     });
+
+    socket.on('connect', () => {
+      console.log('[Socket Client] Connected successfully! Socket ID:', socket.id);
+    });
+
+    socket.on('disconnect', (reason) => {
+      console.log('[Socket Client] Disconnected. Reason:', reason);
+    });
+
+    socket.on('connect_error', (error) => {
+      console.log('[Socket Client] Connection Error:', error.message);
+    });
   }
   return socket;
 };

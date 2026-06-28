@@ -24,7 +24,7 @@ const SplashScreen = ({ navigation }) => {
       <Animated.View style={[styles.logoContainer, { transform: [{ scale: bounceAnim }] }]}>
         <Text style={styles.logoIcon}>🔧</Text>
       </Animated.View>
-      <Text style={styles.title}>Mechanic Pro</Text>
+      <Text style={styles.title}>RoadMitra Mechanic</Text>
       <Text style={styles.tagline}>Your workshop on wheels</Text>
     </View>
   );

@@ -1,12 +1,46 @@
 import React, { useEffect, useState, useContext, useRef } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Linking, Alert, Dimensions, Modal, ActivityIndicator
+  View, Text, StyleSheet, TouchableOpacity, Linking, Alert, Dimensions, Modal, ActivityIndicator, Image
 } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { AuthContext } from '../context/AuthContext';
 import { getSocket } from '../config/socket';
 import API_URL from '../config/api';
+
+let QRCode;
+try {
+  QRCode = require('react-native-qrcode-svg').default;
+} catch (e) {
+  QRCode = null;
+}
+
+const RenderQR = ({ value, size = 200 }) => {
+  const [useFallback, setUseFallback] = useState(!QRCode);
+
+  if (!useFallback && QRCode) {
+    try {
+      return (
+        <View style={{ padding: 12, backgroundColor: '#ffffff', borderRadius: 16 }}>
+          <QRCode value={value} size={size} color="#000000" backgroundColor="#ffffff" onError={() => setUseFallback(true)} />
+        </View>
+      );
+    } catch (e) {
+      return (
+        <View style={{ padding: 12, backgroundColor: '#ffffff', borderRadius: 16 }}>
+          <Image source={{ uri: `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(value)}&size=${size}x${size}` }} style={{ width: size, height: size }} />
+        </View>
+      );
+    }
+  }
+
+  return (
+    <View style={{ padding: 12, backgroundColor: '#ffffff', borderRadius: 16 }}>
+      <Image source={{ uri: `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(value)}&size=${size}x${size}` }} style={{ width: size, height: size }} />
+    </View>
+  );
+};
+
 
 const { width, height } = Dimensions.get('window');
 
@@ -84,11 +118,14 @@ const getChecklist = (issueType) => {
         'Confirm resolution with customer before finalizing job completion.'
       ]
     };
+  }
+};
+
 // Check if coordinate is a valid latitude/longitude number pair
 const isValidCoordinate = (coord) => {
-  return coord && 
-         typeof coord.latitude === 'number' && !isNaN(coord.latitude) &&
-         typeof coord.longitude === 'number' && !isNaN(coord.longitude);
+  return coord &&
+    typeof coord.latitude === 'number' && !isNaN(coord.latitude) &&
+    typeof coord.longitude === 'number' && !isNaN(coord.longitude);
 };
 
 export default function ActiveJobScreen({ route, navigation }) {
@@ -104,12 +141,20 @@ export default function ActiveJobScreen({ route, navigation }) {
   }, []);
 
   const [mechanicCoords, setMechanicCoords] = useState(null);
-  const [jobStatus, setJobStatus] = useState('accepted'); // accepted, en_route, arrived, in_progress, completed
+  const [jobStatus, setJobStatus] = useState(route.params?.status || 'accepted'); // accepted, en_route, arrived, in_progress, completed
   const [loading, setLoading] = useState(false);
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [earnings, setEarnings] = useState(0);
   const [unreadCount, setUnreadCount] = useState(0);
   const [showChecklistModal, setShowChecklistModal] = useState(false);
+
+  const [qrLoading, setQrLoading] = useState(false);
+  const [qrCodeUrl, setQrCodeUrl] = useState('');
+  const [qrMethod, setQrMethod] = useState(''); // 'qr' or 'payment_link'
+  const [paymentPaid, setPaymentPaid] = useState(false);
+  const [finalAmount, setFinalAmount] = useState(0);
+  
+  const pollingIntervalRef = useRef(null);
 
   const socket = getSocket(mechanicToken);
 
@@ -133,6 +178,33 @@ export default function ActiveJobScreen({ route, navigation }) {
     return unsubscribe;
   }, [navigation]);
 
+  useEffect(() => {
+    if (!jobId || !mechanicToken) return;
+    const fetchJobStatus = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/requests/${jobId}`, {
+          headers: { Authorization: `Bearer ${mechanicToken}` }
+        });
+        const data = await res.json();
+        if (data.success && data.request) {
+          if (isMounted.current) {
+            const statusMap = {
+              accepted: 'accepted',
+              on_the_way: 'en_route',
+              arrived: 'arrived',
+              work_in_progress: 'in_progress',
+              completed: 'completed'
+            };
+            setJobStatus(statusMap[data.request.status] || 'accepted');
+          }
+        }
+      } catch (err) {
+        console.error('[ActiveJobScreen] Error fetching job status:', err);
+      }
+    };
+    fetchJobStatus();
+  }, [jobId, mechanicToken]);
+
   // Join Room on Socket mount & listen for messages
   useEffect(() => {
     if (socket && jobId) {
@@ -151,10 +223,22 @@ export default function ActiveJobScreen({ route, navigation }) {
           console.error('[ACTIVE_JOB_SOCKET_ERROR] Error handling chat:message:', err);
         }
       });
+
+      socket.on('payment:completed', (data) => {
+        try {
+          console.log('[Socket] payment:completed received in ActiveJob:', data);
+          if (data && data.requestId === jobId) {
+            handlePaymentSuccess();
+          }
+        } catch (err) {
+          console.error('[ACTIVE_JOB_SOCKET_ERROR] Error handling payment:completed:', err);
+        }
+      });
     }
     return () => {
       if (socket) {
         socket.off('chat:message');
+        socket.off('payment:completed');
       }
     };
   }, [jobId, socket]);
@@ -212,6 +296,80 @@ export default function ActiveJobScreen({ route, navigation }) {
     };
   }, [jobId, socket]);
 
+  const handlePaymentSuccess = () => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+    if (isMounted.current) {
+      setPaymentPaid(true);
+    }
+  };
+
+  const startPaymentPolling = () => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+    }
+
+    pollingIntervalRef.current = setInterval(async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/payments/status/${jobId}`, {
+          headers: { 'Authorization': `Bearer ${mechanicToken}` }
+        });
+        const data = await response.json();
+        if (data.success && data.paid) {
+          handlePaymentSuccess();
+        }
+      } catch (err) {
+        console.log('[Payment Polling Error]:', err.message);
+      }
+    }, 3000);
+  };
+
+  const generatePaymentQR = async () => {
+    if (isMounted.current) {
+      setQrLoading(true);
+      setPaymentPaid(false);
+      setQrCodeUrl('');
+    }
+    try {
+      const response = await fetch(`${API_URL}/api/payments/create-qr-order`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${mechanicToken}`
+        },
+        body: JSON.stringify({ requestId: jobId })
+      });
+      const data = await response.json();
+      if (data.success) {
+        if (isMounted.current) {
+          setQrCodeUrl(data.qrUrl);
+          setQrMethod(data.method);
+          setFinalAmount(data.amount || earnings || 350);
+        }
+        startPaymentPolling();
+      } else {
+        Alert.alert('Payment Setup Failed', data.message || 'Could not generate QR payment.');
+      }
+    } catch (err) {
+      console.error('[ActiveJobScreen] Error generating payment QR:', err);
+      Alert.alert('Error', 'Unable to reach payment server.');
+    } finally {
+      if (isMounted.current) {
+        setQrLoading(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
+  }, []);
+
   const updateStatus = async (newStatus) => {
     if (isMounted.current) {
       setLoading(true);
@@ -231,7 +389,7 @@ export default function ActiveJobScreen({ route, navigation }) {
         if (isMounted.current) {
           setJobStatus(newStatus);
         }
-        
+
         // Emit status update to socket
         if (socket) {
           try {
@@ -244,7 +402,9 @@ export default function ActiveJobScreen({ route, navigation }) {
         if (newStatus === 'completed') {
           if (isMounted.current) {
             setEarnings(data.earningsEarned || 350);
+            setFinalAmount(data.earningsEarned || 350);
             setShowCompleteModal(true);
+            generatePaymentQR();
           }
         }
       } else {
@@ -413,24 +573,86 @@ export default function ActiveJobScreen({ route, navigation }) {
       <Modal visible={showCompleteModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalSuccessIcon}>🎉</Text>
-            <Text style={styles.modalTitle}>Job Completed!</Text>
-            <Text style={styles.modalText}>You have successfully resolved the breakdown request.</Text>
-            
-            <View style={styles.earningsBox}>
-              <Text style={styles.earningsLabel}>Earnings Earned</Text>
-              <Text style={styles.earningsValue}>₹{earnings}</Text>
-            </View>
+            {qrLoading ? (
+              <View style={{ alignItems: 'center', padding: 20 }}>
+                <ActivityIndicator size="large" color="#00BFA5" style={{ marginBottom: 15 }} />
+                <Text style={styles.modalTitle}>Generating Payment QR...</Text>
+                <Text style={styles.modalText}>Fetching secure order from Razorpay</Text>
+              </View>
+            ) : qrCodeUrl ? (
+              !paymentPaid ? (
+                <View style={{ alignItems: 'center', width: '100%' }}>
+                  <Text style={styles.modalTitle}>Scan to Pay</Text>
+                  <Text style={[styles.earningsValue, { marginBottom: 20 }]}>₹{finalAmount}</Text>
+                  
+                  <RenderQR value={qrCodeUrl} size={200} />
+                  
+                  <Text style={[styles.modalText, { marginTop: 20, marginBottom: 5 }]}>
+                    {qrMethod === 'qr' ? 'UPI QR Code' : 'Payment Link QR Code'}
+                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10 }}>
+                    <ActivityIndicator size="small" color="#00BFA5" style={{ marginRight: 8 }} />
+                    <Text style={{ color: '#aaaaaa', fontSize: 14 }}>Waiting for customer payment...</Text>
+                  </View>
+                </View>
+              ) : (
+                <View style={{ alignItems: 'center', width: '100%' }}>
+                  <Text style={styles.modalSuccessIcon}>✅</Text>
+                  <Text style={styles.modalTitle}>Payment Received!</Text>
+                  <Text style={styles.modalText}>Customer has paid the total amount of ₹{finalAmount}.</Text>
 
-            <TouchableOpacity
-              style={styles.modalBtn}
-              onPress={() => {
-                setShowCompleteModal(false);
-                navigation.navigate('Home');
-              }}
-            >
-              <Text style={styles.modalBtnText}>Back to Home</Text>
-            </TouchableOpacity>
+                  <View style={styles.earningsBox}>
+                    <Text style={styles.earningsLabel}>Your Net Earnings (80%)</Text>
+                    <Text style={styles.earningsValue}>₹{earnings}</Text>
+                  </View>
+
+                  <TouchableOpacity
+                    style={[styles.modalBtn, { backgroundColor: '#1E88E5', marginBottom: 12 }]}
+                    onPress={() => Linking.openURL(`${API_URL}/api/requests/${jobId}/invoice`)}
+                  >
+                    <Text style={styles.modalBtnText}>📄 View PDF Invoice</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.modalBtn}
+                    onPress={() => {
+                      setShowCompleteModal(false);
+                      navigation.navigate('Home');
+                    }}
+                  >
+                    <Text style={styles.modalBtnText}>Back to Home</Text>
+                  </TouchableOpacity>
+                </View>
+              )
+            ) : (
+              <View style={{ alignItems: 'center', width: '100%' }}>
+                <Text style={styles.modalSuccessIcon}>🎉</Text>
+                <Text style={styles.modalTitle}>Job Completed!</Text>
+                <Text style={styles.modalText}>You have successfully resolved the breakdown request.</Text>
+
+                <View style={styles.earningsBox}>
+                  <Text style={styles.earningsLabel}>Earnings Earned</Text>
+                  <Text style={styles.earningsValue}>₹{earnings}</Text>
+                </View>
+
+                <TouchableOpacity
+                  style={[styles.modalBtn, { backgroundColor: '#E74C3C', marginBottom: 12 }]}
+                  onPress={generatePaymentQR}
+                >
+                  <Text style={styles.modalBtnText}>Retry Generating QR Code</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.modalBtn}
+                  onPress={() => {
+                    setShowCompleteModal(false);
+                    navigation.navigate('Home');
+                  }}
+                >
+                  <Text style={styles.modalBtnText}>Back to Home</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         </View>
       </Modal>

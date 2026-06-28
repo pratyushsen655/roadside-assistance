@@ -14,11 +14,17 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { AuthContext } from '../context/AuthContext';
 import API_URL from '../config/api';
+import { useTranslation } from 'react-i18next';
+import { useBottomNavSafeArea } from '../hooks/useBottomNavSafeArea';
+import DrawerMenu from '../components/DrawerMenu';
 
 const JobsScreen = ({ navigation }) => {
-  const { mechanicToken } = useContext(AuthContext);
+  const { mechanicToken, mechanic, logout } = useContext(AuthContext);
+  const { t } = useTranslation();
+  const { paddingBottom } = useBottomNavSafeArea();
   const [activeTab, setActiveTab] = useState('Active');
   const [jobs, setJobs] = useState({ active: [], completed: [] });
+  const [drawerVisible, setDrawerVisible] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // Fetch jobs from backend
@@ -113,7 +119,7 @@ const JobsScreen = ({ navigation }) => {
     <SafeAreaView style={styles.safeArea}>
       {/* Top Header Bar */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.headerIconCircle} onPress={() => Alert.alert('Menu', 'Side drawer menu options')}>
+        <TouchableOpacity style={styles.headerIconCircle} onPress={() => setDrawerVisible(true)}>
           <Ionicons name="menu-outline" size={24} color="#00BFA5" />
         </TouchableOpacity>
         
@@ -122,13 +128,17 @@ const JobsScreen = ({ navigation }) => {
             style={[styles.tabButton, activeTab === 'Active' && styles.activeTabButton]}
             onPress={() => setActiveTab('Active')}
           >
-            <Text style={[styles.tabButtonText, activeTab === 'Active' && styles.activeTabButtonText]}>Active</Text>
+            <Text style={[styles.tabButtonText, activeTab === 'Active' && styles.activeTabButtonText]}>
+              {t('jobs_active') || 'Active'}
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.tabButton, activeTab === 'Completed' && styles.activeTabButton]}
             onPress={() => setActiveTab('Completed')}
           >
-            <Text style={[styles.tabButtonText, activeTab === 'Completed' && styles.activeTabButtonText]}>Completed</Text>
+            <Text style={[styles.tabButtonText, activeTab === 'Completed' && styles.activeTabButtonText]}>
+              {t('jobs_completed') || 'Completed'}
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -138,7 +148,7 @@ const JobsScreen = ({ navigation }) => {
       </View>
 
       <ScrollView
-        contentContainerStyle={styles.scrollContainer}
+        contentContainerStyle={[styles.scrollContainer, { paddingBottom }]}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={loading} onRefresh={fetchJobs} tintColor="#00BFA5" colors={["#00BFA5"]} />
@@ -154,7 +164,7 @@ const JobsScreen = ({ navigation }) => {
             {filteredJobs.length === 0 ? (
               <View style={styles.emptyContainer}>
                 <Ionicons name="clipboard-outline" size={48} color="#4b5563" style={{ marginBottom: 12 }} />
-                <Text style={styles.emptyText}>No completed jobs found today</Text>
+                <Text style={styles.emptyText}>{t('jobs_empty') || 'No completed jobs found today'}</Text>
               </View>
             ) : (
               filteredJobs.map((item) => (
@@ -162,7 +172,9 @@ const JobsScreen = ({ navigation }) => {
                   <View style={styles.jobHeader}>
                     <Text style={styles.customerName}>{item.customer}</Text>
                     <View style={[styles.statusBadge, item.status === 'Active' ? styles.statusActive : styles.statusComplete]}>
-                      <Text style={styles.statusText}>{item.status}</Text>
+                      <Text style={styles.statusText}>
+                        {item.status === 'Active' ? (t('jobs_active') || 'Active') : (t('jobs_completed') || 'Completed')}
+                      </Text>
                     </View>
                   </View>
 
@@ -183,7 +195,7 @@ const JobsScreen = ({ navigation }) => {
                   <View style={styles.jobFooter}>
                     <View>
                       <Text style={styles.amountText}>{item.amount}</Text>
-                      <Text style={styles.amountSubtitle}>Estimated earning</Text>
+                      <Text style={styles.amountSubtitle}>{t('earnings_estimated') || 'Estimated earning'}</Text>
                     </View>
                     {item.status === 'Active' && (
                       <TouchableOpacity 
@@ -192,7 +204,7 @@ const JobsScreen = ({ navigation }) => {
                         activeOpacity={0.8}
                       >
                         <Ionicons name="navigate" size={16} color="#fff" style={{ marginRight: 6 }} />
-                        <Text style={styles.navigateButtonText}>Navigate</Text>
+                        <Text style={styles.navigateButtonText}>{t('jobs_navigate') || 'Navigate'}</Text>
                       </TouchableOpacity>
                     )}
                   </View>
@@ -203,7 +215,7 @@ const JobsScreen = ({ navigation }) => {
         )}
 
         {/* Today's Summary Section */}
-        <Text style={styles.sectionHeader}>Today's Summary</Text>
+        <Text style={styles.sectionHeader}>{t('home_jobs_today') || "Today's Summary"}</Text>
         <View style={styles.summaryContainer}>
           {/* Active Tasks Card */}
           <View style={styles.summaryCard}>
@@ -211,7 +223,7 @@ const JobsScreen = ({ navigation }) => {
               <Ionicons name="briefcase" size={20} color="#00BFA5" />
             </View>
             <Text style={styles.summaryValue}>{activeCount}</Text>
-            <Text style={styles.summaryLabel}>Active Task</Text>
+            <Text style={styles.summaryLabel}>{t('jobs_active') || 'Active Task'}</Text>
           </View>
 
           {/* Completed Card */}
@@ -220,7 +232,7 @@ const JobsScreen = ({ navigation }) => {
               <Ionicons name="checkmark-circle" size={20} color="#00BFA5" />
             </View>
             <Text style={styles.summaryValue}>{completedCount}</Text>
-            <Text style={styles.summaryLabel}>Completed</Text>
+            <Text style={styles.summaryLabel}>{t('jobs_completed') || 'Completed'}</Text>
           </View>
 
           {/* Earnings Card */}
@@ -229,12 +241,12 @@ const JobsScreen = ({ navigation }) => {
               <Ionicons name="wallet" size={20} color="#00BFA5" />
             </View>
             <Text style={styles.summaryValue}>₹{completedEarnings}</Text>
-            <Text style={styles.summaryLabel}>Earnings</Text>
+            <Text style={styles.summaryLabel}>{t('nav_earnings') || 'Earnings'}</Text>
           </View>
         </View>
 
         {/* Quick Actions Section */}
-        <Text style={styles.sectionHeader}>Quick Actions</Text>
+        <Text style={styles.sectionHeader}>{t('jobs_quick_actions') || 'Quick Actions'}</Text>
         <View style={styles.quickActionsContainer}>
           <View style={styles.quickActionsRow}>
             {/* My Profile */}
@@ -246,7 +258,7 @@ const JobsScreen = ({ navigation }) => {
               <View style={styles.actionIconCircle}>
                 <Ionicons name="person-outline" size={22} color="#00BFA5" />
               </View>
-              <Text style={styles.actionLabel}>My Profile</Text>
+              <Text style={styles.actionLabel}>{t('nav_profile') || 'My Profile'}</Text>
             </TouchableOpacity>
 
             {/* Earnings */}
@@ -258,7 +270,7 @@ const JobsScreen = ({ navigation }) => {
               <View style={styles.actionIconCircle}>
                 <Ionicons name="wallet-outline" size={22} color="#00BFA5" />
               </View>
-              <Text style={styles.actionLabel}>Earnings</Text>
+              <Text style={styles.actionLabel}>{t('nav_earnings') || 'Earnings'}</Text>
             </TouchableOpacity>
 
             {/* Support */}
@@ -270,7 +282,7 @@ const JobsScreen = ({ navigation }) => {
               <View style={styles.actionIconCircle}>
                 <Ionicons name="headset-outline" size={22} color="#00BFA5" />
               </View>
-              <Text style={styles.actionLabel}>Support</Text>
+              <Text style={styles.actionLabel}>{t('jobs_support') || 'Support'}</Text>
             </TouchableOpacity>
 
             {/* More */}
@@ -282,11 +294,19 @@ const JobsScreen = ({ navigation }) => {
               <View style={styles.actionIconCircle}>
                 <Ionicons name="ellipsis-horizontal" size={22} color="#00BFA5" />
               </View>
-              <Text style={styles.actionLabel}>More</Text>
+              <Text style={styles.actionLabel}>{t('jobs_more') || 'More'}</Text>
             </TouchableOpacity>
           </View>
         </View>
       </ScrollView>
+
+      {/* Side Drawer Menu */}
+      <DrawerMenu
+        visible={drawerVisible}
+        onClose={() => setDrawerVisible(false)}
+        mechanic={mechanic}
+        logout={logout}
+      />
     </SafeAreaView>
   );
 };

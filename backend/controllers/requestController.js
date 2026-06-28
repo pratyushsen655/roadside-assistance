@@ -185,6 +185,12 @@ exports.getActiveRequest = async (req, res, next) => {
       return res.status(200).json({ success: true, data: null, message: 'No active requests found.' });
     }
 
+    // Safeguard: Ensure startOTP is generated and saved if missing
+    if (!request.startOTP) {
+      request.startOTP = Math.floor(1000 + Math.random() * 9000).toString();
+      await request.save();
+    }
+
     res.status(200).json({ success: true, data: request });
   } catch (error) {
     next(error);
@@ -505,6 +511,7 @@ exports.cancelRequest = async (req, res, next) => {
   const role = req.authInfo.role;
   const userId = req.user.id;
   const { cancellationReason } = req.body;
+  console.log('[Cancel Controller Entry] cancelRequest initiated. Request ID:', requestId, 'User ID:', userId, 'Role:', role);
 
   try {
     const request = await ServiceRequest.findById(requestId);
@@ -529,6 +536,7 @@ exports.cancelRequest = async (req, res, next) => {
     request.cancelledBy = role;
     request.cancellationReason = cancellationReason || 'No reason provided';
     await request.save();
+    console.log('[Cancel Controller DB Update] Request status updated to cancelled. Request ID:', request._id);
 
     // Release customer
     await User.findByIdAndUpdate(request.customer, { activeRequestId: null });
@@ -540,6 +548,7 @@ exports.cancelRequest = async (req, res, next) => {
         activeRequestId: null
       });
       // Notify mechanic
+      console.log('[Cancel Controller Emit Mechanic] Emitting request_cancelled to mechanic:', request.mechanic.toString());
       socketHandler.sendToMechanic(request.mechanic.toString(), 'request_cancelled', {
         requestId,
         cancelledBy: role,
@@ -548,6 +557,7 @@ exports.cancelRequest = async (req, res, next) => {
     }
 
     // Notify customer
+    console.log('[Cancel Controller Emit Customer] Emitting request_cancelled to customer user room:', `user:${request.customer.toString()}`);
     socketHandler.sendToCustomer(request.customer.toString(), 'request_cancelled', {
       requestId,
       cancelledBy: role,
@@ -568,6 +578,7 @@ exports.cancelRequest = async (req, res, next) => {
     });
 
   } catch (error) {
+    console.error('[Cancel Controller Error] Error in cancelRequest:', error.message);
     next(error);
   }
 };

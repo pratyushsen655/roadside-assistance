@@ -1,5 +1,5 @@
-import React, { useContext } from 'react';
-import { Text, View, ActivityIndicator } from 'react-native';
+import React, { useContext, useEffect } from 'react';
+import { Text, View, ActivityIndicator, Platform, NativeModules, NativeEventEmitter } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -19,6 +19,12 @@ import SOSAlertsScreen from '../screens/SOSAlertsScreen';
 import OnTheWayScreen from '../screens/OnTheWayScreen';
 import PerformanceScreen from '../screens/PerformanceScreen';
 import RegisterScreen from '../screens/RegisterScreen';
+import LanguageSelectionScreen from '../screens/LanguageSelectionScreen';
+import IncomingRequestScreen from '../screens/IncomingRequestScreen';
+import { useLanguage } from '../context/LanguageContext';
+import { getSocket } from '../config/socket';
+
+const { RingingModule } = NativeModules;
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -27,6 +33,7 @@ const MainStack = createStackNavigator();
 const AuthStack = () => (
   <Stack.Navigator screenOptions={{ headerShown: false }}>
     <Stack.Screen name="Splash" component={SplashScreen} />
+    <Stack.Screen name="LanguageSelection" component={LanguageSelectionScreen} />
     <Stack.Screen name="Register" component={RegisterScreen} />
     <Stack.Screen name="Login" component={LoginScreen} />
   </Stack.Navigator>
@@ -132,8 +139,60 @@ const navStyles = StyleSheet.create({
 
 const AppNavigator = ({ navigationRef }) => {
   const { mechanicToken, isLoading } = useContext(AuthContext);
+  const { languageLoading, hasSavedLanguage } = useLanguage();
 
-  if (isLoading) {
+  useEffect(() => {
+    if (!mechanicToken) return;
+
+    // 1. Setup Socket.io Global Listener (Layer 6 Foreground Case)
+    let socket;
+    try {
+      socket = getSocket(mechanicToken);
+      if (socket) {
+        const handleSocketIncomingRequest = (data) => {
+          console.log('[Socket Global Listener] Incoming request received:', data);
+          if (navigationRef.current?.isReady()) {
+            navigationRef.current?.navigate('IncomingRequest', { requestData: data });
+          }
+        };
+
+        socket.on('incoming_request', handleSocketIncomingRequest);
+
+        // Cleanup socket listener
+        return () => {
+          if (socket) {
+            socket.off('incoming_request', handleSocketIncomingRequest);
+          }
+        };
+      }
+    } catch (err) {
+      console.log('[Socket Global Listener] Failed to hook socket listener:', err.message);
+    }
+
+    // 2. Setup Native Module Event Listener (Android Layer 4 & 6 Foreground Case)
+    let subscription;
+    if (Platform.OS === 'android' && RingingModule) {
+      try {
+        const eventEmitter = new NativeEventEmitter(RingingModule);
+        subscription = eventEmitter.addListener('onIncomingRequest', (data) => {
+          console.log('[Native Global Listener] Incoming request received:', data);
+          if (navigationRef.current?.isReady()) {
+            navigationRef.current?.navigate('IncomingRequest', { requestData: data });
+          }
+        });
+      } catch (err) {
+        console.log('[Native Global Listener] Failed to hook event emitter:', err.message);
+      }
+    }
+
+    return () => {
+      if (subscription) {
+        subscription.remove();
+      }
+    };
+  }, [mechanicToken, navigationRef]);
+
+  if (isLoading || languageLoading) {
     return (
       <View style={{ flex: 1, backgroundColor: '#1a1a2e', justifyContent: 'center', alignItems: 'center' }}>
         <ActivityIndicator size="large" color="#00BFA5" />
@@ -141,16 +200,44 @@ const AppNavigator = ({ navigationRef }) => {
     );
   }
 
+  // Force language selection if not saved yet
+  if (!hasSavedLanguage) {
+    return (
+      <NavigationContainer ref={navigationRef}>
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="LanguageSelection" component={LanguageSelectionScreen} initialParams={{ isOnboarding: true }} />
+        </Stack.Navigator>
+      </NavigationContainer>
+    );
+  }
+
   return (
-    <NavigationContainer ref={navigationRef}>
+    <NavigationContainer 
+      ref={navigationRef}
+      onReady={() => {
+        console.log('[NavigationContainer] Navigation is ready');
+        if (Platform.OS === 'android' && RingingModule && mechanicToken) {
+          RingingModule.getInitialRingingData().then((data) => {
+            if (data) {
+              console.log('[NavigationContainer] Cold start ringing data detected:', data);
+              navigationRef.current?.navigate('IncomingRequest', { requestData: data });
+            }
+          }).catch(err => {
+            console.log('[NavigationContainer] Error fetching initial ringing data:', err.message);
+          });
+        }
+      }}
+    >
       {mechanicToken ? (
         <MainStack.Navigator screenOptions={{ headerShown: false }}>
           <MainStack.Screen name="Tabs" component={MainTabs} />
+          <MainStack.Screen name="LanguageSelection" component={LanguageSelectionScreen} />
           <MainStack.Screen name="ActiveJob" component={ActiveJobScreen} />
           <MainStack.Screen name="OnTheWay" component={OnTheWayScreen} />
           <MainStack.Screen name="Chat" component={ChatScreen} />
           <MainStack.Screen name="Reviews" component={ReviewsScreen} />
           <MainStack.Screen name="Performance" component={PerformanceScreen} />
+          <MainStack.Screen name="IncomingRequest" component={IncomingRequestScreen} />
         </MainStack.Navigator>
       ) : (
         <AuthStack />

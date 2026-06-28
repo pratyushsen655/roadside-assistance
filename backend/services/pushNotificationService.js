@@ -116,7 +116,70 @@ const sendMulticastNotification = async (tokens, title, body, data = {}) => {
   return { mock: true, successCount: validTokens.length, failureCount: 0 };
 };
 
+/**
+ * Send a high-priority, data-only FCM message for incoming requests
+ * @param {string} token - FCM device token
+ * @param {object} payload - Key-value pair strings
+ */
+const sendRingingRequestNotification = async (token, payload) => {
+  if (!token) return { success: false, error: 'Token is null or undefined' };
+
+  // Convert payload values to strings
+  /** @type {Record<string, string>} */
+  const stringifiedData = {};
+  Object.keys(payload).forEach(key => {
+    stringifiedData[key] = String(payload[key]);
+  });
+
+  const message = {
+    token,
+    data: stringifiedData,
+    android: {
+      priority: 'high',
+    },
+    apns: {
+      headers: {
+        'apns-priority': '10',
+        'apns-push-type': 'background',
+      },
+      payload: {
+        aps: {
+          'content-available': 1,
+        },
+      },
+    },
+  };
+
+  if (admin.apps.length > 0) {
+    try {
+      const response = await admin.messaging().send(/** @type {any} */ (message));
+      console.log(`[FCM Success] Sent ringing alert. Message ID: ${response} for token: ${token}`);
+      return { success: true, messageId: response };
+    } catch (error) {
+      console.error(`[FCM Failure] Error sending to token: ${token}. Error: ${error.message}`);
+      
+      // If FCM returns NotRegistered error, invalidate token in DB
+      if (error.code === 'messaging/registration-token-not-registered' || 
+          error.message.includes('NotRegistered') || 
+          error.message.includes('invalid-registration')) {
+        console.log(`[FCM Invalidation] Token ${token} is not registered. Removing from DB...`);
+        const Mechanic = require('../models/Mechanic');
+        await Mechanic.updateOne(
+          { $or: [{ fcmToken: token }, { pushToken: token }] },
+          { $set: { fcmToken: null, pushToken: null } }
+        );
+      }
+      return { success: false, error: error.message, code: error.code };
+    }
+  }
+
+  // Development mock fallback
+  console.log(`[MOCK FCM] Ringing Alert → ${token} | Payload: ${JSON.stringify(stringifiedData)}`);
+  return { success: true, mock: true, messageId: `mock-msg-id-${Date.now()}` };
+};
+
 module.exports = {
   sendPushNotification,
-  sendMulticastNotification
+  sendMulticastNotification,
+  sendRingingRequestNotification
 };

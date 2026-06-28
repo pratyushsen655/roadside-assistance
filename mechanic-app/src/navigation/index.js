@@ -19,6 +19,8 @@ import SOSAlertsScreen from '../screens/SOSAlertsScreen';
 import OnTheWayScreen from '../screens/OnTheWayScreen';
 import PerformanceScreen from '../screens/PerformanceScreen';
 import RegisterScreen from '../screens/RegisterScreen';
+import LanguageSelectionScreen from '../screens/LanguageSelectionScreen';
+import { useLanguage } from '../context/LanguageContext';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -27,6 +29,7 @@ const MainStack = createStackNavigator();
 const AuthStack = () => (
   <Stack.Navigator screenOptions={{ headerShown: false }}>
     <Stack.Screen name="Splash" component={SplashScreen} />
+    <Stack.Screen name="LanguageSelection" component={LanguageSelectionScreen} />
     <Stack.Screen name="Register" component={RegisterScreen} />
     <Stack.Screen name="Login" component={LoginScreen} />
   </Stack.Navigator>
@@ -132,12 +135,24 @@ const navStyles = StyleSheet.create({
 
 const AppNavigator = ({ navigationRef }) => {
   const { mechanicToken, isLoading } = useContext(AuthContext);
+  const { languageLoading, hasSavedLanguage } = useLanguage();
 
-  if (isLoading) {
+  if (isLoading || languageLoading) {
     return (
       <View style={{ flex: 1, backgroundColor: '#1a1a2e', justifyContent: 'center', alignItems: 'center' }}>
         <ActivityIndicator size="large" color="#00BFA5" />
       </View>
+    );
+  }
+
+  // Force language selection if not saved yet
+  if (!hasSavedLanguage) {
+    return (
+      <NavigationContainer ref={navigationRef}>
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="LanguageSelection" component={LanguageSelectionScreen} initialParams={{ isOnboarding: true }} />
+        </Stack.Navigator>
+      </NavigationContainer>
     );
   }
 
@@ -146,6 +161,7 @@ const AppNavigator = ({ navigationRef }) => {
       {mechanicToken ? (
         <MainStack.Navigator screenOptions={{ headerShown: false }}>
           <MainStack.Screen name="Tabs" component={MainTabs} />
+          <MainStack.Screen name="LanguageSelection" component={LanguageSelectionScreen} />
           <MainStack.Screen name="ActiveJob" component={ActiveJobScreen} />
           <MainStack.Screen name="OnTheWay" component={OnTheWayScreen} />
           <MainStack.Screen name="Chat" component={ChatScreen} />

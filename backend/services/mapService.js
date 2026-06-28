@@ -76,7 +76,31 @@ const getRouteDetails = async (origin, destination) => {
   };
 };
 
+/**
+ * Geocodes an address string to [longitude, latitude] coordinates.
+ */
+const geocodeAddress = async (address) => {
+  if (!address) return null;
+  const MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
+  if (MAPS_API_KEY) {
+    try {
+      const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${MAPS_API_KEY}`;
+      const response = await axios.get(url);
+      if (response.data.status === 'OK' && response.data.results && response.data.results.length > 0) {
+        const { lat, lng } = response.data.results[0].geometry.location;
+        return [lng, lat]; // [longitude, latitude]
+      } else {
+        process.stderr.write(`[Map Service] Geocoding API status: ${response.data.status}\n`);
+      }
+    } catch (error) {
+      process.stderr.write(`[Map Service] Geocoding API error: ${error.message}\n`);
+    }
+  }
+  return null;
+};
+
 module.exports = {
   getRouteDetails,
-  calculateHaversineDistance
+  calculateHaversineDistance,
+  geocodeAddress
 };

@@ -17,12 +17,16 @@ start "Customer-App" cmd /k "cd /d %PROJECT_ROOT%customer-app && set NODE_OPTION
 rem ---- Terminal 3 – Mechanic Expo on port 8082 ----
 start "Mechanic-App" cmd /k "cd /d %PROJECT_ROOT%mechanic-app && set NODE_OPTIONS=--openssl-legacy-provider && expo start --port 8082 --lan"
 
+rem ---- Terminal 4 – Admin Panel (Vite) ----
+start "Admin-Panel" cmd /k "cd /d %PROJECT_ROOT%admin-panel && npm run dev"
+
 rem Give the user a quick summary of the URLs that will appear in each window.
 echo.
 echo =============================
-echo Backend:   http://localhost:5000
-echo Customer:  http://localhost:8081 (Expo QR code will be shown in its window)
-echo Mechanic:  http://localhost:8082 (Expo QR code will be shown in its window)
+echo Backend:      http://localhost:5000
+echo Admin Panel:  http://localhost:5173
+echo Customer:     http://localhost:8081 (Expo QR code will be shown in its window)
+echo Mechanic:     http://localhost:8082 (Expo QR code will be shown in its window)
 echo.
 echo IMPORTANT: Make sure your phone and PC are on the same Wi-Fi network
 echo            when using --lan mode.

@@ -318,11 +318,23 @@ export default function RequestAcceptedScreen() {
         if (isMounted.current) {
           setRequest(prev => prev ? { ...prev, paymentStatus: 'paid' } : null);
           Alert.alert('Payment Successful', 'Thank you for your payment!', [
-            { text: 'Okay', onPress: () => {
-              if (isMounted.current && navigation) {
-                navigation.navigate('Home');
+            {
+              text: 'View Invoice',
+              onPress: () => {
+                Linking.openURL(`${API_URL}/api/requests/${requestId}/invoice`);
+                if (isMounted.current && navigation) {
+                  navigation.navigate('Home');
+                }
               }
-            } }
+            },
+            {
+              text: 'Okay',
+              onPress: () => {
+                if (isMounted.current && navigation) {
+                  navigation.navigate('Home');
+                }
+              }
+            }
           ]);
         }
       } catch (err) {
@@ -631,13 +643,22 @@ export default function RequestAcceptedScreen() {
         <View style={styles.bottomActions}>
           {status === 'completed' ? (
             request.paymentStatus === 'paid' || request.paymentMethod === 'cash' ? (
-              <TouchableOpacity
-                style={styles.trackBtn}
-                onPress={() => navigation.navigate('Home')}
-              >
-                <Ionicons name="home" size={20} color="#fff" />
-                <Text style={styles.trackBtnText}>Return Home</Text>
-              </TouchableOpacity>
+              <View style={{ width: '100%', gap: 10 }}>
+                <TouchableOpacity
+                  style={[styles.trackBtn, { backgroundColor: '#27AE60' }]}
+                  onPress={() => Linking.openURL(`${API_URL}/api/requests/${requestId}/invoice`)}
+                >
+                  <Ionicons name="document-text" size={20} color="#fff" />
+                  <Text style={styles.trackBtnText}>View Invoice</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.trackBtn}
+                  onPress={() => navigation.navigate('Home')}
+                >
+                  <Ionicons name="home" size={20} color="#fff" />
+                  <Text style={styles.trackBtnText}>Return Home</Text>
+                </TouchableOpacity>
+              </View>
             ) : (
               <TouchableOpacity
                 style={[styles.trackBtn, paymentInProgress && { opacity: 0.7 }]}

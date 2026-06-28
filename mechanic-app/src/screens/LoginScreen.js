@@ -2,9 +2,11 @@ import React, { useState, useContext, useRef } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { AuthContext } from '../context/AuthContext';
 import API_URL from '../config/api';
+import { useTranslation } from 'react-i18next';
 
 const LoginScreen = ({ navigation }) => {
   const { login } = useContext(AuthContext);
+  const { t } = useTranslation();
   const [step, setStep] = useState(1);
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
@@ -106,16 +108,16 @@ const LoginScreen = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Welcome Back</Text>
+      <Text style={styles.title}>{t('login_title') || 'Welcome Back'}</Text>
       <Text style={{color:'#00BFA5', fontSize:11, marginBottom: 10}}>API: {API_URL}</Text>
-      <Text style={styles.subtitle}>Login to Mechanic Pro</Text>
+      <Text style={styles.subtitle}>{t('login_subtitle') || 'Login to RoadMitra Mechanic'}</Text>
 
       {step === 1 ? (
         <View style={styles.inputContainer}>
           <Text style={styles.prefix}>🇮🇳 +91</Text>
           <TextInput
             style={styles.input}
-            placeholder="Phone Number"
+            placeholder={t('login_phone') || 'Phone Number'}
             placeholderTextColor="#aaaaaa"
             keyboardType="phone-pad"
             value={phone}
@@ -129,7 +131,7 @@ const LoginScreen = ({ navigation }) => {
       ) : (
         <View>
           <Text style={{ color: '#aaaaaa', fontSize: 14, marginBottom: 15 }}>
-            OTP sent to <Text style={{ color: '#00BFA5', fontWeight: 'bold' }}>{maskedPhone()}</Text>
+            {t('login_otp_sent') || 'OTP sent to'} <Text style={{ color: '#00BFA5', fontWeight: 'bold' }}>{maskedPhone()}</Text>
           </Text>
           <View style={styles.otpContainer}>
             {otp.map((digit, index) => (
@@ -158,7 +160,9 @@ const LoginScreen = ({ navigation }) => {
         {loading ? (
           <ActivityIndicator color="#ffffff" />
         ) : (
-          <Text style={styles.buttonText}>{step === 1 ? 'Send OTP' : 'Verify & Login'}</Text>
+          <Text style={styles.buttonText}>
+            {step === 1 ? (t('login_send_otp') || 'Send OTP') : (t('login_verify') || 'Verify & Login')}
+          </Text>
         )}
       </TouchableOpacity>
 

@@ -111,6 +111,7 @@ export default function OnTheWayScreen() {
   const [otpVal, setOtpVal] = useState(['', '', '', '']);
   const [otpLoading, setOtpLoading] = useState(false);
   const [cancellationReason, setCancellationReason] = useState('');
+  const [otpError, setOtpError] = useState('');
 
   const otpRefs = [useRef(), useRef(), useRef(), useRef()];
 
@@ -324,26 +325,19 @@ export default function OnTheWayScreen() {
     }
 
     try {
-      const res = await fetch(`${API_URL}/api/mechanic/jobs/${requestId}/status`, {
-        method: 'PUT',
+      setOtpLoading(true);
+      setOtpError('');
+      const res = await fetch(`${API_URL}/api/requests/${requestId}/mark-arrived`, {
+        method: 'POST',
         headers: {
           Authorization: `Bearer ${mechanicToken}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ status: 'arrived' }),
       });
       const data = await res.json();
       if (data.success) {
-        // Emit arrived update to customer
-        try {
-          const socket = getSocket(mechanicToken);
-          if (socket) {
-            socket.emit('job:status:update', { jobId: requestId, status: 'arrived' });
-          }
-        } catch (socketErr) {
-          console.error('[ON_THE_WAY_ARRIVED_SOCKET_ERROR] Error emitting job status update:', socketErr);
-        }
         if (isMounted.current) {
+          setOtpVal(['', '', '', '']);
           setShowOtpModal(true);
         }
       } else {
@@ -352,6 +346,34 @@ export default function OnTheWayScreen() {
     } catch (e) {
       console.error('[ON_THE_WAY_ARRIVED_ERROR] Error in handleArrived:', e);
       Alert.alert('Error', 'Network error while updating status');
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    try {
+      setOtpLoading(true);
+      setOtpError('');
+      const res = await fetch(`${API_URL}/api/requests/${requestId}/mark-arrived`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${mechanicToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      const data = await res.json();
+      if (data.success) {
+        setOtpVal(['', '', '', '']);
+        Alert.alert('OTP Sent', 'A new verification code has been sent to the customer.');
+      } else {
+        setOtpError(data.message || 'Failed to resend OTP.');
+      }
+    } catch (e) {
+      console.error('[ON_THE_WAY_RESEND_ERROR] Error in handleResendOtp:', e);
+      setOtpError('Network error while resending OTP.');
+    } finally {
+      setOtpLoading(false);
     }
   };
 
@@ -364,9 +386,10 @@ export default function OnTheWayScreen() {
 
     if (isMounted.current) {
       setOtpLoading(true);
+      setOtpError('');
     }
     try {
-      const res = await fetch(`${API_URL}/api/requests/${requestId}/verify-start`, {
+      const res = await fetch(`${API_URL}/api/requests/${requestId}/verify-otp`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${mechanicToken}`,
@@ -386,6 +409,7 @@ export default function OnTheWayScreen() {
               if (isMounted.current && navigation) {
                 navigation.navigate('ActiveJob', {
                   jobId: requestId,
+                  status: 'in_progress',
                   customerLocation: request.customerLocation,
                   customerName: customerObj.name || 'Customer',
                   customerPhone: customerObj.phone || '',
@@ -397,11 +421,11 @@ export default function OnTheWayScreen() {
           }
         ]);
       } else {
-        Alert.alert('Verification Failed', data.message || 'Incorrect verification OTP.');
+        setOtpError(data.message || 'Incorrect verification OTP.');
       }
     } catch (err) {
       console.error('[ON_THE_WAY_VERIFY_OTP_ERROR] Error in handleVerifyOtpSubmit:', err);
-      Alert.alert('Error', 'Failed to connect to verification service.');
+      setOtpError('Failed to connect to verification service.');
     } finally {
       if (isMounted.current) {
         setOtpLoading(false);
@@ -446,6 +470,7 @@ export default function OnTheWayScreen() {
   };
 
   const updateOtpDigit = (text, index) => {
+    setOtpError('');
     const cleaned = text.replace(/[^0-9]/g, '');
     const newOtp = [...otpVal];
     newOtp[index] = cleaned;
@@ -475,6 +500,8 @@ export default function OnTheWayScreen() {
   })();
 
   const currentStep = 1; // Index 1 for "On the Way" step
+
+  console.log('[OnTheWayScreen DEBUG] Full request object:', request);
 
   return (
     <View style={styles.container}>
@@ -557,7 +584,7 @@ export default function OnTheWayScreen() {
                 <Ionicons name="card-outline" size={12} color="#6B7280" style={{ marginRight: 2 }} />
                 <Text style={styles.serviceLabel}>Vehicle No.</Text>
               </View>
-              <Text style={styles.serviceValue}>{request.vehicleNumber || 'UP16 AB 1234'}</Text>
+              <Text style={styles.serviceValue}>{request.vehicleNumber?.trim() || 'Not provided'}</Text>
             </View>
           </View>
         </View>
@@ -688,10 +715,11 @@ export default function OnTheWayScreen() {
             <Text style={styles.otpModalMessage}>
               Ask the customer for the 4-digit verification code shown on their screen.
             </Text>
+            {otpError ? <Text style={styles.otpErrorText}>{otpError}</Text> : null}
             <View style={styles.otpInputRow}>
               {otpVal.map((digit, index) => (
                 <TextInput
-                  key={index}
+                   key={index}
                   ref={otpRefs[index]}
                   style={styles.otpBox}
                   keyboardType="number-pad"
@@ -703,11 +731,21 @@ export default function OnTheWayScreen() {
                 />
               ))}
             </View>
+            <TouchableOpacity style={styles.resendBtn} onPress={handleResendOtp} disabled={otpLoading}>
+              <Text style={styles.resendBtnText}>Resend OTP</Text>
+            </TouchableOpacity>
             <View style={styles.otpActionRow}>
               <TouchableOpacity style={styles.otpCancelBtn} onPress={() => setShowOtpModal(false)}>
                 <Text style={styles.otpCancelBtnText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.otpVerifyBtn} onPress={handleVerifyOtpSubmit} disabled={otpLoading}>
+              <TouchableOpacity
+                style={[
+                  styles.otpVerifyBtn,
+                  (otpLoading || otpVal.some(d => !d)) && { backgroundColor: '#A0D8B4' }
+                ]}
+                onPress={handleVerifyOtpSubmit}
+                disabled={otpLoading || otpVal.some(d => !d)}
+              >
                 {otpLoading ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
@@ -857,4 +895,7 @@ const styles = StyleSheet.create({
   otpCancelBtnText: { color: '#6B7280', fontWeight: 'bold' },
   otpVerifyBtn: { flex: 2, backgroundColor: '#27AE60', paddingVertical: 12, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   otpVerifyBtnText: { color: '#fff', fontWeight: 'bold' },
+  otpErrorText: { color: '#E74C3C', fontSize: 13, marginBottom: 12, textAlign: 'center', fontWeight: 'bold' },
+  resendBtn: { marginVertical: 12, padding: 8 },
+  resendBtnText: { color: '#27AE60', fontWeight: 'bold', fontSize: 14, textDecorationLine: 'underline' },
 });

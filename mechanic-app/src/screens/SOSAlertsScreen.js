@@ -5,9 +5,11 @@ import {
 import { AuthContext } from '../context/AuthContext';
 import API_URL from '../config/api';
 import { getSocket } from '../config/socket';
+import { useBottomNavSafeArea } from '../hooks/useBottomNavSafeArea';
 
 export default function SOSAlertsScreen() {
   const { mechanicToken } = useContext(AuthContext);
+  const { paddingBottom } = useBottomNavSafeArea();
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [acceptingId, setAcceptingId] = useState(null);
@@ -174,7 +176,7 @@ export default function SOSAlertsScreen() {
           data={alerts}
           keyExtractor={item => item._id}
           renderItem={renderItem}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[styles.listContent, { paddingBottom }]}
           showsVerticalScrollIndicator={false}
           onRefresh={fetchActiveSOS}
           refreshing={loading}

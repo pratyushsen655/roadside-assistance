@@ -1,0 +1,7 @@
+# EAS ignore file
+# Exclude unnecessary files from the EAS build process
+node_modules/
+*.log
+.DS_Store
+.git
+.gitignore

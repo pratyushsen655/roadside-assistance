@@ -14,10 +14,12 @@ import { useNavigation } from '@react-navigation/native';
 import { AuthContext } from '../context/AuthContext';
 import API_URL from '../config/api';
 import { downloadInvoice } from '../utils/downloadInvoice';
+import { useBottomNavSafeArea } from '../hooks/useBottomNavSafeArea';
 
 const EarningsScreen = () => {
   const navigation = useNavigation();
   const { mechanicToken } = useContext(AuthContext);
+  const { paddingBottom } = useBottomNavSafeArea();
   
   const [earningsData, setEarningsData] = useState({
     total: 0,
@@ -89,7 +91,7 @@ const EarningsScreen = () => {
 
       <ScrollView 
         style={styles.container} 
-        contentContainerStyle={styles.scrollContent} 
+        contentContainerStyle={[styles.scrollContent, { paddingBottom }]} 
         showsVerticalScrollIndicator={false}
       >
         {loading ? (

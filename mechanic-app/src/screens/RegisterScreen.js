@@ -14,6 +14,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { AuthContext } from '../context/AuthContext';
 import API_URL from '../config/api';
+import * as ImagePicker from 'expo-image-picker';
+import { UP_DISTRICTS } from '../utils/districts';
 
 const RegisterScreen = ({ navigation }) => {
   const { login } = useContext(AuthContext);
@@ -51,10 +53,10 @@ const RegisterScreen = ({ navigation }) => {
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const otpRefs = useRef([]);
 
-  const cities = ['Mumbai', 'Delhi', 'Bengaluru', 'Hyderabad', 'Chennai', 'Kolkata', 'Pune'];
+  const cities = UP_DISTRICTS;
   const specializations = ['Car', 'Bike', 'Heavy Vehicle', 'Electrician', 'Engine Diagnostics', 'Tyre & Puncture Support'];
 
-  // Handle Document Upload simulation
+  // Handle Document Upload
   const handleUploadDoc = (docKey, label) => {
     Alert.alert(
       `Upload ${label}`,
@@ -62,11 +64,11 @@ const RegisterScreen = ({ navigation }) => {
       [
         {
           text: 'Camera',
-          onPress: () => simulateUpload(docKey)
+          onPress: () => uploadFromCamera(docKey)
         },
         {
           text: 'Gallery',
-          onPress: () => simulateUpload(docKey)
+          onPress: () => uploadFromGallery(docKey)
         },
         {
           text: 'Cancel',
@@ -76,15 +78,158 @@ const RegisterScreen = ({ navigation }) => {
     );
   };
 
-  const simulateUpload = (docKey) => {
-    setUploadingDoc(docKey);
-    setTimeout(() => {
-      setDocs(prev => ({
-        ...prev,
-        [docKey]: `https://roadmitra-docs.s3.amazonaws.com/mock_${docKey}_${Date.now()}.jpg`
-      }));
+  const uploadFromCamera = async (docKey) => {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      console.log(`[Upload] Camera permission status for ${docKey}: ${status}`);
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'Camera permission is required to take photos of documents.');
+        return;
+      }
+
+      // For ID Proof and Driving License, also request base64 so we can inspect pixel data later
+      const needsPixelInspection = docKey === 'idProof' || docKey === 'drivingLicense';
+
+      setUploadingDoc(docKey);
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions?.Images ?? ['images'],
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+        base64: needsPixelInspection,
+      });
+
+      console.log(`[Upload] Picker camera result for ${docKey}:`, JSON.stringify(result));
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+
+        // ── STEP 1 DIAGNOSTIC LOGS ──────────────────────────────────────────────
+        if (needsPixelInspection) {
+          console.log(`[DIAG][${docKey}] URI:`, asset.uri);
+          console.log(`[DIAG][${docKey}] mimeType:`, asset.mimeType ?? 'undefined');
+          console.log(`[DIAG][${docKey}] fileSize (bytes):`, asset.fileSize ?? 'undefined');
+          console.log(`[DIAG][${docKey}] dimensions:`, `${asset.width}x${asset.height}`);
+          console.log(`[DIAG][${docKey}] base64 available:`, asset.base64 ? `yes (${asset.base64.length} chars)` : 'no');
+          console.log(`[DIAG][${docKey}] fileName:`, asset.fileName ?? 'undefined');
+        }
+        // ────────────────────────────────────────────────────────────────────────
+
+        // Validation limits
+        const MIN_SIZE = 10 * 1024; // 10KB
+        const MAX_SIZE = 10 * 1024 * 1024; // 10MB
+        const MIN_DIMENSION = 200; // 200px
+
+        const fileSize = asset.fileSize;
+        const width = asset.width;
+        const height = asset.height;
+
+        let isValid = true;
+        if (fileSize !== undefined && fileSize !== null) {
+          if (fileSize < MIN_SIZE || fileSize > MAX_SIZE) {
+            isValid = false;
+          }
+        }
+        if (width && height) {
+          if (width < MIN_DIMENSION || height < MIN_DIMENSION) {
+            isValid = false;
+          }
+        }
+
+        if (!isValid) {
+          Alert.alert('Invalid Image', 'Please upload a clear photo of your document.');
+          return;
+        }
+
+        const imageUri = asset.uri;
+        setDocs(prev => ({
+          ...prev,
+          [docKey]: imageUri
+        }));
+      }
+    } catch (err) {
+      console.error(`[Upload] Error capturing image from camera for ${docKey}:`, err);
+      Alert.alert('Error', 'Failed to capture photo. Please try again.');
+    } finally {
       setUploadingDoc(null);
-    }, 1500);
+    }
+  };
+
+  const uploadFromGallery = async (docKey) => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      console.log(`[Upload] Media library permission status for ${docKey}: ${status}`);
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'Gallery permission is required to upload document images.');
+        return;
+      }
+
+      // For ID Proof and Driving License, also request base64 so we can inspect pixel data later
+      const needsPixelInspection = docKey === 'idProof' || docKey === 'drivingLicense';
+
+      setUploadingDoc(docKey);
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions?.Images ?? ['images'],
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+        base64: needsPixelInspection,
+      });
+
+      console.log(`[Upload] Picker gallery result for ${docKey}:`, JSON.stringify(result));
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+
+        // ── STEP 1 DIAGNOSTIC LOGS ──────────────────────────────────────────────
+        if (needsPixelInspection) {
+          console.log(`[DIAG][${docKey}] URI:`, asset.uri);
+          console.log(`[DIAG][${docKey}] mimeType:`, asset.mimeType ?? 'undefined');
+          console.log(`[DIAG][${docKey}] fileSize (bytes):`, asset.fileSize ?? 'undefined');
+          console.log(`[DIAG][${docKey}] dimensions:`, `${asset.width}x${asset.height}`);
+          console.log(`[DIAG][${docKey}] base64 available:`, asset.base64 ? `yes (${asset.base64.length} chars)` : 'no');
+          console.log(`[DIAG][${docKey}] fileName:`, asset.fileName ?? 'undefined');
+        }
+        // ────────────────────────────────────────────────────────────────────────
+
+        // Validation limits
+        const MIN_SIZE = 10 * 1024; // 10KB
+        const MAX_SIZE = 10 * 1024 * 1024; // 10MB
+        const MIN_DIMENSION = 200; // 200px
+
+        const fileSize = asset.fileSize;
+        const width = asset.width;
+        const height = asset.height;
+
+        let isValid = true;
+        if (fileSize !== undefined && fileSize !== null) {
+          if (fileSize < MIN_SIZE || fileSize > MAX_SIZE) {
+            isValid = false;
+          }
+        }
+        if (width && height) {
+          if (width < MIN_DIMENSION || height < MIN_DIMENSION) {
+            isValid = false;
+          }
+        }
+
+        if (!isValid) {
+          Alert.alert('Invalid Image', 'Please upload a clear photo of your document.');
+          return;
+        }
+
+        const imageUri = asset.uri;
+        setDocs(prev => ({
+          ...prev,
+          [docKey]: imageUri
+        }));
+      }
+    } catch (err) {
+      console.error(`[Upload] Error picking image from gallery for ${docKey}:`, err);
+      Alert.alert('Error', 'Failed to select image from gallery. Please try again.');
+    } finally {
+      setUploadingDoc(null);
+    }
   };
 
   // OTP Handling
@@ -465,20 +610,22 @@ const RegisterScreen = ({ navigation }) => {
                 <Ionicons name="close" size={24} color="#1e293b" />
               </TouchableOpacity>
             </View>
-            {cities.map((c) => (
-              <TouchableOpacity
-                key={c}
-                style={styles.modalOption}
-                onPress={() => {
-                  setError('');
-                  setCity(c);
-                  setCityModalVisible(false);
-                }}
-              >
-                <Text style={[styles.modalOptionText, city === c && styles.modalSelectedOptionText]}>{c}</Text>
-                {city === c && <Ionicons name="checkmark" size={20} color="#1565C0" />}
-              </TouchableOpacity>
-            ))}
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {cities.map((c) => (
+                <TouchableOpacity
+                  key={c}
+                  style={styles.modalOption}
+                  onPress={() => {
+                    setError('');
+                    setCity(c);
+                    setCityModalVisible(false);
+                  }}
+                >
+                  <Text style={[styles.modalOptionText, city === c && styles.modalSelectedOptionText]}>{c}</Text>
+                  {city === c && <Ionicons name="checkmark" size={20} color="#1565C0" />}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
           </View>
         </View>
       </Modal>

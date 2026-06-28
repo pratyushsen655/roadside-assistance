@@ -45,6 +45,22 @@ router.post('/', authMiddleware, async (req, res) => {
         coordinates: [Number(req.body.longitude), Number(req.body.latitude)]
       };
     }
+
+    if (!geoJsonLocation && customerAddress) {
+      try {
+        const { geocodeAddress } = require('../services/mapService');
+        const coords = await geocodeAddress(customerAddress);
+        if (coords) {
+          geoJsonLocation = {
+            type: 'Point',
+            coordinates: coords
+          };
+        }
+      } catch (err) {
+        console.error('[Geocode Address Error]', err.message);
+      }
+    }
+
     if (!geoJsonLocation) {
       geoJsonLocation = {
         type: 'Point',
@@ -52,7 +68,30 @@ router.post('/', authMiddleware, async (req, res) => {
       };
     }
 
-    const initialPriceVal = Number(req.body.initialPrice) || 350;
+    // Calculate distance and dynamic surcharge/totalPrice
+    const { calculateHaversineDistance } = require('../services/mapService');
+    const { calculateServicePrice } = require('../config/constants');
+
+    let distanceKm = 0;
+    const [cLng, cLat] = geoJsonLocation.coordinates;
+    const onlineMechanics = await Mechanic.find({ isOnline: true });
+
+    let closestDistance = null;
+    onlineMechanics.forEach(m => {
+      const [mLng, mLat] = m.location?.coordinates || [0, 0];
+      if (mLng === 0 && mLat === 0) return;
+      const dist = calculateHaversineDistance(cLat, cLng, mLat, mLng);
+      if (closestDistance === null || dist < closestDistance) {
+        closestDistance = dist;
+      }
+    });
+
+    if (closestDistance !== null) {
+      distanceKm = parseFloat((closestDistance ?? 0).toFixed(2));
+    }
+
+    const priceBreakdown = calculateServicePrice(finalVehicleType, finalServiceType, distanceKm);
+    const finalPriceVal = priceBreakdown.totalPrice;
 
     const newRequest = await ServiceRequest.create({
       customer: req.user.id,
@@ -63,39 +102,25 @@ router.post('/', authMiddleware, async (req, res) => {
       vehicleNumber: vehicleNumber || '',
       customerLocation: geoJsonLocation,
       customerAddress: customerAddress || '',
-      initial_price: initialPriceVal,
-      current_price: initialPriceVal,
+      initial_price: finalPriceVal,
+      current_price: finalPriceVal,
       last_price_update_time: new Date(),
-      pricing: { baseFare: initialPriceVal, totalAmount: initialPriceVal },
-      amount: initialPriceVal,
+      pricing: { baseFare: priceBreakdown.baseRate, totalAmount: finalPriceVal },
+      amount: finalPriceVal,
+      baseRate: priceBreakdown.baseRate,
+      distanceCharge: priceBreakdown.distanceCharge,
+      totalPrice: finalPriceVal,
     });
 
     // Link customer activeRequestId
     await User.findByIdAndUpdate(req.user.id, { activeRequestId: newRequest._id });
 
-    // Notify all online mechanics of the new request within 5 km
+    // Start matching and sequential dispatch process (Layer 1, 2, 3)
     try {
-      const { sendMulticastNotification } = require('../services/pushNotificationService');
-      const { calculateHaversineDistance } = require('../services/mapService');
-      const onlineMechanics = await Mechanic.find({ isOnline: true });
-      const [cLng, cLat] = geoJsonLocation.coordinates;
-      const nearbyMechanics = onlineMechanics.filter(m => {
-        const [mLng, mLat] = m.location?.coordinates || [0, 0];
-        if (mLng === 0 && mLat === 0) return false;
-        const dist = calculateHaversineDistance(cLat, cLng, mLat, mLng);
-        return dist <= 5;
-      });
-      const tokens = nearbyMechanics.map(m => m.pushToken || m.fcmToken).filter(t => !!t);
-      if (tokens.length > 0) {
-        await sendMulticastNotification(
-          tokens,
-          '💰 New Job Request',
-          'New job request near you!',
-          { jobId: newRequest._id.toString() }
-        );
-      }
-    } catch (pushErr) {
-      console.error('[New Request Notification Error]', pushErr.message);
+      const { startMatchingProcess } = require('../services/matchingService');
+      await startMatchingProcess(newRequest, /** @type {any} */ (req).io, 5);
+    } catch (matchingErr) {
+      console.error('[Matching Error] Failed to start matching process:', matchingErr.message);
     }
 
     // Return format compatible with both data.request._id and data._id
@@ -111,6 +136,71 @@ router.post('/', authMiddleware, async (req, res) => {
       success: false,
       message: error.message,
     });
+  }
+});
+
+// 1.2 Estimate service request fare (must be registered before /:id)
+router.post('/estimate', authMiddleware, async (req, res) => {
+  try {
+    const { vehicleType, serviceType, location, customerLocation, latitude, longitude } = req.body;
+    const finalLocation = customerLocation || location;
+
+    let finalServiceType = serviceType;
+    if (finalServiceType === 'tire_repair') {
+      finalServiceType = 'flat_tire';
+    } else if (finalServiceType === 'battery') {
+      finalServiceType = 'battery_jump';
+    } else if (finalServiceType === 'lock_out') {
+      finalServiceType = 'other';
+    }
+
+    let finalVehicleType = vehicleType;
+    if (finalVehicleType === 'e-vehicle') {
+      finalVehicleType = 'ev';
+    }
+
+    let coords = null;
+    if (finalLocation && Array.isArray(finalLocation.coordinates) && finalLocation.coordinates.length >= 2) {
+      coords = finalLocation.coordinates;
+    } else if (latitude !== undefined && longitude !== undefined) {
+      coords = [Number(longitude), Number(latitude)];
+    }
+
+    let distanceKm = 0;
+    if (coords) {
+      const { calculateHaversineDistance } = require('../services/mapService');
+      const onlineMechanics = await Mechanic.find({ isOnline: true });
+      const [cLng, cLat] = coords;
+
+      let closestDistance = null;
+      onlineMechanics.forEach(m => {
+        const [mLng, mLat] = m.location?.coordinates || [0, 0];
+        if (mLng === 0 && mLat === 0) return;
+        const dist = calculateHaversineDistance(cLat, cLng, mLat, mLng);
+        if (closestDistance === null || dist < closestDistance) {
+          closestDistance = dist;
+        }
+      });
+
+      if (closestDistance !== null) {
+        distanceKm = parseFloat((closestDistance ?? 0).toFixed(2));
+      }
+    }
+
+    const { calculateServicePrice } = require('../config/constants');
+    const fare = calculateServicePrice(finalVehicleType, finalServiceType, distanceKm);
+
+    res.status(200).json({
+      success: true,
+      fare: {
+        baseRate: fare.baseRate,
+        distanceCharge: fare.distanceCharge,
+        totalPrice: fare.totalPrice,
+        distanceKm: distanceKm
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
@@ -150,6 +240,15 @@ router.get('/:id', async (req, res) => {
       });
     }
 
+    // Check if arrivalOtp is expired (older than 10 minutes)
+    if (request.arrivalOtp && request.otpGeneratedAt && !request.otpVerified) {
+      const isExpired = Date.now() - request.otpGeneratedAt.getTime() > 10 * 60 * 1000;
+      if (isExpired) {
+        await ServiceRequest.findByIdAndUpdate(request._id, { $set: { arrivalOtp: '' } });
+        request.arrivalOtp = '';
+      }
+    }
+
     res.status(200).json({
       success: true,
       request,
@@ -165,27 +264,58 @@ router.get('/:id', async (req, res) => {
 // Helper: Accept Job
 const acceptJob = async (req, res) => {
   try {
-    const request = await ServiceRequest.findById(req.params.id);
-    if (!request) {
-      return res.status(404).json({ success: false, message: 'Request not found' });
+    const Mechanic = require('../models/Mechanic');
+    const mechanic = await Mechanic.findOne({ $or: [{ _id: req.user.id }, { userId: req.user.id }] });
+    if (!mechanic) {
+      return res.status(404).json({ success: false, message: 'Mechanic profile not found' });
     }
 
-    request.mechanic = req.user.id;
-    request.status = 'accepted';
+    // Atomic find and update to prevent race conditions
+    const request = await ServiceRequest.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        status: { $in: ['pending', 'assigned'] },
+        $or: [
+          { currentNotifiedMechanic: mechanic._id },
+          { currentNotifiedMechanic: null }
+        ]
+      },
+      {
+        $set: {
+          mechanic: mechanic._id,
+          status: 'accepted',
+          accepted_mechanic_id: mechanic._id
+        }
+      },
+      { new: true }
+    );
+
+    if (!request) {
+      return res.status(400).json({ success: false, message: 'Request is no longer available. Already accepted by another mechanic or expired.' });
+    }
+
     if (!request.pricing || request.pricing.totalAmount === 0) {
       request.pricing = { baseFare: 150, totalAmount: 350 };
       request.amount = 350;
       request.current_price = 350;
     }
     request.accepted_price = request.current_price || request.amount || (request.pricing ? request.pricing.totalAmount : 350);
-    request.accepted_mechanic_id = req.user.id;
+
+    request.dispatchHistory.push({
+      mechanicId: mechanic._id,
+      action: 'accepted',
+      timestamp: new Date()
+    });
+
     await request.save();
 
-    const mechanic = await Mechanic.findByIdAndUpdate(
-      req.user.id,
-      { activeRequestId: request._id, status: 'busy' },
-      { new: true }
-    );
+    // Clear 30s background timeout
+    const { clearDispatchTimeout } = require('../services/matchingService');
+    clearDispatchTimeout(request._id);
+
+    mechanic.activeRequestId = request._id;
+    mechanic.status = 'busy';
+    await mechanic.save();
 
     // Notify customer room via socket
     if (req.io) {
@@ -299,6 +429,7 @@ router.put('/:id/complete', authMiddleware, completeJob);
 
 // Helper: Cancel Job
 const cancelJob = async (req, res) => {
+  console.log('[Cancel Handler Entry] Cancel request initiated. Request ID:', req.params.id);
   try {
     const request = await ServiceRequest.findById(req.params.id);
     if (!request) {
@@ -313,6 +444,7 @@ const cancelJob = async (req, res) => {
     request.cancelledBy = req.user?.role || 'user';
     request.cancellationReason = req.body.cancellationReason || 'Cancelled by user request';
     await request.save();
+    console.log('[Cancel Handler DB Update] Request status updated to cancelled. Request ID:', request._id);
 
     // Release customer
     if (request.customer) {
@@ -328,7 +460,11 @@ const cancelJob = async (req, res) => {
     }
 
     if (req.io) {
+      console.log('[Cancel Handler Emit Before] Emitting job:status:changed to room:', 'job:' + request._id);
       req.io.to(`job:${request._id}`).emit('job:status:changed', { status: 'cancelled' });
+      console.log('[Cancel Handler Emit After] Successfully emitted job:status:changed to room:', 'job:' + request._id);
+    } else {
+      console.log('[Cancel Handler Warning] req.io is undefined, cannot emit socket event');
     }
 
     res.status(200).json({
@@ -337,6 +473,7 @@ const cancelJob = async (req, res) => {
       request
     });
   } catch (error) {
+    console.error('[Cancel Handler Error] Error cancelling job:', error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -474,8 +611,75 @@ router.put('/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// 8. Verify customer start OTP and start work
-router.post('/:id/verify-start', authMiddleware, async (req, res) => {
+// 8. Mark mechanic arrived and generate OTP
+router.post('/:id/mark-arrived', authMiddleware, async (req, res) => {
+  const requestId = req.params.id;
+  try {
+    const request = await ServiceRequest.findById(requestId);
+    if (!request) {
+      return res.status(404).json({ success: false, message: 'Request not found' });
+    }
+
+    // Generate a 4-digit numeric OTP
+    const otp = Math.floor(1000 + Math.random() * 9000).toString();
+
+    // Update request details
+    request.status = 'arrived';
+    request.arrivalOtp = otp;
+    request.otpGeneratedAt = new Date();
+    request.otpVerified = false;
+    request.otpAttempts = 0;
+    await request.save();
+
+    console.log(`[OTP Generated] Request: ${request._id} | OTP: ${otp} | GeneratedAt: ${request.otpGeneratedAt}`);
+
+    // Emit Socket.io event to job room
+    const reqWithIo = /** @type {any} */ (req);
+    if (reqWithIo.io) {
+      reqWithIo.io.to(`job:${request._id}`).emit('job:status:changed', { status: 'arrived' });
+      reqWithIo.io.to(`job:${request._id}`).emit('arrival_otp', { requestId: request._id, otp });
+      reqWithIo.io.to(`user:${request.customer}`).emit('arrival_otp', { requestId: request._id, otp });
+      console.log(`[OTP Socket Emitted] Emitted arrival_otp event for job:${request._id} and user:${request.customer}`);
+    }
+
+    // Push notification to Customer via FCM
+    try {
+      const User = require('../models/User');
+      const customerUser = await User.findById(request.customer);
+      const customerToken = customerUser?.pushToken || customerUser?.fcmToken;
+      if (customerToken) {
+        const { sendPushNotification } = require('../services/pushNotificationService');
+        await sendPushNotification(
+          customerToken,
+          '📍 Mechanic Arrived',
+          `Your mechanic has arrived. Share code: ${otp}`,
+          { screen: 'Tracking', params: { jobId: request._id.toString(), arrivalOtp: otp } }
+        );
+        console.log(`[OTP FCM Sent] Sent push notification with OTP to customer ${request.customer}`);
+      } else {
+        console.log(`[OTP FCM Skipped] Customer ${request.customer} has no push tokens`);
+      }
+    } catch (pushErr) {
+      console.error('[OTP FCM Error] Failed to send push notification:', pushErr.message);
+    }
+
+    // Prepare response without the OTP value
+    const responseReq = request.toObject();
+    delete responseReq.arrivalOtp;
+
+    res.status(200).json({
+      success: true,
+      message: 'Mechanic marked as arrived. OTP generated and sent to customer.',
+      request: responseReq
+    });
+  } catch (error) {
+    console.error('[Arrived Error] Failed to mark arrived:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 9. Verify arrival OTP
+const verifyOtpHandler = async (req, res) => {
   const requestId = req.params.id;
   const { otp } = req.body;
 
@@ -493,16 +697,63 @@ router.post('/:id/verify-start', authMiddleware, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Cannot start work before arriving at the location.' });
     }
 
-    if (request.startOTP !== otp) {
-      return res.status(400).json({ success: false, message: 'Invalid verification OTP code. Please ask the customer for the correct PIN.' });
+    if (request.otpVerified) {
+      return res.status(200).json({ success: true, message: 'OTP already verified.', request });
     }
 
+    if (request.otpAttempts >= 5) {
+      console.log(`[OTP Failure] Request: ${requestId} | Max attempts exceeded.`);
+      return res.status(400).json({ success: false, message: 'Maximum OTP attempts (5) exceeded. Please resend a new OTP.' });
+    }
+
+    // Check expiry (10 minutes)
+    const expiryTime = 10 * 60 * 1000;
+    if (!request.otpGeneratedAt || (Date.now() - request.otpGeneratedAt.getTime() > expiryTime)) {
+      console.log(`[OTP Failure] Request: ${requestId} | OTP expired.`);
+      return res.status(400).json({ success: false, message: 'OTP has expired. Please resend a new OTP.' });
+    }
+
+    if (request.arrivalOtp !== otp) {
+      request.otpAttempts += 1;
+      await request.save();
+      console.log(`[OTP Mismatch] Request: ${requestId} | Submitted: ${otp} | Stored: ${request.arrivalOtp} | Attempts: ${request.otpAttempts}`);
+      const attemptsLeft = 5 - request.otpAttempts;
+      return res.status(400).json({
+        success: false,
+        message: `Incorrect OTP. You have ${attemptsLeft} attempts remaining.`,
+        attemptsLeft
+      });
+    }
+
+    // Success
+    request.otpVerified = true;
     request.status = 'work_in_progress';
     await request.save();
 
+    console.log(`[OTP Verified] Request: ${requestId} | OTP matched successfully. Status updated to work_in_progress.`);
+
     // Broadcast socket event
-    if (/** @type {any} */ (req).io) {
-      /** @type {any} */ (req).io.to(`job:${request._id}`).emit('job:status:changed', { status: 'work_in_progress' });
+    if (req.io) {
+      req.io.to(`job:${request._id}`).emit('job:status:changed', { status: 'work_in_progress' });
+    }
+
+    // Send push notification to Customer via FCM
+    try {
+      const User = require('../models/User');
+      const customerUser = await User.findById(request.customer);
+      const customerToken = customerUser?.pushToken || customerUser?.fcmToken;
+      if (customerToken) {
+        const { sendPushNotification } = require('../services/pushNotificationService');
+        await sendPushNotification(
+          customerToken,
+          '🔧 Job Started',
+          'Mechanic has started working on your vehicle',
+          { screen: 'Tracking', params: { jobId: request._id.toString() } }
+        );
+        console.log(`[OTP Success FCM] Sent job started push notification to customer ${request.customer}`);
+      }
+    } catch (pushErr) {
+      console.error('[OTP Success FCM Error] Failed to send job started push:', pushErr.message);
     }
 
     res.status(200).json({
@@ -511,9 +762,16 @@ router.post('/:id/verify-start', authMiddleware, async (req, res) => {
       request
     });
   } catch (error) {
+    console.error('[Verify OTP Error] Failed to verify OTP:', error.message);
     res.status(500).json({ success: false, message: error.message });
   }
-});
+};
+
+router.post('/:id/verify-otp', authMiddleware, verifyOtpHandler);
+router.post('/:id/verify-start', authMiddleware, verifyOtpHandler);
+
+// 10. Generate PDF invoice for request
+router.get('/:id/invoice', authMiddleware, require('../controllers/invoiceController').generateInvoice);
 
 module.exports = router;
 

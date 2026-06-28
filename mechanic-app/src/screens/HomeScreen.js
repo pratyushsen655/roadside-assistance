@@ -11,6 +11,8 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { getSocket } from '../config/socket';
 import * as Location from 'expo-location';
 import MapView, { Marker, Polyline } from 'react-native-maps';
+import { useBottomNavSafeArea } from '../hooks/useBottomNavSafeArea';
+import DrawerMenu from '../components/DrawerMenu';
 
 const { width } = Dimensions.get('window');
 
@@ -106,9 +108,10 @@ const RadarScanner = () => {
 
 export default function HomeScreen() {
   const navigation = useNavigation();
+  const { paddingBottom } = useBottomNavSafeArea();
   const isMounted = useRef(true);
   const acceptInProgress = useRef({});
-  const [mechanicCoords, setMechanicCoords] = useState(null);
+  // mechanicLocation is managed globally in AuthContext
   const [selectedRequest, setSelectedRequest] = useState(null);
 
   useEffect(() => {
@@ -118,10 +121,73 @@ export default function HomeScreen() {
     };
   }, []);
 
-  const { mechanic, mechanicToken } = useContext(AuthContext);
+  const {
+    mechanic,
+    mechanicToken,
+    logout,
+    mechanicLocation,
+    setMechanicLocation,
+    locationPermissionGranted,
+    setLocationPermissionGranted
+  } = useContext(AuthContext);
   const [isOnline, setIsOnline] = useState(false);
+  const [drawerVisible, setDrawerVisible] = useState(false);
   const [greeting, setGreeting] = useState('Good morning');
-  const [unreadCount] = useState(3); // Mock unread notification badge count
+  const [unreadCount, setUnreadCount] = useState(3);
+  const [notificationsVisible, setNotificationsVisible] = useState(false);
+  const [notifications, setNotifications] = useState([
+    {
+      id: 'n1',
+      title: 'New Message 💬',
+      body: "Customer Prateek sent: 'Are you on the way?'",
+      time: '5 mins ago',
+      read: false,
+    },
+    {
+      id: 'n2',
+      title: 'Payment Received 💰',
+      body: 'Payout of ₹350 successfully processed.',
+      time: '1 hour ago',
+      read: false,
+    },
+    {
+      id: 'n3',
+      title: 'System Update 🛠️',
+      body: 'Welcome to RoadMitra Mechanic! Check specialization info.',
+      time: '1 day ago',
+      read: false,
+    },
+  ]);
+
+  const handleMarkAllAsRead = () => {
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    setUnreadCount(0);
+  };
+
+  const handleClearAll = () => {
+    setNotifications([]);
+    setUnreadCount(0);
+  };
+
+  const handleTapNotification = (id) => {
+    setNotifications(prev =>
+      prev.map(n => {
+        if (n.id === id && !n.read) {
+          setUnreadCount(count => Math.max(0, count - 1));
+          return { ...n, read: true };
+        }
+        return n;
+      })
+    );
+  };
+
+  const handleDeleteNotification = (id) => {
+    const itemToDelete = notifications.find(n => n.id === id);
+    if (itemToDelete && !itemToDelete.read) {
+      setUnreadCount(count => Math.max(0, count - 1));
+    }
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  };
 
   const [stats, setStats] = useState({
     jobsToday: 0,
@@ -345,13 +411,20 @@ export default function HomeScreen() {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') {
           console.warn('[Location] GPS permission not granted on Home');
+          if (isMounted.current) {
+            setLocationPermissionGranted(false);
+          }
           return;
+        }
+
+        if (isMounted.current) {
+          setLocationPermissionGranted(true);
         }
 
         const initialLoc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
         const coords = { latitude: initialLoc.coords.latitude, longitude: initialLoc.coords.longitude };
         if (isMounted.current) {
-          setMechanicCoords(coords);
+          setMechanicLocation(coords);
           updateBackendLocation(coords);
         }
 
@@ -364,7 +437,7 @@ export default function HomeScreen() {
           (loc) => {
             const currentCoords = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
             if (isMounted.current) {
-              setMechanicCoords(currentCoords);
+              setMechanicLocation(currentCoords);
               updateBackendLocation(currentCoords);
             }
           }
@@ -378,7 +451,7 @@ export default function HomeScreen() {
       startWatching();
     } else {
       if (isMounted.current) {
-        setMechanicCoords(null);
+        setMechanicLocation(null);
       }
     }
 
@@ -389,18 +462,65 @@ export default function HomeScreen() {
     };
   }, [isOnline, mechanicToken]);
 
-  const formatDistance = (distanceKm) => {
+  const formatDistance = (req) => {
+    console.log('[formatDistance DEBUG] req ID:', req?._id);
+    console.log('[formatDistance DEBUG] locationPermissionGranted:', locationPermissionGranted);
+    console.log('[formatDistance DEBUG] mechanicLocation:', mechanicLocation);
+    console.log('[formatDistance DEBUG] req.distanceKm:', req?.distanceKm);
+    console.log('[formatDistance DEBUG] req.coordsMissing:', req?.coordsMissing);
+
+    if (!req) return 'Distance unavailable';
+    
+    if (req.coordsMissing) {
+      return 'Location pending';
+    }
+
+    if (!locationPermissionGranted || !mechanicLocation) {
+      return 'Enable location to see distance';
+    }
+
+    const distanceKm = req.distanceKm;
+
     if (distanceKm === undefined || distanceKm === null || isNaN(distanceKm)) {
       return 'Distance unavailable';
     }
     if (distanceKm > 100) {
-      return 'Distance unavailable'; // Sanity check to filter location bugs (like [0,0] calculations)
+      return 'Distance unavailable';
     }
     if (distanceKm < 1) {
       const meters = Math.round(distanceKm * 1000);
-      return `${meters} m`;
+      return `${meters} m away`;
     }
-    return `${distanceKm.toFixed(1)} km`;
+    return `${distanceKm.toFixed(1)} km away`;
+  };
+
+  const handleRequestLocationPermission = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status === 'granted') {
+        setLocationPermissionGranted(true);
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        const coords = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
+        setMechanicLocation(coords);
+        updateBackendLocation(coords);
+      } else {
+        setLocationPermissionGranted(false);
+        Alert.alert(
+          'Location Permission Required',
+          'Please enable location access in your device settings to see distance to customer.'
+        );
+      }
+    } catch (err) {
+      console.log('Error requesting location permission:', err.message);
+    }
+  };
+
+  const handleCardPress = (req) => {
+    if (!locationPermissionGranted || !mechanicLocation) {
+      handleRequestLocationPermission();
+    } else {
+      setSelectedRequest(req);
+    }
   };
 
   const isValidCoordinate = (coord) => {
@@ -449,15 +569,25 @@ export default function HomeScreen() {
           console.error('[ACCEPT_REQUEST_SOCKET_ERROR] Error emitting job:accepted:', socketErr);
         }
 
-        // Navigate to OnTheWayScreen
-        if (isMounted.current && navigation) {
-          try {
-            navigation.navigate('OnTheWay', { requestId: jobId });
-          } catch (navErr) {
-            console.error('[ACCEPT_REQUEST_ERROR] Navigation navigate crashed:', navErr, { requestId: jobId });
-            Alert.alert('Error', 'Navigation failed.');
-          }
+        // Explicitly clear loading state BEFORE navigating
+        if (isMounted.current) {
+          setAcceptLoading(prev => ({ ...prev, [id]: false }));
         }
+
+        // Navigate to OnTheWayScreen after state commits
+        setTimeout(() => {
+          if (isMounted.current && navigation) {
+            try {
+              if (!jobId) {
+                console.warn('[WARNING] jobId is missing during OnTheWay navigation');
+              }
+              navigation.navigate('OnTheWay', { requestId: jobId });
+            } catch (navErr) {
+              console.error('[ACCEPT_REQUEST_ERROR] Navigation navigate crashed:', navErr, { requestId: jobId });
+              Alert.alert('Error', 'Navigation failed.');
+            }
+          }
+        }, 100);
       } else {
         Alert.alert('Error', data.message || 'Failed to accept request');
       }
@@ -517,10 +647,10 @@ export default function HomeScreen() {
       {/* 1. DARK HEADER SECTION */}
       <View style={styles.header}>
         <View style={styles.topRow}>
-          <TouchableOpacity onPress={() => Alert.alert('Menu', 'Side drawer menu clicked.')}>
+          <TouchableOpacity onPress={() => setDrawerVisible(true)}>
             <Ionicons name="menu" size={24} color="#FFF" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.notificationBtn} onPress={() => Alert.alert('Notifications', 'Open notifications screen.')}>
+          <TouchableOpacity style={styles.notificationBtn} onPress={() => setNotificationsVisible(true)}>
             <Ionicons name="notifications-outline" size={24} color="#FFF" />
             {unreadCount > 0 && (
               <View style={styles.badge}>
@@ -595,7 +725,7 @@ export default function HomeScreen() {
       </View>
 
       {/* LIGHT BODY */}
-      <ScrollView contentContainerStyle={styles.bodyScroll} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.bodyScroll, { paddingBottom }]} showsVerticalScrollIndicator={false}>
         {/* 2. PERFORMANCE BANNER CARD */}
         <View style={styles.performanceBanner}>
           <View style={styles.perfLeftIcon}>
@@ -636,7 +766,12 @@ export default function HomeScreen() {
             const formattedService = req.issueType || req.serviceType || 'Roadside Job';
             const vehicleText = req.vehicleMake || req.vehicleModel || req.vehicleType || 'Vehicle';
             return (
-              <TouchableOpacity key={req._id} activeOpacity={0.95} onPress={() => setSelectedRequest(req)} style={styles.requestCard}>
+              <TouchableOpacity
+                key={req._id}
+                activeOpacity={0.95}
+                onPress={() => handleCardPress(req)}
+                style={styles.requestCard}
+              >
                 <View style={styles.reqHeader}>
                   <View style={styles.reqCustomerRow}>
                     <View style={styles.customerAvatarPlaceholder}>
@@ -652,7 +787,7 @@ export default function HomeScreen() {
                       <Text style={styles.priceBadgeText}>₹{req.price || req.amount || 350}</Text>
                     </View>
                     <Text style={styles.distanceBadge}>
-                      {formatDistance(req.distanceKm)}
+                      {formatDistance(req)}
                     </Text>
                   </View>
                 </View>
@@ -664,6 +799,12 @@ export default function HomeScreen() {
                     {req.location || req.customerAddress || 'Nearby coordinates'}
                   </Text>
                 </View>
+
+                {req.baseRate !== undefined && req.distanceCharge !== undefined && (
+                  <Text style={{ color: '#94a3b8', fontSize: 12, marginBottom: 12, marginLeft: 4 }}>
+                    Base: ₹{req.baseRate} + Distance: ₹{req.distanceCharge}
+                  </Text>
+                )}
 
                 {/* Customer Note (if present) */}
                 {req.issueDescription ? (
@@ -755,16 +896,16 @@ export default function HomeScreen() {
                       </Marker>
 
                       {/* Mechanic Live Location Pin */}
-                      {isValidCoordinate(mechanicCoords) && (
-                        <Marker coordinate={mechanicCoords} title="Your Location">
+                      {isValidCoordinate(mechanicLocation) && (
+                        <Marker coordinate={mechanicLocation} title="Your Location">
                           <View style={styles.mechanicMarkerDot} />
                         </Marker>
                       )}
 
                       {/* Path route line */}
-                      {isValidCoordinate(mechanicCoords) && (
+                      {isValidCoordinate(mechanicLocation) && (
                         <Polyline
-                          coordinates={[mechanicCoords, custCoords]}
+                          coordinates={[mechanicLocation, custCoords]}
                           strokeColor="#00BFA5"
                           strokeWidth={4}
                         />
@@ -788,7 +929,7 @@ export default function HomeScreen() {
                     {selectedRequest.customerName || 'Customer'}
                   </Text>
                   <Text style={styles.modalDistanceVal}>
-                    {formatDistance(selectedRequest.distanceKm)}
+                    {formatDistance(selectedRequest)}
                   </Text>
                 </View>
 
@@ -811,7 +952,14 @@ export default function HomeScreen() {
 
                 {/* Pricing / Fare */}
                 <View style={styles.modalPriceContainer}>
-                  <Text style={styles.modalPriceLabel}>Fare Amount</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.modalPriceLabel}>Fare Amount</Text>
+                    {selectedRequest.baseRate !== undefined && selectedRequest.distanceCharge !== undefined && (
+                      <Text style={{ color: '#94a3b8', fontSize: 12, marginTop: 2 }}>
+                        Base: ₹{selectedRequest.baseRate} + Distance: ₹{selectedRequest.distanceCharge}
+                      </Text>
+                    )}
+                  </View>
                   <Text style={styles.modalPriceValue}>₹{selectedRequest.price || selectedRequest.amount || 350}</Text>
                 </View>
 
@@ -849,6 +997,125 @@ export default function HomeScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Notifications Modal */}
+      <Modal
+        visible={notificationsVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setNotificationsVisible(false)}
+      >
+        <View style={styles.notifOverlay}>
+          <View style={styles.notifContent}>
+            {/* Modal Header */}
+            <View style={styles.notifHeader}>
+              <View style={styles.notifTitleRow}>
+                <Text style={styles.notifTitle}>Notifications</Text>
+                {unreadCount > 0 && (
+                  <View style={styles.notifCountBadge}>
+                    <Text style={styles.notifCountText}>{unreadCount}</Text>
+                  </View>
+                )}
+              </View>
+              <View style={styles.notifHeaderActions}>
+                {notifications.length > 0 && (
+                  <TouchableOpacity onPress={handleMarkAllAsRead} style={styles.markAllBtn}>
+                    <Text style={styles.markAllText}>Mark all as read</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity onPress={() => setNotificationsVisible(false)} style={styles.notifCloseBtn}>
+                  <Ionicons name="close" size={24} color="#FFF" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Scrollable list */}
+            <ScrollView contentContainerStyle={styles.notifScroll} showsVerticalScrollIndicator={false}>
+              {notifications.length === 0 ? (
+                <View style={styles.notifEmptyState}>
+                  <View style={styles.notifBellCircle}>
+                    <Ionicons name="notifications-off-outline" size={36} color="#00BFA5" />
+                  </View>
+                  <Text style={styles.notifEmptyTitle}>All caught up!</Text>
+                  <Text style={styles.notifEmptySub}>You have no new notifications.</Text>
+                </View>
+              ) : (
+                notifications.map(notif => {
+                  // Determine icon based on notification type / title
+                  let iconName = "notifications-outline";
+                  let iconColor = "#9CA3AF";
+                  if (notif.title.includes("Message")) {
+                    iconName = "chatbubble-ellipses-outline";
+                    iconColor = "#3498DB";
+                  } else if (notif.title.includes("Payment")) {
+                    iconName = "wallet-outline";
+                    iconColor = "#2ECC71";
+                  } else if (notif.title.includes("System")) {
+                    iconName = "settings-outline";
+                    iconColor = "#F1C40F";
+                  }
+
+                  return (
+                    <TouchableOpacity
+                      key={notif.id}
+                      activeOpacity={0.8}
+                      onPress={() => handleTapNotification(notif.id)}
+                      style={[
+                        styles.notifItem,
+                        !notif.read && styles.notifItemUnread
+                      ]}
+                    >
+                      <View style={styles.notifItemLeft}>
+                        <View style={[styles.notifIconContainer, { backgroundColor: iconColor + "15" }]}>
+                          <Ionicons name={iconName} size={20} color={iconColor} />
+                        </View>
+                        {!notif.read && <View style={styles.unreadDot} />}
+                      </View>
+
+                      <View style={styles.notifItemCenter}>
+                        <View style={styles.notifItemHeader}>
+                          <Text style={[styles.notifItemTitle, !notif.read && styles.notifItemTitleUnread]}>
+                            {notif.title}
+                          </Text>
+                          <Text style={styles.notifItemTime}>{notif.time}</Text>
+                        </View>
+                        <Text style={styles.notifItemBody} numberOfLines={2}>
+                          {notif.body}
+                        </Text>
+                      </View>
+
+                      <TouchableOpacity
+                        onPress={() => handleDeleteNotification(notif.id)}
+                        style={styles.notifDeleteBtn}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      >
+                        <Ionicons name="trash-outline" size={16} color="#E74C3C" />
+                      </TouchableOpacity>
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </ScrollView>
+
+            {/* Clear All Footer */}
+            {notifications.length > 0 && (
+              <View style={styles.notifFooter}>
+                <TouchableOpacity onPress={handleClearAll} style={styles.clearAllBtn}>
+                  <Text style={styles.clearAllText}>Clear All Notifications</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Side Drawer Menu */}
+      <DrawerMenu
+        visible={drawerVisible}
+        onClose={() => setDrawerVisible(false)}
+        mechanic={mechanic}
+        logout={logout}
+      />
     </View>
   );
 }
@@ -1084,7 +1351,6 @@ const styles = StyleSheet.create({
   distanceBadge: {
     fontSize: 11,
     color: '#6B7280',
-    fontWeight: 'bold',
   },
   reqLocRow: {
     flexDirection: 'row',
@@ -1383,5 +1649,184 @@ const styles = StyleSheet.create({
   },
   modalAcceptBtnDisabled: {
     opacity: 0.6,
+  },
+  // Notifications Modal Styles
+  notifOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    justifyContent: 'flex-end',
+  },
+  notifContent: {
+    backgroundColor: '#1a1a2e',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingBottom: 24,
+    maxHeight: '85%',
+  },
+  notifHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: '#252542',
+  },
+  notifTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  notifTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#ffffff',
+  },
+  notifCountBadge: {
+    backgroundColor: '#E74C3C',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    marginLeft: 8,
+  },
+  notifCountText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  notifHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  markAllBtn: {
+    marginRight: 16,
+    paddingVertical: 4,
+  },
+  markAllText: {
+    color: '#00BFA5',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  notifCloseBtn: {
+    padding: 4,
+  },
+  notifScroll: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 20,
+  },
+  notifEmptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 48,
+  },
+  notifBellCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: 'rgba(0, 191, 165, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  notifEmptyTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 6,
+  },
+  notifEmptySub: {
+    fontSize: 13,
+    color: '#9CA3AF',
+    textAlign: 'center',
+  },
+  notifItem: {
+    flexDirection: 'row',
+    backgroundColor: '#252542',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#30304f',
+  },
+  notifItemUnread: {
+    borderColor: '#00BFA5',
+    backgroundColor: '#1E1E38',
+  },
+  notifItemLeft: {
+    position: 'relative',
+    marginRight: 12,
+  },
+  notifIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  unreadDot: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#00BFA5',
+    borderWidth: 1.5,
+    borderColor: '#1E1E38',
+  },
+  notifItemCenter: {
+    flex: 1,
+    marginRight: 8,
+  },
+  notifItemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginBottom: 4,
+  },
+  notifItemTitle: {
+    fontSize: 14,
+    color: '#E2E8F0',
+    fontWeight: '500',
+    flex: 1,
+    marginRight: 6,
+  },
+  notifItemTitleUnread: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+  },
+  notifItemTime: {
+    fontSize: 11,
+    color: '#9CA3AF',
+  },
+  notifItemBody: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    lineHeight: 16,
+  },
+  notifDeleteBtn: {
+    padding: 8,
+  },
+  notifFooter: {
+    borderTopWidth: 1,
+    borderTopColor: '#252542',
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  clearAllBtn: {
+    backgroundColor: '#E74C3C15',
+    borderWidth: 1,
+    borderColor: '#E74C3C40',
+    borderRadius: 10,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  clearAllText: {
+    color: '#E74C3C',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
 });

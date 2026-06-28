@@ -14,9 +14,13 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { AuthContext } from '../context/AuthContext';
 import API_URL from '../config/api';
+import { useTranslation } from 'react-i18next';
+import { useBottomNavSafeArea } from '../hooks/useBottomNavSafeArea';
 
 const ProfileScreen = ({ navigation }) => {
   const { mechanicToken, logout } = useContext(AuthContext);
+  const { t } = useTranslation();
+  const { paddingBottom } = useBottomNavSafeArea();
   
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -59,7 +63,7 @@ const ProfileScreen = ({ navigation }) => {
 
   const handleUpdateProfile = async () => {
     if (!editName || !editPhone) {
-      Alert.alert('Validation Error', 'Name and Phone number are required.');
+      Alert.alert(t('common_error') || 'Validation Error', t('profile_err_required') || 'Name and Phone number are required.');
       return;
     }
     setUpdating(true);
@@ -81,12 +85,12 @@ const ProfileScreen = ({ navigation }) => {
       if (data.success && data.mechanic) {
         setProfile(data.mechanic);
         setShowEditModal(false);
-        Alert.alert('Success', 'Profile updated successfully.');
+        Alert.alert(t('common_success') || 'Success', t('profile_update_success') || 'Profile updated successfully.');
       } else {
-        Alert.alert('Error', data.message || 'Failed to update profile');
+        Alert.alert(t('common_error') || 'Error', data.message || 'Failed to update profile');
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to update profile. Server is unreachable.');
+      Alert.alert(t('common_error') || 'Error', 'Failed to update profile. Server is unreachable.');
     } finally {
       setUpdating(false);
     }
@@ -94,20 +98,24 @@ const ProfileScreen = ({ navigation }) => {
 
   const handleSettingsPress = () => {
     Alert.alert(
-      'Account Settings',
-      'Choose an action to manage your account.',
+      t('profile_modal_title') || 'Account Settings',
+      t('profile_placeholder_bio') ? 'Choose an action' : 'Choose an action to manage your account.',
       [
         {
-          text: 'Edit Profile',
+          text: t('profile_edit') || 'Edit Profile',
           onPress: () => setShowEditModal(true),
         },
         {
-          text: 'Logout',
+          text: t('lang_title') || 'Change Language',
+          onPress: () => navigation.navigate('LanguageSelection', { isOnboarding: false }),
+        },
+        {
+          text: t('profile_logout') || 'Logout',
           onPress: logout,
           style: 'destructive',
         },
         {
-          text: 'Cancel',
+          text: t('profile_cancel') || 'Cancel',
           style: 'cancel',
         },
       ],
@@ -127,7 +135,7 @@ const ProfileScreen = ({ navigation }) => {
     <SafeAreaView style={styles.safeArea}>
       {/* Header Bar */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Profile</Text>
+        <Text style={styles.headerTitle}>{t('profile_title') || 'Profile'}</Text>
         <TouchableOpacity style={styles.settingsBtn} onPress={handleSettingsPress}>
           <Ionicons name="settings-outline" size={24} color="#00BFA5" />
         </TouchableOpacity>
@@ -135,7 +143,7 @@ const ProfileScreen = ({ navigation }) => {
 
       <ScrollView 
         style={styles.container} 
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom }]}
         showsVerticalScrollIndicator={false}
       >
         {/* Profile Info Card */}
@@ -158,7 +166,7 @@ const ProfileScreen = ({ navigation }) => {
               
               <View style={styles.verifiedBadgeRow}>
                 <Ionicons name="shield-checkmark" size={16} color="#00BFA5" style={{ marginRight: 6 }} />
-                <Text style={styles.verifiedBadgeText}>Verified Professional</Text>
+                <Text style={styles.verifiedBadgeText}>{t('profile_verified') || 'Verified Professional'}</Text>
               </View>
             </View>
           </View>
@@ -174,7 +182,7 @@ const ProfileScreen = ({ navigation }) => {
                 <Ionicons name="star" size={18} color="#FFD700" style={{ marginRight: 6 }} />
                 <Text style={styles.statValue}>{(profile?.rating || profile?.averageRating || 5.0).toFixed(1)}</Text>
               </View>
-              <Text style={styles.statLabel}>Rating</Text>
+              <Text style={styles.statLabel}>{t('home_rating') || 'Rating'}</Text>
             </View>
 
             <View style={styles.statDivider} />
@@ -185,7 +193,7 @@ const ProfileScreen = ({ navigation }) => {
                 <Ionicons name="briefcase" size={18} color="#00BFA5" style={{ marginRight: 6 }} />
                 <Text style={styles.statValue}>{profile?.totalJobs || 0}</Text>
               </View>
-              <Text style={styles.statLabel}>Jobs Completed</Text>
+              <Text style={styles.statLabel}>{t('nav_jobs') || 'Jobs Completed'}</Text>
             </View>
           </View>
 
@@ -200,7 +208,7 @@ const ProfileScreen = ({ navigation }) => {
 
         {/* Rating Distribution Card */}
         <View style={styles.breakdownCard}>
-          <Text style={styles.breakdownTitle}>Rating Distribution</Text>
+          <Text style={styles.breakdownTitle}>{t('profile_rating_dist') || 'Rating Distribution'}</Text>
           {[
             { label: '5 ★', count: profile?.ratingBreakdown?.five || 0 },
             { label: '4 ★', count: profile?.ratingBreakdown?.four || 0 },
@@ -230,12 +238,12 @@ const ProfileScreen = ({ navigation }) => {
         {/* Action Buttons */}
         <TouchableOpacity style={styles.editBtn} onPress={() => setShowEditModal(true)}>
           <Ionicons name="create-outline" size={20} color="#00BFA5" style={{ marginRight: 8 }} />
-          <Text style={styles.editBtnText}>Edit Profile</Text>
+          <Text style={styles.editBtnText}>{t('profile_edit') || 'Edit Profile'}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.reviewsBtn} onPress={() => navigation.navigate('Reviews')}>
           <Ionicons name="chatbubble-ellipses-outline" size={20} color="#ffffff" style={{ marginRight: 8 }} />
-          <Text style={styles.reviewsBtnText}>My Customer Reviews</Text>
+          <Text style={styles.reviewsBtnText}>{t('profile_reviews') || 'My Customer Reviews'}</Text>
         </TouchableOpacity>
       </ScrollView>
 
@@ -243,31 +251,31 @@ const ProfileScreen = ({ navigation }) => {
       <Modal visible={showEditModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Edit Profile</Text>
+            <Text style={styles.modalTitle}>{t('profile_modal_title') || 'Edit Profile'}</Text>
 
-            <Text style={styles.inputLabel}>Name</Text>
+            <Text style={styles.inputLabel}>{t('profile_name') || 'Name'}</Text>
             <TextInput
               style={styles.input}
-              placeholder="Your Name"
+              placeholder={t('profile_placeholder_name') || 'Your Name'}
               placeholderTextColor="#64748b"
               value={editName}
               onChangeText={setEditName}
             />
 
-            <Text style={styles.inputLabel}>Phone Number</Text>
+            <Text style={styles.inputLabel}>{t('profile_phone') || 'Phone Number'}</Text>
             <TextInput
               style={styles.input}
-              placeholder="Phone Number"
+              placeholder={t('profile_phone') || 'Phone Number'}
               placeholderTextColor="#64748b"
               keyboardType="phone-pad"
               value={editPhone}
               onChangeText={setEditPhone}
             />
 
-            <Text style={styles.inputLabel}>Bio</Text>
+            <Text style={styles.inputLabel}>{t('profile_bio') || 'Bio'}</Text>
             <TextInput
               style={[styles.input, styles.bioInput]}
-              placeholder="Write a short bio..."
+              placeholder={t('profile_placeholder_bio') || 'Write a short bio...'}
               placeholderTextColor="#64748b"
               multiline
               numberOfLines={3}
@@ -281,7 +289,7 @@ const ProfileScreen = ({ navigation }) => {
                 onPress={() => setShowEditModal(false)}
                 disabled={updating}
               >
-                <Text style={styles.modalCancelBtnText}>Cancel</Text>
+                <Text style={styles.modalCancelBtnText}>{t('profile_cancel') || 'Cancel'}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.modalBtnSave, styles.actionBtn]}
@@ -291,7 +299,7 @@ const ProfileScreen = ({ navigation }) => {
                 {updating ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
-                  <Text style={styles.modalSaveBtnText}>Save</Text>
+                  <Text style={styles.modalSaveBtnText}>{t('profile_save') || 'Save'}</Text>
                 )}
               </TouchableOpacity>
             </View>

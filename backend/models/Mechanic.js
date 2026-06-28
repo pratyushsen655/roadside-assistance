@@ -152,6 +152,22 @@ const mechanicSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    shopName: {
+      type: String,
+      default: '',
+    },
+    shopAddress: {
+      type: String,
+      default: '',
+    },
+    city: {
+      type: String,
+      default: '',
+    },
+    email: {
+      type: String,
+      default: '',
+    },
     isBlocked: {
       type: Boolean,
       default: false,
