@@ -34,6 +34,7 @@ const expandSearchRadius = async (request, io) => {
       targetRadius = 15;
     } else if (elapsedSeconds >= 120) {
       console.log(`[Matching] Maximum search radius (15km) reached. No more mechanics found for request ${request._id}`);
+      request.status = 'unfulfilled';
       request.currentNotifiedMechanic = null;
       await request.save();
       if (io) {
@@ -75,6 +76,7 @@ const expandSearchRadius = async (request, io) => {
         await expandSearchRadius(request, io);
       } else {
         console.log(`[Matching] No new mechanics found at 15km for request ${request._id}`);
+        request.status = 'unfulfilled';
         request.currentNotifiedMechanic = null;
         await request.save();
         if (io) {
@@ -225,7 +227,7 @@ const dispatchNextMechanic = async (request, io) => {
     } catch (err) {
       console.error(`[Matching TIMEOUT ERROR] Failed to handle timeout for request ${request._id}:`, err.message);
     }
-  }, 30000);
+  }, 120000);
 
   activeTimeouts.set(request._id.toString(), timeoutId);
 };

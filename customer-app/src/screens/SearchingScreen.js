@@ -153,6 +153,23 @@ export default function SearchingScreen({ navigation, route }) {
         }, 1500);
       });
 
+      // Listen for matchmaking exhaustion
+      socket.off('request_matching_exhausted');
+      socket.on('request_matching_exhausted', () => {
+        console.log('[Socket] Request matching exhausted in SearchingScreen');
+        if (isMounted.current) {
+          clearInterval(countdownIntervalRef.current);
+          Alert.alert(
+            'No Mechanics Available',
+            'No mechanics are currently available in your area. Please try again later.',
+            [
+              { text: 'OK', onPress: () => navigation.navigate('Home') }
+            ],
+            { cancelable: false }
+          );
+        }
+      });
+
       // Listen for matchmaking loop expanding search radius
       socket.off('request:search_radius_update');
       socket.on('request:search_radius_update', (radiusData) => {
@@ -201,6 +218,7 @@ export default function SearchingScreen({ navigation, route }) {
     return () => {
       if (socket) {
         socket.off('job:accepted:notify');
+        socket.off('request_matching_exhausted');
         socket.off('request:search_radius_update');
         socket.off('request:price_updated');
         if (reconnectHandler) {
