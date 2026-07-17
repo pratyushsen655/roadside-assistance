@@ -14,7 +14,8 @@ export default function Sidebar() {
     { name: 'Mechanics', path: '/mechanics', icon: '🔧' },
     { name: 'Jobs', path: '/jobs', icon: '📋' },
     { name: 'Earnings', path: '/earnings', icon: '💰' },
-    { name: 'Notifications', path: '/notifications', icon: '🔔' }
+    { name: 'Notifications', path: '/notifications', icon: '🔔' },
+    { name: 'Pricing Management', path: '/pricing', icon: '🏷️' }
   ];
 
   return (

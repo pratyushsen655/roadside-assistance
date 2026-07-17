@@ -7,6 +7,7 @@ import Mechanics from './pages/Mechanics';
 import Jobs from './pages/Jobs';
 import Earnings from './pages/Earnings';
 import Notifications from './pages/Notifications';
+import PricingManagement from './pages/PricingManagement';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 
@@ -44,6 +45,7 @@ function App() {
         <Route path="/jobs" element={<ProtectedLayout><Jobs /></ProtectedLayout>} />
         <Route path="/earnings" element={<ProtectedLayout><Earnings /></ProtectedLayout>} />
         <Route path="/notifications" element={<ProtectedLayout><Notifications /></ProtectedLayout>} />
+        <Route path="/pricing" element={<ProtectedLayout><PricingManagement /></ProtectedLayout>} />
         
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
