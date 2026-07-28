@@ -7,9 +7,11 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
-  SafeAreaView
+  SafeAreaView,
+  StatusBar
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { AuthContext } from '../context/AuthContext';
 import API_URL from '../config/api';
@@ -19,15 +21,20 @@ import { useBottomNavSafeArea } from '../hooks/useBottomNavSafeArea';
 const EarningsScreen = () => {
   const navigation = useNavigation();
   const { mechanicToken } = useContext(AuthContext);
+  const insets = useSafeAreaInsets();
+  const topInset = Math.max(insets.top, StatusBar.currentHeight || 24);
   const { paddingBottom } = useBottomNavSafeArea();
+  const [filterTab, setFilterTab] = useState('Daily');
   
   const [earningsData, setEarningsData] = useState({
     total: 0,
-    thisWeek: 0,
-    thisMonth: 0,
-    jobs: []
+    jobsCompleted: 0,
+    baseFare: 0,
+    distanceFare: 0,
+    tips: 0,
+    history: []
   });
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   const fetchEarnings = async () => {
     setLoading(true);
@@ -39,14 +46,15 @@ const EarningsScreen = () => {
       });
       const data = await response.json();
       if (data.success) {
-        setEarningsData({
+        setEarningsData(prev => ({
+          ...prev,
           total: data.total || 0,
-          thisWeek: data.thisWeek || 0,
-          thisMonth: data.thisMonth || 0,
-          jobs: data.jobs || []
-        });
-      } else {
-        console.warn('Earnings fetch message:', data.message);
+          jobsCompleted: data.jobsCount || 0,
+          baseFare: data.baseFare || 0,
+          distanceFare: data.distanceFare || 0,
+          tips: data.tips || 0,
+          history: data.history || []
+        }));
       }
     } catch (error) {
       console.log('Error fetching earnings:', error);
@@ -61,151 +69,100 @@ const EarningsScreen = () => {
     }
   }, [mechanicToken]);
 
-  const handleRequestPayout = () => {
-    if (earningsData.total === 0) {
-      Alert.alert('Payout Request', 'You currently do not have any earnings to withdraw.');
-      return;
-    }
-    Alert.alert(
-      'Request Payout',
-      `Would you like to initiate a payout request for ₹${earningsData.total}?`,
-      [
-        { text: 'Yes, Request', onPress: () => Alert.alert('Success', 'Payout request submitted successfully. It will process in 2-3 business days.') },
-        { text: 'Cancel', style: 'cancel' }
-      ]
-    );
-  };
-
   return (
     <SafeAreaView style={styles.safeArea}>
-      {/* Top Header Bar */}
-      <View style={styles.header}>
+      {/* 1. DEEP INDIGO HEADER WITH SAFE AREA TOP INSET */}
+      <View style={[styles.header, { paddingTop: topInset + 10 }]}>
         <TouchableOpacity style={styles.headerBackBtn} onPress={() => navigation.navigate('Home')}>
-          <Ionicons name="arrow-back" size={24} color="#ffffff" />
+          <Ionicons name="arrow-back" size={22} color="#ffffff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Earnings</Text>
-        <TouchableOpacity style={styles.headerInfoBtn} onPress={() => Alert.alert('Earnings Info', 'Lifetime, weekly, and monthly earnings summaries are calculated from completed and paid breakdown requests.')}>
-          <Ionicons name="information-circle-outline" size={24} color="#00BFA5" />
+        <TouchableOpacity style={styles.headerIconBtn} onPress={() => Alert.alert('Calendar', 'Select date range')}>
+          <Ionicons name="calendar-outline" size={22} color="#ffffff" />
         </TouchableOpacity>
+      </View>
+
+      {/* FILTER TABS */}
+      <View style={styles.tabBarContainer}>
+        {['Daily', 'Weekly', 'Monthly'].map((tab) => (
+          <TouchableOpacity
+            key={tab}
+            style={[styles.tabBtn, filterTab === tab && styles.activeTabBtn]}
+            onPress={() => setFilterTab(tab)}
+          >
+            <Text style={[styles.tabBtnText, filterTab === tab && styles.activeTabBtnText]}>{tab}</Text>
+          </TouchableOpacity>
+        ))}
       </View>
 
       <ScrollView 
         style={styles.container} 
-        contentContainerStyle={[styles.scrollContent, { paddingBottom }]} 
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: paddingBottom + 30 }]} 
         showsVerticalScrollIndicator={false}
       >
-        {loading ? (
-          <View style={styles.loaderContainer}>
-            <ActivityIndicator size="large" color="#00BFA5" />
-          </View>
-        ) : (
-          <View>
-            {/* 1. TOTAL EARNINGS CARD */}
-            <View style={styles.heroCard}>
-              {/* Wallet Background Overlay Icon */}
-              <View style={styles.heroWalletOverlay}>
-                <Ionicons name="wallet" size={130} color="rgba(255, 255, 255, 0.08)" />
-              </View>
+        {/* DATE SELECTOR BAR */}
+        <View style={styles.dateSelectorRow}>
+          <TouchableOpacity style={styles.dateArrowBtn}>
+            <Ionicons name="chevron-back" size={18} color="#64748B" />
+          </TouchableOpacity>
+          <Text style={styles.dateText}>Today, 20 May 2025</Text>
+          <TouchableOpacity style={styles.dateArrowBtn}>
+            <Ionicons name="chevron-forward" size={18} color="#64748B" />
+          </TouchableOpacity>
+        </View>
 
-              <Text style={styles.heroLabel}>Total Earnings</Text>
-              <Text style={styles.heroAmount}>₹{earningsData.total}</Text>
-              <Text style={styles.heroSub}>Your total lifetime earnings</Text>
-              
-              <TouchableOpacity 
-                style={styles.payoutBtn} 
-                onPress={handleRequestPayout}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.payoutBtnText}>Request Payout</Text>
-                <Ionicons name="chevron-forward" size={16} color="#00BFA5" style={{ marginLeft: 6 }} />
-              </TouchableOpacity>
+        {/* TOTAL EARNINGS HERO CARD */}
+        <View style={styles.heroEarningsCard}>
+          <Text style={styles.heroLabel}>Total Earnings</Text>
+          <Text style={styles.heroAmount}>₹{earningsData.total.toLocaleString()}</Text>
+          <Text style={styles.heroJobsCount}>{earningsData.jobsCompleted} Jobs Completed</Text>
+
+          <View style={styles.heroDivider} />
+
+          <View style={styles.fareBreakdownRow}>
+            <View style={styles.fareCol}>
+              <Text style={styles.fareLabel}>Base Fare</Text>
+              <Text style={styles.fareValue}>₹{earningsData.baseFare.toLocaleString()}</Text>
             </View>
 
-            {/* 2. WEEKLY & MONTHLY BREAKDOWN */}
-            <View style={styles.breakdownRow}>
-              {/* This Week */}
-              <View style={styles.breakdownCard}>
-                <View style={styles.breakdownHeaderRow}>
-                  <Text style={styles.breakdownLabel}>This Week</Text>
-                  <Ionicons name="calendar-outline" size={18} color="#00BFA5" />
-                </View>
-                <Text style={styles.breakdownValue}>₹{earningsData.thisWeek}</Text>
-              </View>
+            <View style={styles.fareDivider} />
 
-              {/* This Month */}
-              <View style={styles.breakdownCard}>
-                <View style={styles.breakdownHeaderRow}>
-                  <Text style={styles.breakdownLabel}>This Month</Text>
-                  <Ionicons name="calendar-outline" size={18} color="#00BFA5" />
-                </View>
-                <Text style={styles.breakdownValue}>₹{earningsData.thisMonth}</Text>
-              </View>
+            <View style={styles.fareCol}>
+              <Text style={styles.fareLabel}>Distance Fare</Text>
+              <Text style={styles.fareValue}>₹{earningsData.distanceFare.toLocaleString()}</Text>
             </View>
 
-            {/* 3. RECENT EARNINGS HEADER */}
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitle}>Recent Earnings</Text>
-              <TouchableOpacity onPress={() => navigation.navigate('Jobs')}>
-                <Text style={styles.viewAllText}>View All {'>'}</Text>
-              </TouchableOpacity>
-            </View>
+            <View style={styles.fareDivider} />
 
-            {/* 4. RECENT EARNINGS CONTAINER */}
-            <View style={styles.listContainer}>
-              {earningsData.jobs.length === 0 ? (
-                <View style={styles.emptyContainer}>
-                  <View style={styles.emptyIconCircle}>
-                    <Ionicons name="document-text-outline" size={32} color="#64748b" />
-                    <Ionicons name="search" size={16} color="#00BFA5" style={styles.emptySearchSubIcon} />
-                  </View>
-                  <Text style={styles.emptyTextTitle}>No recent earnings yet</Text>
-                  <Text style={styles.emptyTextSub}>Your recent earnings will appear here</Text>
-                </View>
-              ) : (
-                earningsData.jobs.map((item, index) => (
-                  <View 
-                    key={item.id} 
-                    style={[
-                      styles.earningItem, 
-                      index === earningsData.jobs.length - 1 && { borderBottomWidth: 0 }
-                    ]}
-                  >
-                    <View style={{ flex: 1, paddingRight: 10 }}>
-                      <Text style={styles.earningJob} numberOfLines={1}>
-                        {String(item.job).replace(/_/g, ' ').toUpperCase()}
-                      </Text>
-                      <Text style={styles.earningDate}>{item.date}</Text>
-                    </View>
-                    <View style={{ alignItems: 'flex-end' }}>
-                      <Text style={styles.earningAmount}>{item.amount}</Text>
-                      <TouchableOpacity
-                        style={styles.invoiceBtn}
-                        onPress={() => downloadInvoice(item.id, mechanicToken)}
-                        activeOpacity={0.7}
-                      >
-                        <Ionicons name="document-text" size={12} color="#00BFA5" style={{ marginRight: 4 }} />
-                        <Text style={styles.invoiceBtnText}>Invoice</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                ))
-              )}
-            </View>
-
-            {/* 5. SECURE & RELIABLE BANNER */}
-            <View style={styles.securityBanner}>
-              <View style={styles.securityIconCircle}>
-                <Ionicons name="shield-checkmark" size={24} color="#00BFA5" />
-              </View>
-              <View style={styles.securityTextCol}>
-                <Text style={styles.securityTitle}>Secure & Reliable</Text>
-                <Text style={styles.securitySub}>
-                  Your earnings are safe with us. Request payout anytime!
-                </Text>
-              </View>
+            <View style={styles.fareCol}>
+              <Text style={styles.fareLabel}>Tips</Text>
+              <Text style={styles.fareValue}>₹{earningsData.tips}</Text>
             </View>
           </View>
-        )}
+        </View>
+
+        {/* EARNINGS BREAKDOWN SECTION */}
+        <Text style={styles.sectionTitle}>Earnings Breakdown</Text>
+
+        <View style={styles.breakdownListContainer}>
+          {earningsData.history.map((item) => (
+            <View key={item.id} style={styles.breakdownItemRow}>
+              <View style={[styles.itemIconCircle, { backgroundColor: item.iconBg }]}>
+                <Ionicons name={item.icon} size={20} color={item.iconColor} />
+              </View>
+
+              <View style={styles.itemTextCol}>
+                <Text style={styles.itemTitle}>{item.title}</Text>
+                <Text style={styles.itemTime}>{item.time}</Text>
+              </View>
+
+              <View style={styles.itemPriceCol}>
+                <Text style={styles.itemPriceText}>{item.price}</Text>
+                {item.sub && <Text style={styles.itemSubText}>{item.sub}</Text>}
+              </View>
+            </View>
+          ))}
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -214,263 +171,200 @@ const EarningsScreen = () => {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#0f172a', // Sleek dark slate
+    backgroundColor: '#F4F5FB',
   },
   header: {
+    backgroundColor: '#362A84',
+    paddingTop: 14,
+    paddingBottom: 16,
+    paddingHorizontal: 20,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 15,
-    paddingBottom: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1e293b',
   },
   headerBackBtn: {
-    padding: 4,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   headerTitle: {
     color: '#ffffff',
     fontSize: 20,
     fontWeight: 'bold',
   },
-  headerInfoBtn: {
-    padding: 4,
+  headerIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  tabBarContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    justifyContent: 'space-around',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  tabBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginHorizontal: 4,
+    backgroundColor: '#F1F5F9',
+  },
+  activeTabBtn: {
+    backgroundColor: '#362A84',
+  },
+  tabBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  activeTabBtnText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
   },
   container: {
     flex: 1,
   },
   scrollContent: {
-    padding: 20,
-    paddingBottom: 90, // Spacing for bottom tab navigator
+    padding: 16,
   },
-  loaderContainer: {
-    height: 300,
-    justifyContent: 'center',
+  dateSelectorRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 16,
   },
-  heroCard: {
-    backgroundColor: '#00BFA5',
+  dateArrowBtn: {
+    padding: 4,
+  },
+  dateText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  heroEarningsCard: {
+    backgroundColor: '#FFFFFF',
     borderRadius: 20,
-    padding: 24,
-    position: 'relative',
-    overflow: 'hidden',
-    shadowColor: '#00BFA5',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    elevation: 8,
+    padding: 20,
+    alignItems: 'center',
     marginBottom: 20,
-  },
-  heroWalletOverlay: {
-    position: 'absolute',
-    right: -20,
-    bottom: -20,
-    transform: [{ rotate: '-15deg' }],
+    shadowColor: '#362A84',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 3,
   },
   heroLabel: {
-    color: 'rgba(255, 255, 255, 0.85)',
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 13,
+    color: '#64748B',
     marginBottom: 6,
   },
   heroAmount: {
-    color: '#ffffff',
-    fontSize: 44,
+    fontSize: 36,
     fontWeight: 'bold',
-    marginBottom: 6,
-  },
-  heroSub: {
-    color: 'rgba(255, 255, 255, 0.75)',
-    fontSize: 12,
-    marginBottom: 20,
-  },
-  payoutBtn: {
-    backgroundColor: '#ffffff',
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 25,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  payoutBtnText: {
-    color: '#00BFA5',
-    fontWeight: 'bold',
-    fontSize: 15,
-  },
-  breakdownRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 25,
-  },
-  breakdownCard: {
-    backgroundColor: '#1e293b',
-    padding: 16,
-    borderRadius: 14,
-    flex: 1,
-    marginHorizontal: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  breakdownHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  breakdownLabel: {
-    color: '#94a3b8',
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  breakdownValue: {
-    color: '#ffffff',
-    fontSize: 22,
-    fontWeight: 'bold',
-  },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 14,
-  },
-  sectionTitle: {
-    color: '#ffffff',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  viewAllText: {
-    color: '#00BFA5',
-    fontSize: 13,
-    fontWeight: 'bold',
-  },
-  listContainer: {
-    backgroundColor: '#1e293b',
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  earningItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: '#334155',
-  },
-  earningJob: {
-    color: '#ffffff',
-    fontSize: 15,
-    fontWeight: 'bold',
+    color: '#059669',
     marginBottom: 4,
   },
-  earningDate: {
-    color: '#64748b',
+  heroJobsCount: {
     fontSize: 12,
+    color: '#94A3B8',
+    marginBottom: 16,
   },
-  earningAmount: {
-    color: '#00BFA5',
-    fontSize: 16,
-    fontWeight: 'bold',
+  heroDivider: {
+    width: '100%',
+    height: 1,
+    backgroundColor: '#F1F5F9',
+    marginBottom: 16,
   },
-  invoiceBtn: {
+  fareBreakdownRow: {
     flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: '100%',
+  },
+  fareCol: {
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 191, 165, 0.08)',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 191, 165, 0.3)',
-    marginTop: 6,
-  },
-  invoiceBtnText: {
-    color: '#00BFA5',
-    fontSize: 11,
-    fontWeight: 'bold',
-  },
-  // Empty State Styles
-  emptyContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 32,
-  },
-  emptyIconCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: 'rgba(100, 116, 139, 0.12)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    position: 'relative',
-    marginBottom: 14,
-  },
-  emptySearchSubIcon: {
-    position: 'absolute',
-    bottom: 12,
-    right: 12,
-  },
-  emptyTextTitle: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 6,
-  },
-  emptyTextSub: {
-    color: '#64748b',
-    fontSize: 13,
-    textAlign: 'center',
-  },
-  // Security Banner
-  securityBanner: {
-    backgroundColor: '#1e293b',
-    borderRadius: 16,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  securityIconCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(0, 191, 165, 0.12)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 14,
-  },
-  securityTextCol: {
     flex: 1,
   },
-  securityTitle: {
-    color: '#ffffff',
+  fareLabel: {
+    fontSize: 11,
+    color: '#64748B',
+    marginBottom: 4,
+  },
+  fareValue: {
     fontSize: 15,
     fontWeight: 'bold',
+    color: '#1E293B',
   },
-  securitySub: {
-    color: '#64748b',
-    fontSize: 12,
-    lineHeight: 16,
+  fareDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: '#E2E8F0',
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#1E293B',
+    marginBottom: 12,
+  },
+  breakdownListContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: '#362A84',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  breakdownItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  itemIconCircle: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  itemTextCol: {
+    flex: 1,
+  },
+  itemTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#1E293B',
+    marginBottom: 2,
+  },
+  itemTime: {
+    fontSize: 11,
+    color: '#94A3B8',
+  },
+  itemPriceCol: {
+    alignItems: 'flex-end',
+  },
+  itemPriceText: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#1E293B',
+  },
+  itemSubText: {
+    fontSize: 11,
+    color: '#059669',
     marginTop: 2,
   },
 });

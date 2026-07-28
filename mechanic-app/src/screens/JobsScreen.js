@@ -9,9 +9,11 @@ import {
   Alert,
   Linking,
   RefreshControl,
-  SafeAreaView
+  SafeAreaView,
+  StatusBar
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AuthContext } from '../context/AuthContext';
 import API_URL from '../config/api';
 import { useTranslation } from 'react-i18next';
@@ -19,15 +21,17 @@ import { useBottomNavSafeArea } from '../hooks/useBottomNavSafeArea';
 import DrawerMenu from '../components/DrawerMenu';
 
 const JobsScreen = ({ navigation }) => {
-  const { mechanicToken, mechanic, logout } = useContext(AuthContext);
-  const { t } = useTranslation();
+  const { mechanicToken, mechanic, pendingRequests, removePendingRequest, logout } = useContext(AuthContext);
+  const translationRes = useTranslation();
+  const t = translationRes?.t || ((k) => k);
+  const insets = useSafeAreaInsets();
+  const topInset = Math.max(insets.top, StatusBar.currentHeight || 24);
   const { paddingBottom } = useBottomNavSafeArea();
-  const [activeTab, setActiveTab] = useState('Active');
-  const [jobs, setJobs] = useState({ active: [], completed: [] });
+  const [activeTab, setActiveTab] = useState('New');
+  const [jobs, setJobs] = useState({ new: [], inProgress: [], completed: [] });
   const [drawerVisible, setDrawerVisible] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
-  // Fetch jobs from backend
   const fetchJobs = async () => {
     setLoading(true);
     try {
@@ -39,11 +43,10 @@ const JobsScreen = ({ navigation }) => {
       const data = await response.json();
       if (data.success) {
         setJobs({
-          active: data.active || [],
+          new: data.new || [],
+          inProgress: data.active || [],
           completed: data.completed || []
         });
-      } else {
-        console.warn('Jobs fetch message:', data.message);
       }
     } catch (error) {
       console.log('Error fetching jobs:', error);
@@ -58,246 +61,214 @@ const JobsScreen = ({ navigation }) => {
     }
   }, [mechanicToken]);
 
-  // Handle Google Maps navigation redirect
-  const handleNavigate = (address) => {
-    const query = encodeURIComponent(address || 'Greater Noida');
-    const url = `https://www.google.com/maps/search/?api=1&query=${query}`;
-    Linking.openURL(url).catch((err) => {
-      console.warn(err);
-      Alert.alert('Error', 'Unable to open maps application.');
+  const getTimeAgo = (dateString) => {
+    if (!dateString) return 'Just now';
+    const created = new Date(dateString);
+    if (isNaN(created.getTime())) return 'Just now';
+    const diffMins = Math.floor((Date.now() - created.getTime()) / 60000);
+    
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins} min ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours} hr ago`;
+    return created.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  };
+
+  const combinedNewList = React.useMemo(() => {
+    const serverList = jobs.new || [];
+    const localList = pendingRequests || [];
+    const merged = [...localList];
+    serverList.forEach(s => {
+      const sId = (s._id || s.id || s.requestId)?.toString();
+      if (!merged.some(m => (m._id || m.id || m.requestId)?.toString() === sId)) {
+        merged.push(s);
+      }
     });
-  };
+    return merged;
+  }, [jobs.new, pendingRequests]);
 
-  const handleSupport = () => {
-    Alert.alert(
-      'Support Helpdesk',
-      'Need assistance? Reach out to our Roadmitra Support Executive.',
-      [
-        { text: 'Call Support', onPress: () => Linking.openURL('tel:+919999999999').catch(() => {}) },
-        { text: 'Cancel', style: 'cancel' }
-      ]
-    );
-  };
-
-  // Calculate dynamic stats
-  const activeCount = jobs.active.length || 1; // Default to 1 to match mockup if empty
-  const completedCount = jobs.completed.length;
-  
-  // Sum earnings of completed tasks
-  const completedEarnings = jobs.completed.reduce((sum, item) => {
-    const num = parseInt(item.amount?.replace(/\D/g, '') || '0', 10);
-    return sum + num;
-  }, 0) || 350; // Default to ₹350 to match mockup if empty
-
-  // Get active list: if empty, show a mock card to match the user's mockup design
-  const getActiveJobsList = () => {
-    if (jobs.active.length > 0) {
-      return jobs.active;
-    }
-    // Return mock job matching the user's screenshot
-    return [{
-      id: 'mock_active_1',
-      customer: 'Prateek',
-      issue: 'Vjoidvkk',
-      location: 'FFHX+69V, Greater Noida',
-      amount: '₹350',
-      status: 'Active'
-    }];
-  };
-
-  const getCompletedJobsList = () => {
-    if (jobs.completed.length > 0) {
-      return jobs.completed;
-    }
-    // Return empty list or mock completed job if empty
-    return [];
-  };
-
-  const filteredJobs = activeTab === 'Active' ? getActiveJobsList() : getCompletedJobsList();
+  const newList = combinedNewList;
+  const inProgList = jobs.inProgress || [];
+  const compList = jobs.completed || [];
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      {/* Top Header Bar */}
-      <View style={styles.header}>
+      {/* 1. DEEP INDIGO HEADER WITH SAFE AREA TOP INSET */}
+      <View style={[styles.header, { paddingTop: topInset + 10 }]}>
         <TouchableOpacity style={styles.headerIconCircle} onPress={() => setDrawerVisible(true)}>
-          <Ionicons name="menu-outline" size={24} color="#00BFA5" />
+          <Ionicons name="menu" size={22} color="#FFFFFF" />
         </TouchableOpacity>
-        
-        <View style={styles.tabContainer}>
-          <TouchableOpacity
-            style={[styles.tabButton, activeTab === 'Active' && styles.activeTabButton]}
-            onPress={() => setActiveTab('Active')}
-          >
-            <Text style={[styles.tabButtonText, activeTab === 'Active' && styles.activeTabButtonText]}>
-              {t('jobs_active') || 'Active'}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tabButton, activeTab === 'Completed' && styles.activeTabButton]}
-            onPress={() => setActiveTab('Completed')}
-          >
-            <Text style={[styles.tabButtonText, activeTab === 'Completed' && styles.activeTabButtonText]}>
-              {t('jobs_completed') || 'Completed'}
-            </Text>
-          </TouchableOpacity>
-        </View>
 
-        <TouchableOpacity style={styles.headerIconCircle} onPress={() => Alert.alert('Notifications', 'No new notifications')}>
-          <Ionicons name="notifications-outline" size={20} color="#00BFA5" />
+        <Text style={styles.headerTitle}>Jobs</Text>
+
+        <TouchableOpacity style={styles.headerIconCircle} onPress={() => Alert.alert('Notifications', 'No new job notifications')}>
+          <Ionicons name="notifications-outline" size={20} color="#FFFFFF" />
+        </TouchableOpacity>
+      </View>
+
+      {/* SEGMENTED TAB BAR */}
+      <View style={styles.tabContainer}>
+        <TouchableOpacity
+          style={[styles.tabPill, activeTab === 'New' && styles.activeTabPill]}
+          onPress={() => setActiveTab('New')}
+        >
+          <Text style={[styles.tabPillText, activeTab === 'New' && styles.activeTabPillText]}>New</Text>
+          <View style={styles.badgeNewCircle}>
+            <Text style={styles.badgeNewText}>{newList.length}</Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.tabPill, activeTab === 'InProgress' && styles.activeTabPill]}
+          onPress={() => setActiveTab('InProgress')}
+        >
+          <Text style={[styles.tabPillText, activeTab === 'InProgress' && styles.activeTabPillText]}>In Progress</Text>
+          <View style={styles.badgeProgCircle}>
+            <Text style={styles.badgeProgText}>{inProgList.length}</Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.tabPill, activeTab === 'Completed' && styles.activeTabPill]}
+          onPress={() => setActiveTab('Completed')}
+        >
+          <Text style={[styles.tabPillText, activeTab === 'Completed' && styles.activeTabPillText]}>Completed</Text>
         </TouchableOpacity>
       </View>
 
       <ScrollView
-        contentContainerStyle={[styles.scrollContainer, { paddingBottom }]}
+        contentContainerStyle={[styles.scrollContainer, { paddingBottom: paddingBottom + 30 }]}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={loading} onRefresh={fetchJobs} tintColor="#00BFA5" colors={["#00BFA5"]} />
+          <RefreshControl refreshing={loading} onRefresh={fetchJobs} tintColor="#362A84" colors={["#362A84"]} />
         }
       >
-        {/* Jobs List (Active or Completed) */}
-        {loading && jobs.active.length === 0 && jobs.completed.length === 0 ? (
-          <View style={styles.loader}>
-            <ActivityIndicator size="large" color="#00BFA5" />
-          </View>
-        ) : (
-          <View style={styles.jobsListContainer}>
-            {filteredJobs.length === 0 ? (
+        {activeTab === 'New' && (
+          <View>
+            {newList.length === 0 ? (
               <View style={styles.emptyContainer}>
-                <Ionicons name="clipboard-outline" size={48} color="#4b5563" style={{ marginBottom: 12 }} />
-                <Text style={styles.emptyText}>{t('jobs_empty') || 'No completed jobs found today'}</Text>
+                <Ionicons name="clipboard-outline" size={48} color="#94A3B8" style={{ marginBottom: 12 }} />
+                <Text style={styles.emptyTitle}>No New Jobs</Text>
+                <Text style={styles.emptySub}>Turn online on the Home screen to receive new job requests.</Text>
               </View>
             ) : (
-              filteredJobs.map((item) => (
-                <View key={item.id} style={styles.jobCard}>
-                  <View style={styles.jobHeader}>
-                    <Text style={styles.customerName}>{item.customer}</Text>
-                    <View style={[styles.statusBadge, item.status === 'Active' ? styles.statusActive : styles.statusComplete]}>
-                      <Text style={styles.statusText}>
-                        {item.status === 'Active' ? (t('jobs_active') || 'Active') : (t('jobs_completed') || 'Completed')}
-                      </Text>
+              newList.map((job) => (
+                <TouchableOpacity
+                  key={job._id || job.id}
+                  style={styles.jobItemCard}
+                  activeOpacity={0.9}
+                  onPress={() => navigation.navigate('IncomingRequest', { requestData: { requestId: job._id || job.id } })}
+                >
+                  <View style={[styles.jobIconBox, { backgroundColor: '#EEF2FF' }]}>
+                    <Ionicons name="construct-outline" size={22} color="#362A84" />
+                  </View>
+
+                  <View style={styles.jobContentCol}>
+                    <View style={styles.jobRowTop}>
+                      <Text style={styles.jobItemTitle}>{job.serviceType || job.issueType || 'Job Request'}</Text>
+                      <Text style={styles.jobTimeText}>{getTimeAgo(job.createdAt)}</Text>
+                    </View>
+
+                    <View style={styles.jobRowBottom}>
+                      <View style={styles.locRow}>
+                        <Ionicons name="location-outline" size={14} color="#64748B" style={{ marginRight: 4 }} />
+                        <Text style={styles.locText} numberOfLines={1}>{job.customerAddress || job.location || 'Location provided'}</Text>
+                      </View>
+                      <Text style={styles.distText}>{job.price ? `₹${job.price}` : ''}</Text>
                     </View>
                   </View>
 
-                  <View style={styles.detailRow}>
-                    <View style={styles.avatarIconCircle}>
-                      <Ionicons name="person" size={14} color="#00BFA5" />
-                    </View>
-                    <Text style={styles.detailText}>{item.issue}</Text>
+                  <View style={styles.badgeNewPill}>
+                    <Text style={styles.badgeNewPillText}>New</Text>
+                  </View>
+                </TouchableOpacity>
+              ))
+            )}
+          </View>
+        )}
+
+        {activeTab === 'InProgress' && (
+          <View>
+            {inProgList.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <Ionicons name="car-sport-outline" size={48} color="#94A3B8" style={{ marginBottom: 12 }} />
+                <Text style={styles.emptyTitle}>No Jobs In Progress</Text>
+                <Text style={styles.emptySub}>Accepted job requests will appear here while active.</Text>
+              </View>
+            ) : (
+              inProgList.map((job) => (
+                <TouchableOpacity
+                  key={job._id || job.id}
+                  style={styles.jobItemCard}
+                  activeOpacity={0.9}
+                  onPress={() => navigation.navigate('OnTheWay', { requestId: job._id || job.id })}
+                >
+                  <View style={[styles.jobIconBox, { backgroundColor: '#EEF2FF' }]}>
+                    <Ionicons name="car-sport-outline" size={22} color="#362A84" />
                   </View>
 
-                  <View style={styles.detailRow}>
-                    <Ionicons name="location" size={18} color="#ef4444" style={styles.pinIcon} />
-                    <Text style={styles.detailText} numberOfLines={1}>{item.location}</Text>
+                  <View style={styles.jobContentCol}>
+                    <View style={styles.jobRowTop}>
+                      <Text style={styles.jobItemTitle}>{job.serviceType || job.issueType || 'Active Service'}</Text>
+                      <Text style={styles.jobTimeText}>Active</Text>
+                    </View>
+
+                    <View style={styles.jobRowBottom}>
+                      <View style={styles.locRow}>
+                        <Ionicons name="location-outline" size={14} color="#64748B" style={{ marginRight: 4 }} />
+                        <Text style={styles.locText} numberOfLines={1}>{job.customerAddress || job.location || 'Location provided'}</Text>
+                      </View>
+                      <Text style={styles.distText}>{job.price ? `₹${job.price}` : ''}</Text>
+                    </View>
                   </View>
 
-                  <View style={styles.cardDivider} />
+                  <View style={styles.badgeProgPill}>
+                    <Text style={styles.badgeProgPillText}>In Progress</Text>
+                  </View>
+                </TouchableOpacity>
+              ))
+            )}
+          </View>
+        )}
 
-                  <View style={styles.jobFooter}>
-                    <View>
-                      <Text style={styles.amountText}>{item.amount}</Text>
-                      <Text style={styles.amountSubtitle}>{t('earnings_estimated') || 'Estimated earning'}</Text>
+        {activeTab === 'Completed' && (
+          <View>
+            {compList.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <Ionicons name="checkmark-done-circle-outline" size={48} color="#94A3B8" style={{ marginBottom: 12 }} />
+                <Text style={styles.emptyTitle}>No Completed Jobs Yet</Text>
+                <Text style={styles.emptySub}>Jobs you successfully finish will be listed here.</Text>
+              </View>
+            ) : (
+              compList.map((job) => (
+                <View key={job._id || job.id} style={styles.jobItemCard}>
+                  <View style={[styles.jobIconBox, { backgroundColor: '#D1FAE5' }]}>
+                    <Ionicons name="checkmark-circle-outline" size={22} color="#059669" />
+                  </View>
+
+                  <View style={styles.jobContentCol}>
+                    <View style={styles.jobRowTop}>
+                      <Text style={styles.jobItemTitle}>{job.serviceType || job.issueType || 'Completed Job'}</Text>
+                      <Text style={styles.jobTimeText}>{job.completedAt ? new Date(job.completedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Done'}</Text>
                     </View>
-                    {item.status === 'Active' && (
-                      <TouchableOpacity 
-                        style={styles.navigateButton} 
-                        onPress={() => handleNavigate(item.location)}
-                        activeOpacity={0.8}
-                      >
-                        <Ionicons name="navigate" size={16} color="#fff" style={{ marginRight: 6 }} />
-                        <Text style={styles.navigateButtonText}>{t('jobs_navigate') || 'Navigate'}</Text>
-                      </TouchableOpacity>
-                    )}
+
+                    <View style={styles.jobRowBottom}>
+                      <View style={styles.locRow}>
+                        <Ionicons name="location-outline" size={14} color="#64748B" style={{ marginRight: 4 }} />
+                        <Text style={styles.locText} numberOfLines={1}>{job.customerAddress || job.location || 'Location'}</Text>
+                      </View>
+                      <Text style={styles.distText}>{job.price ? `₹${job.price}` : ''}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.badgeCompPill}>
+                    <Text style={styles.badgeCompPillText}>Completed</Text>
                   </View>
                 </View>
               ))
             )}
           </View>
         )}
-
-        {/* Today's Summary Section */}
-        <Text style={styles.sectionHeader}>{t('home_jobs_today') || "Today's Summary"}</Text>
-        <View style={styles.summaryContainer}>
-          {/* Active Tasks Card */}
-          <View style={styles.summaryCard}>
-            <View style={styles.summaryIconCircle}>
-              <Ionicons name="briefcase" size={20} color="#00BFA5" />
-            </View>
-            <Text style={styles.summaryValue}>{activeCount}</Text>
-            <Text style={styles.summaryLabel}>{t('jobs_active') || 'Active Task'}</Text>
-          </View>
-
-          {/* Completed Card */}
-          <View style={styles.summaryCard}>
-            <View style={styles.summaryIconCircle}>
-              <Ionicons name="checkmark-circle" size={20} color="#00BFA5" />
-            </View>
-            <Text style={styles.summaryValue}>{completedCount}</Text>
-            <Text style={styles.summaryLabel}>{t('jobs_completed') || 'Completed'}</Text>
-          </View>
-
-          {/* Earnings Card */}
-          <View style={styles.summaryCard}>
-            <View style={styles.summaryIconCircle}>
-              <Ionicons name="wallet" size={20} color="#00BFA5" />
-            </View>
-            <Text style={styles.summaryValue}>₹{completedEarnings}</Text>
-            <Text style={styles.summaryLabel}>{t('nav_earnings') || 'Earnings'}</Text>
-          </View>
-        </View>
-
-        {/* Quick Actions Section */}
-        <Text style={styles.sectionHeader}>{t('jobs_quick_actions') || 'Quick Actions'}</Text>
-        <View style={styles.quickActionsContainer}>
-          <View style={styles.quickActionsRow}>
-            {/* My Profile */}
-            <TouchableOpacity 
-              style={styles.actionItem} 
-              onPress={() => navigation.navigate('Profile')}
-              activeOpacity={0.7}
-            >
-              <View style={styles.actionIconCircle}>
-                <Ionicons name="person-outline" size={22} color="#00BFA5" />
-              </View>
-              <Text style={styles.actionLabel}>{t('nav_profile') || 'My Profile'}</Text>
-            </TouchableOpacity>
-
-            {/* Earnings */}
-            <TouchableOpacity 
-              style={styles.actionItem} 
-              onPress={() => navigation.navigate('Earnings')}
-              activeOpacity={0.7}
-            >
-              <View style={styles.actionIconCircle}>
-                <Ionicons name="wallet-outline" size={22} color="#00BFA5" />
-              </View>
-              <Text style={styles.actionLabel}>{t('nav_earnings') || 'Earnings'}</Text>
-            </TouchableOpacity>
-
-            {/* Support */}
-            <TouchableOpacity 
-              style={styles.actionItem} 
-              onPress={handleSupport}
-              activeOpacity={0.7}
-            >
-              <View style={styles.actionIconCircle}>
-                <Ionicons name="headset-outline" size={22} color="#00BFA5" />
-              </View>
-              <Text style={styles.actionLabel}>{t('jobs_support') || 'Support'}</Text>
-            </TouchableOpacity>
-
-            {/* More */}
-            <TouchableOpacity 
-              style={styles.actionItem} 
-              onPress={() => Alert.alert('Quick Settings', 'Access detailed account options')}
-              activeOpacity={0.7}
-            >
-              <View style={styles.actionIconCircle}>
-                <Ionicons name="ellipsis-horizontal" size={22} color="#00BFA5" />
-              </View>
-              <Text style={styles.actionLabel}>{t('jobs_more') || 'More'}</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
       </ScrollView>
 
       {/* Side Drawer Menu */}
@@ -314,247 +285,189 @@ const JobsScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#0f172a', // Sleek dark slate
+    backgroundColor: '#F4F5FB',
   },
   header: {
+    backgroundColor: '#362A84',
+    paddingTop: 14,
+    paddingBottom: 16,
+    paddingHorizontal: 20,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 15,
-    paddingBottom: 15,
-    backgroundColor: '#0f172a',
-    borderBottomWidth: 1,
-    borderBottomColor: '#1e293b',
+  },
+  headerTitle: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: 'bold',
   },
   headerIconCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#1e293b',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   tabContainer: {
     flexDirection: 'row',
-    flex: 1,
-    justifyContent: 'center',
-    marginHorizontal: 20,
-  },
-  tabButton: {
-    paddingVertical: 8,
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: 16,
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
   },
-  activeTabButton: {
-    borderBottomColor: '#00BFA5',
+  tabPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#F1F5F9',
+    marginRight: 10,
   },
-  tabButtonText: {
-    color: '#64748b',
-    fontSize: 15,
+  activeTabPill: {
+    backgroundColor: '#EEF2FF',
+  },
+  tabPillText: {
+    fontSize: 13,
     fontWeight: '600',
+    color: '#64748B',
   },
-  activeTabButtonText: {
-    color: '#00BFA5',
+  activeTabPillText: {
+    color: '#4F46E5',
+    fontWeight: 'bold',
+  },
+  badgeNewCircle: {
+    backgroundColor: '#EF4444',
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 6,
+  },
+  badgeNewText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  badgeProgCircle: {
+    backgroundColor: '#4F46E5',
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 6,
+  },
+  badgeProgText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
   scrollContainer: {
-    padding: 20,
-    paddingBottom: 90, // Accounts for bottom navigation bar height + safe buffer
+    padding: 16,
   },
-  loader: {
-    height: 200,
-    justifyContent: 'center',
-    alignItems: 'center',
+  sectionSubLabel: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#64748B',
+    marginBottom: 12,
+    marginTop: 4,
   },
-  jobsListContainer: {
-    marginBottom: 25,
-  },
-  jobCard: {
-    backgroundColor: '#1e293b', // Match mockup card theme
+  jobItemCard: {
+    backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 5,
-    marginBottom: 15,
-  },
-  jobHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  customerName: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#ffffff',
-  },
-  statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 20,
-  },
-  statusActive: {
-    backgroundColor: 'rgba(0, 191, 165, 0.15)',
-  },
-  statusComplete: {
-    backgroundColor: 'rgba(100, 116, 139, 0.2)',
-  },
-  statusText: {
-    color: '#00BFA5',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  detailRow: {
+    padding: 14,
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 12,
-  },
-  avatarIconCircle: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: 'rgba(0, 191, 165, 0.12)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 10,
-  },
-  pinIcon: {
-    marginRight: 14,
-    marginLeft: 3,
-  },
-  detailText: {
-    fontSize: 15,
-    color: '#94a3b8',
-    flex: 1,
-  },
-  cardDivider: {
-    height: 1,
-    backgroundColor: '#334155',
-    marginVertical: 15,
-  },
-  jobFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  amountText: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#00BFA5',
-  },
-  amountSubtitle: {
-    fontSize: 11,
-    color: '#64748b',
-    marginTop: 2,
-  },
-  navigateButton: {
-    backgroundColor: '#00BFA5',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  navigateButtonText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  sectionHeader: {
-    fontSize: 17,
-    fontWeight: 'bold',
-    color: '#ffffff',
-    marginBottom: 14,
-    marginTop: 5,
-  },
-  summaryContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 25,
-  },
-  summaryCard: {
-    flex: 1,
-    backgroundColor: '#1e293b',
-    borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 8,
-    alignItems: 'center',
-    marginHorizontal: 4,
-    shadowColor: '#000',
+    shadowColor: '#362A84',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
-  summaryIconCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(0, 191, 165, 0.12)',
+  jobIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 10,
+    marginRight: 12,
   },
-  summaryValue: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#ffffff',
+  jobContentCol: {
+    flex: 1,
+    marginRight: 8,
+  },
+  jobRowTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 4,
   },
-  summaryLabel: {
+  jobItemTitle: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#1E293B',
+  },
+  jobTimeText: {
     fontSize: 11,
-    color: '#64748b',
-    textAlign: 'center',
+    color: '#94A3B8',
   },
-  quickActionsContainer: {
-    backgroundColor: '#1e293b',
-    borderRadius: 16,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  quickActionsRow: {
+  jobRowBottom: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'space-between',
     alignItems: 'center',
   },
-  actionItem: {
+  locRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    padding: 8,
+    flex: 1,
   },
-  actionIconCircle: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    borderWidth: 1,
-    borderColor: '#334155',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 8,
+  locText: {
+    fontSize: 12,
+    color: '#64748B',
+    flex: 1,
   },
-  actionLabel: {
-    fontSize: 11,
-    color: '#94a3b8',
-    fontWeight: '500',
+  distText: {
+    fontSize: 12,
+    color: '#94A3B8',
+    marginLeft: 8,
   },
-  emptyContainer: {
-    backgroundColor: '#1e293b',
-    borderRadius: 16,
-    paddingVertical: 40,
-    paddingHorizontal: 20,
-    alignItems: 'center',
+  badgeNewPill: {
+    backgroundColor: '#FEE2E2',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
   },
-  emptyText: {
-    color: '#64748b',
-    fontSize: 14,
-    fontWeight: '500',
+  badgeNewPillText: {
+    color: '#EF4444',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  badgeProgPill: {
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  badgeProgPillText: {
+    color: '#4F46E5',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  badgeCompPill: {
+    backgroundColor: '#D1FAE5',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  badgeCompPillText: {
+    color: '#059669',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
 });
 

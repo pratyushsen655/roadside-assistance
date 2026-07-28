@@ -2,9 +2,10 @@
 import React, { useContext, useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, Switch, ScrollView, TouchableOpacity, Alert,
-  ActivityIndicator, Animated, Image, Modal, Dimensions
+  ActivityIndicator, Animated, Image, Modal, Dimensions, StatusBar
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AuthContext } from '../context/AuthContext';
 import API_URL from '../config/api';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -108,6 +109,8 @@ const RadarScanner = () => {
 
 export default function HomeScreen() {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
+  const topInset = Math.max(insets.top, StatusBar.currentHeight || 24);
   const { paddingBottom } = useBottomNavSafeArea();
   const isMounted = useRef(true);
   const acceptInProgress = useRef({});
@@ -128,7 +131,10 @@ export default function HomeScreen() {
     mechanicLocation,
     setMechanicLocation,
     locationPermissionGranted,
-    setLocationPermissionGranted
+    setLocationPermissionGranted,
+    pendingRequests,
+    setPendingRequests,
+    removePendingRequest
   } = useContext(AuthContext);
   const [isOnline, setIsOnline] = useState(false);
   const [drawerVisible, setDrawerVisible] = useState(false);
@@ -238,10 +244,28 @@ export default function HomeScreen() {
     if (mechanicToken && isOnline) {
       fetchPendingRequests();
       
-      socket = getSocket(mechanicToken);
+      socket = getSocket(mechanicToken, mechanic?._id || mechanic?.id);
       if (socket) {
-        socket.emit('join:mechanics:room');
-        
+        socket.on('new_breakdown_request', (data) => {
+          console.log('[Socket] New breakdown request received on Home:', data);
+          fetchPendingRequests();
+        });
+
+        socket.on('incoming-request', (data) => {
+          console.log('[Socket] Incoming request received on Home:', data);
+          fetchPendingRequests();
+        });
+
+        socket.on('incoming_request', (data) => {
+          console.log('[Socket] Incoming request received on Home:', data);
+          fetchPendingRequests();
+        });
+
+        socket.on('new_request_available', (data) => {
+          console.log('[Socket] New request available on Home:', data);
+          fetchPendingRequests();
+        });
+
         socket.on('request:price_updated', (data) => {
           console.log('[Socket] Request price updated in real-time, reloading...', data);
           fetchPendingRequests();
@@ -277,12 +301,15 @@ export default function HomeScreen() {
 
       interval = setInterval(() => {
         fetchPendingRequests();
-      }, 10000);
+      }, 5000);
     } else {
       if (isMounted.current) {
         setRequests([]);
       }
       if (socket) {
+        socket.off('incoming-request');
+        socket.off('incoming_request');
+        socket.off('new_request_available');
         socket.off('request:price_updated');
         socket.off('request:price_updated_global');
         socket.off('request_claimed');
@@ -293,6 +320,9 @@ export default function HomeScreen() {
     return () => {
       clearInterval(interval);
       if (socket) {
+        socket.off('incoming-request');
+        socket.off('incoming_request');
+        socket.off('new_request_available');
         socket.off('request:price_updated');
         socket.off('request:price_updated_global');
         socket.off('request_claimed');
@@ -360,14 +390,26 @@ export default function HomeScreen() {
           'Authorization': `Bearer ${mechanicToken}`
         }
       });
-      const data = await response.json();
-      if (Array.isArray(data)) {
-        if (isMounted.current) {
-          setRequests(data);
+      const rawData = await response.json();
+      const list = Array.isArray(rawData) ? rawData : (rawData?.data || rawData?.requests || []);
+      console.log(`[TRACE UI State Handler] [HomeScreen fetchPendingRequests] API returned ${list.length} pending requests.`);
+      if (isMounted.current) {
+        setRequests(list);
+        if (list.length > 0) {
+          setPendingRequests(prev => {
+            const merged = [...list];
+            prev.forEach(p => {
+              const pId = (p.requestId || p._id || p.id)?.toString();
+              if (!merged.some(m => (m.requestId || m._id || m.id)?.toString() === pId)) {
+                merged.push(p);
+              }
+            });
+            return merged;
+          });
         }
       }
     } catch (error) {
-      console.log('Error fetching pending requests:', error);
+      console.log('[TRACE Step 6 UI State ERROR] Error fetching pending requests:', error.message);
     } finally {
       if (isMounted.current) {
         setRequestsLoading(false);
@@ -381,16 +423,34 @@ export default function HomeScreen() {
       setToggleLoading(true);
     }
     try {
+      let payload = { isOnline: newStatus };
+      if (newStatus) {
+        try {
+          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          if (loc && loc.coords) {
+            payload.latitude = loc.coords.latitude;
+            payload.longitude = loc.coords.longitude;
+            setMechanicLocation({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+          }
+        } catch (locErr) {
+          if (mechanicLocation) {
+            payload.latitude = mechanicLocation.latitude;
+            payload.longitude = mechanicLocation.longitude;
+          }
+        }
+      }
+
       const response = await fetch(`${API_URL}/api/mechanic/status`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${mechanicToken}`
         },
-        body: JSON.stringify({ isOnline: newStatus })
+        body: JSON.stringify(payload)
       });
       const data = await response.json();
       if (data.success) {
+        console.log('[TRACE Step 1 Client Status Toggle Success] Mechanic status updated:', data);
         if (isMounted.current) {
           setIsOnline(data.isOnline);
         }
@@ -485,6 +545,19 @@ export default function HomeScreen() {
     };
   }, [isOnline, mechanicToken]);
 
+  const getTimeAgo = (dateString) => {
+    if (!dateString) return 'Just now';
+    const created = new Date(dateString);
+    if (isNaN(created.getTime())) return 'Just now';
+    const diffMins = Math.floor((Date.now() - created.getTime()) / 60000);
+    
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins} min ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours} hr ago`;
+    return created.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  };
+
   const formatDistance = (req) => {
     console.log('[formatDistance DEBUG] req ID:', req?._id);
     console.log('[formatDistance DEBUG] locationPermissionGranted:', locationPermissionGranted);
@@ -572,6 +645,8 @@ export default function HomeScreen() {
 
       if (data.success) {
         const jobId = data.jobId || data.request?._id || id;
+        removePendingRequest(id);
+        removePendingRequest(jobId);
         if (!jobId) {
           console.error('[ACCEPT_REQUEST_ERROR] Missing jobId in accept response payload:', data);
           Alert.alert('Error', 'Could not start the job — missing job ID.');
@@ -640,8 +715,9 @@ export default function HomeScreen() {
       });
       const data = await response.json();
       if (data.success) {
+        removePendingRequest(id);
         if (isMounted.current) {
-          setRequests(prev => prev.filter(r => r._id !== id));
+          setRequests(prev => prev.filter(r => (r._id || r.requestId) !== id));
         }
       } else {
         Alert.alert('Error', data.message || 'Failed to reject request');
@@ -671,470 +747,166 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
-      {/* 1. DARK HEADER SECTION */}
-      <View style={styles.header}>
+      {/* 1. DEEP INDIGO HEADER WITH SAFE AREA TOP INSET */}
+      <View style={[styles.header, { paddingTop: topInset + 10 }]}>
         <View style={styles.topRow}>
-          <TouchableOpacity onPress={() => setDrawerVisible(true)}>
+          <TouchableOpacity style={styles.iconBtn} onPress={() => setDrawerVisible(true)}>
             <Ionicons name="menu" size={24} color="#FFF" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.notificationBtn} onPress={() => setNotificationsVisible(true)}>
-            <Ionicons name="notifications-outline" size={24} color="#FFF" />
-            {unreadCount > 0 && (
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{unreadCount}</Text>
-              </View>
+
+          <View style={styles.greetingHeaderContainer}>
+            <Text style={styles.greetingText}>{greeting} 👋</Text>
+            <Text style={styles.mechanicName}>{mechanic?.name || 'Mechanic'}</Text>
+          </View>
+
+          <View style={styles.headerRightRow}>
+            <View style={[styles.onlinePill, { backgroundColor: isOnline ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.1)' }]}>
+              <Text style={[styles.onlinePillText, { color: isOnline ? '#10B981' : '#94A3B8' }]}>{isOnline ? 'Online' : 'Offline'}</Text>
+            </View>
+            {toggleLoading ? (
+              <ActivityIndicator size="small" color="#FFF" style={{ marginLeft: 6 }} />
+            ) : (
+              <Switch
+                trackColor={{ false: '#475569', true: '#10B981' }}
+                thumbColor="#FFF"
+                onValueChange={toggleStatus}
+                value={isOnline}
+                style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }], marginLeft: 2 }}
+              />
             )}
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.greetingRow}>
-          <View style={styles.greetingTextContainer}>
-            <Text style={styles.greetingText}>{greeting},</Text>
-            <Text style={styles.mechanicName}>{mechanic?.name || 'Mechanic User'}</Text>
-          </View>
-          {/* Static Mechanic Illustration Icon on Right */}
-          <View style={styles.avatarContainer}>
-            <MaterialCommunityIcons name="account-wrench" size={48} color="#00BFA5" />
           </View>
         </View>
 
-        {/* Online Status Row */}
-        <View style={styles.onlineStatusRow}>
-          <View style={styles.statusLabelContainer}>
-            <View style={[styles.statusDot, { backgroundColor: isOnline ? '#00BFA5' : '#767577' }]} />
-            <Text style={styles.statusText}>{isOnline ? 'Online' : 'Offline'}</Text>
+        {/* 2. ONLINE STATUS HERO CARD */}
+        <View style={styles.statusHeroCard}>
+          <View style={styles.statusHeroTextCol}>
+            <Text style={styles.statusHeroTitle}>You are {isOnline ? 'Online' : 'Offline'}</Text>
+            <Text style={styles.statusHeroSub}>
+              {isOnline ? 'Ready to receive new jobs' : 'Turn online to start accepting jobs'}
+            </Text>
           </View>
-          {toggleLoading ? (
-            <ActivityIndicator size="small" color="#00BFA5" />
-          ) : (
-            <Switch
-              trackColor={{ false: '#767577', true: 'rgba(0, 191, 165, 0.3)' }}
-              thumbColor={isOnline ? '#00BFA5' : '#f4f3f4'}
-              onValueChange={toggleStatus}
-              value={isOnline}
+          <View style={styles.heroAvatarWrapper}>
+            <Image
+              source={{ uri: mechanic?.avatar || 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=150&auto=format&fit=crop&q=80' }}
+              style={styles.heroAvatarImage}
             />
-          )}
+          </View>
         </View>
 
-        {/* Stats Row */}
-        <View style={styles.statsRow}>
-          <View style={styles.statCard}>
-            <Ionicons name="clipboard" size={20} color="#00BFA5" style={{ marginBottom: 4 }} />
-            {statsLoading ? (
-              <ActivityIndicator size="small" color="#FFF" />
-            ) : (
-              <Text style={styles.statValue}>{stats.jobsToday}</Text>
-            )}
-            <Text style={styles.statLabel}>Jobs Today</Text>
+        {/* 3. TODAY'S STATS TILES */}
+        <View style={styles.statsContainer}>
+          <View style={styles.statTile}>
+            <Text style={styles.statLabel}>Today's Jobs</Text>
+            <Text style={styles.statVal}>{stats.jobsToday || 0}</Text>
           </View>
 
-          <View style={styles.statCard}>
-            <Ionicons name="wallet" size={20} color="#00BFA5" style={{ marginBottom: 4 }} />
-            {statsLoading ? (
-              <ActivityIndicator size="small" color="#FFF" />
-            ) : (
-              <Text style={styles.statValue}>₹{stats.earningsToday}</Text>
-            )}
+          <View style={styles.statTileDivider} />
+
+          <View style={styles.statTile}>
             <Text style={styles.statLabel}>Earnings Today</Text>
+            <Text style={styles.statVal}>₹{(stats.earningsToday || 0).toLocaleString()}</Text>
           </View>
 
-          <View style={styles.statCard}>
-            <Ionicons name="star" size={20} color="#00BFA5" style={{ marginBottom: 4 }} />
-            {statsLoading ? (
-              <ActivityIndicator size="small" color="#FFF" />
-            ) : (
-              <Text style={styles.statValue}>{Number(stats.rating || 5).toFixed(1)}</Text>
-            )}
+          <View style={styles.statTileDivider} />
+
+          <View style={styles.statTile}>
             <Text style={styles.statLabel}>Rating</Text>
-            {renderStars(stats.rating)}
+            <View style={styles.ratingValRow}>
+              <Text style={styles.statVal}>{Number(stats.rating || 5.0).toFixed(1)}</Text>
+              <Ionicons name="star" size={14} color="#F59E0B" style={{ marginLeft: 4 }} />
+            </View>
           </View>
         </View>
       </View>
 
-      {/* LIGHT BODY */}
-      <ScrollView contentContainerStyle={[styles.bodyScroll, { paddingBottom }]} showsVerticalScrollIndicator={false}>
-        {/* 2. PERFORMANCE BANNER CARD */}
-        <View style={styles.performanceBanner}>
-          <View style={styles.perfLeftIcon}>
-            <Ionicons name="ribbon" size={24} color="#27AE60" />
-          </View>
-          <View style={styles.perfTextContainer}>
-            <Text style={styles.perfTitle}>Complete more jobs</Text>
-            <Text style={styles.perfSubtitle}>Earn more & improve your rating</Text>
-          </View>
-          <TouchableOpacity style={styles.perfLinkRow} onPress={() => navigation.navigate('Performance')}>
-            <Text style={styles.perfLinkLabel}>View Performance</Text>
-            <Ionicons name="chevron-forward" size={14} color="#27AE60" />
-          </TouchableOpacity>
-        </View>
-
-        {/* 3. INCOMING REQUESTS SECTION */}
-        <View style={styles.requestsSectionHeader}>
-          <Text style={styles.sectionTitle}>Incoming Requests</Text>
+      {/* BODY CONTENT */}
+      <ScrollView contentContainerStyle={[styles.bodyScroll, { paddingBottom: paddingBottom + 20 }]} showsVerticalScrollIndicator={false}>
+        {/* NEW JOB REQUEST SECTION */}
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionTitle}>New Job Request</Text>
           <TouchableOpacity onPress={() => navigation.navigate('Jobs')}>
-            <Text style={styles.viewAllText}>View All</Text>
+            <Text style={styles.viewAllBtnText}>View all</Text>
           </TouchableOpacity>
         </View>
 
-        {requestsLoading ? (
-          <ActivityIndicator size="large" color="#00BFA5" style={{ marginVertical: 20 }} />
-        ) : requests.length === 0 ? (
-          isOnline ? (
-            <RadarScanner />
-          ) : (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="wifi-outline" size={32} color="#9CA3AF" style={{ marginBottom: 8 }} />
-              <Text style={styles.emptyText}>Go online to receive requests</Text>
-            </View>
-          )
-        ) : (
-          requests.slice(0, 3).map(req => {
-            if (!req || !req._id) return null;
-            const formattedService = req.issueType || req.serviceType || 'Roadside Job';
-            const vehicleText = req.vehicleMake || req.vehicleModel || req.vehicleType || 'Vehicle';
+        {(() => {
+          const displayRequests = (pendingRequests && pendingRequests.length > 0) ? pendingRequests : requests;
+          if (requestsLoading && displayRequests.length === 0) {
+            return <ActivityIndicator size="large" color="#362A84" style={{ marginVertical: 20 }} />;
+          }
+          if (displayRequests.length === 0) {
+            return <RadarScanner />;
+          }
+          return displayRequests.slice(0, 3).map(req => {
+            if (!req) return null;
+            const reqId = (req._id || req.requestId || req.id)?.toString();
+            const formattedService = req.issueType || req.serviceType || req.issueDescription || 'Job Request';
             return (
               <TouchableOpacity
-                key={req._id}
-                activeOpacity={0.95}
-                onPress={() => handleCardPress(req)}
-                style={styles.requestCard}
+                key={reqId}
+                style={styles.mockJobCard}
+                onPress={() => navigation.navigate('IncomingRequest', { requestData: req })}
+                activeOpacity={0.9}
               >
-                <View style={styles.reqHeader}>
-                  <View style={styles.reqCustomerRow}>
-                    <View style={styles.customerAvatarPlaceholder}>
-                      <Ionicons name="person" size={20} color="#9CA3AF" />
-                    </View>
-                    <View style={styles.reqCustomerTextCol}>
-                      <Text style={styles.reqCustomerName}>{req.customerName || 'Customer'}</Text>
-                      <Text style={styles.reqSub}>{String(vehicleText).toUpperCase()} • {String(formattedService).replace(/_/g, ' ')}</Text>
-                    </View>
+                <View style={styles.jobTopHeader}>
+                  <View style={styles.newBadge}>
+                    <Text style={styles.newBadgeText}>INCOMING REQUEST</Text>
                   </View>
-                  <View style={styles.badgeRow}>
-                    <View style={styles.priceBadge}>
-                      <Text style={styles.priceBadgeText}>₹{req.price || req.amount || 350}</Text>
-                    </View>
-                    <Text style={styles.distanceBadge}>
-                      {formatDistance(req)}
-                    </Text>
+                  <Text style={styles.jobTimeText}>{getTimeAgo(req.createdAt || req.timestamp)}</Text>
+                </View>
+
+                <Text style={styles.jobTitle}>{String(formattedService).replace(/_/g, ' ')}</Text>
+
+                <View style={styles.jobLocationRow}>
+                  <Ionicons name="location-outline" size={16} color="#64748B" style={{ marginTop: 2, marginRight: 6 }} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.jobAddressLine1}>{req.customerAddress || req.location || 'Location provided'}</Text>
                   </View>
                 </View>
 
-                {/* Location row */}
-                <View style={styles.reqLocRow}>
-                  <Ionicons name="location" size={14} color="#E74C3C" style={{ marginRight: 4 }} />
-                  <Text style={styles.reqLocText} numberOfLines={1}>
-                    {req.location || req.customerAddress || 'Nearby coordinates'}
-                  </Text>
+                <View style={styles.jobDistancePriceRow}>
+                  <View style={styles.distanceBadgeRow}>
+                    <Ionicons name="navigate-outline" size={15} color="#10B981" style={{ marginRight: 5 }} />
+                    <Text style={styles.distanceText}>{formatDistance(req)}</Text>
+                  </View>
+                  <Text style={styles.jobPrice}>₹{req.price || req.estimatedFare || req.pricing?.totalAmount || req.amount || 350}</Text>
                 </View>
 
-                {req.baseRate !== undefined && req.distanceCharge !== undefined && (
-                  <Text style={{ color: '#94a3b8', fontSize: 12, marginBottom: 12, marginLeft: 4 }}>
-                    Base: ₹{req.baseRate} + Distance: ₹{req.distanceCharge}
-                  </Text>
-                )}
-
-                {/* Customer Note (if present) */}
-                {req.issueDescription ? (
-                  <View style={styles.customerNoteContainer}>
-                    <Text style={styles.customerNoteText}>"{req.issueDescription}"</Text>
-                  </View>
-                ) : null}
-
-                {/* Reject/Accept actions */}
-                <View style={styles.reqActions}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 }}>
                   <TouchableOpacity
-                    style={[styles.actionBtn, styles.rejectBtn]}
-                    onPress={() => handleRejectRequest(req._id)}
+                    style={{ flex: 1, backgroundColor: '#10B981', paddingVertical: 10, borderRadius: 8, alignItems: 'center', marginRight: 6 }}
+                    onPress={() => handleAcceptRequest(reqId)}
                   >
-                    <Text style={styles.rejectBtnText}>Reject</Text>
+                    <Text style={{ color: '#FFF', fontWeight: 'bold' }}>Accept</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.actionBtn, styles.acceptBtn]}
-                    onPress={() => handleAcceptRequest(req._id)}
-                    disabled={acceptLoading[req._id]}
+                    style={{ flex: 1, backgroundColor: '#EF4444', paddingVertical: 10, borderRadius: 8, alignItems: 'center', marginLeft: 6 }}
+                    onPress={() => handleRejectRequest(reqId)}
                   >
-                    {acceptLoading[req._id] ? (
-                      <ActivityIndicator size="small" color="#fff" />
-                    ) : (
-                      <Text style={styles.acceptBtnText}>Accept</Text>
-                    )}
+                    <Text style={{ color: '#FFF', fontWeight: 'bold' }}>Decline</Text>
                   </TouchableOpacity>
                 </View>
               </TouchableOpacity>
             );
-          })
-        )}
+          });
+        })()}
 
-        {/* 4. RATING BANNER */}
-        <TouchableOpacity style={styles.ratingBanner} onPress={() => navigation.navigate('Performance')}>
-          <View style={styles.trophyIconContainer}>
-            <MaterialCommunityIcons name="trophy" size={24} color="#F1C40F" />
+        {/* TODAY'S SCHEDULE SECTION */}
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionTitle}>Today's Schedule</Text>
+          <TouchableOpacity onPress={() => navigation.navigate('Jobs')}>
+            <Text style={styles.viewAllBtnText}>View all</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.scheduleCardContainer}>
+          <View style={styles.emptyScheduleContainer}>
+            <Ionicons name="calendar-outline" size={32} color="#94A3B8" style={{ marginBottom: 8 }} />
+            <Text style={styles.emptyScheduleTitle}>No Scheduled Jobs Today</Text>
+            <Text style={styles.emptyScheduleText}>Your scheduled appointments for the day will appear here.</Text>
           </View>
-          <View style={styles.ratingTextContainer}>
-            <Text style={styles.ratingBannerTitle}>Maintain a high rating</Text>
-            <Text style={styles.ratingBannerSubtitle}>Great service brings more jobs!</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
-        </TouchableOpacity>
+        </View>
       </ScrollView>
-
-      {/* Map Preview Modal */}
-      <Modal
-        visible={!!selectedRequest}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setSelectedRequest(null)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            {/* Modal Header */}
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Job Location Preview</Text>
-              <TouchableOpacity onPress={() => setSelectedRequest(null)} style={styles.modalCloseBtn}>
-                <Ionicons name="close" size={24} color="#fff" />
-              </TouchableOpacity>
-            </View>
-
-            {/* Map Area */}
-            {selectedRequest && (
-              <View style={styles.mapContainer}>
-                {(() => {
-                  const custCoords = selectedRequest.customerLocation?.coordinates
-                    ? { latitude: selectedRequest.customerLocation.coordinates[1], longitude: selectedRequest.customerLocation.coordinates[0] }
-                    : null;
-                  
-                  return isValidCoordinate(custCoords) ? (
-                    <MapView
-                      style={styles.previewMap}
-                      customMapStyle={darkMapStyle}
-                      initialRegion={{
-                        latitude: custCoords.latitude,
-                        longitude: custCoords.longitude,
-                        latitudeDelta: 0.03,
-                        longitudeDelta: 0.03,
-                      }}
-                      showsUserLocation={false}
-                    >
-                      {/* Customer Pin */}
-                      <Marker coordinate={custCoords} title="Customer Location">
-                        <View style={styles.customerPinBadge}>
-                          <Text style={{ fontSize: 22 }}>🚗</Text>
-                        </View>
-                      </Marker>
-
-                      {/* Mechanic Live Location Pin */}
-                      {isValidCoordinate(mechanicLocation) && (
-                        <Marker coordinate={mechanicLocation} title="Your Location">
-                          <View style={styles.mechanicMarkerDot} />
-                        </Marker>
-                      )}
-
-                      {/* Path route line */}
-                      {isValidCoordinate(mechanicLocation) && (
-                        <Polyline
-                          coordinates={[mechanicLocation, custCoords]}
-                          strokeColor="#00BFA5"
-                          strokeWidth={4}
-                        />
-                      )}
-                    </MapView>
-                  ) : (
-                    <View style={styles.noMapContainer}>
-                      <Ionicons name="map-outline" size={48} color="#94a3b8" />
-                      <Text style={styles.noMapText}>Map view unavailable for this request</Text>
-                    </View>
-                  );
-                })()}
-              </View>
-            )}
-
-            {/* Job Details */}
-            {selectedRequest && (
-              <View style={styles.modalDetailsContainer}>
-                <View style={styles.modalDetailsRow}>
-                  <Text style={styles.modalCustomerName}>
-                    {selectedRequest.customerName || 'Customer'}
-                  </Text>
-                  <Text style={styles.modalDistanceVal}>
-                    {formatDistance(selectedRequest)}
-                  </Text>
-                </View>
-
-                <Text style={styles.modalServiceSub}>
-                  {String(selectedRequest.vehicleMake || selectedRequest.vehicleModel || 'Vehicle').toUpperCase()} • {String(selectedRequest.issueType || 'Roadside Assistance').replace(/_/g, ' ')}
-                </Text>
-
-                <View style={styles.modalLocRow}>
-                  <Ionicons name="location" size={14} color="#ef4444" style={{ marginRight: 6 }} />
-                  <Text style={styles.modalLocText} numberOfLines={2}>
-                    {selectedRequest.location || 'Nearby location'}
-                  </Text>
-                </View>
-
-                {selectedRequest.issueDescription ? (
-                  <View style={styles.modalNoteBox}>
-                    <Text style={styles.modalNoteText}>"{selectedRequest.issueDescription}"</Text>
-                  </View>
-                ) : null}
-
-                {/* Pricing / Fare */}
-                <View style={styles.modalPriceContainer}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.modalPriceLabel}>Fare Amount</Text>
-                    {selectedRequest.baseRate !== undefined && selectedRequest.distanceCharge !== undefined && (
-                      <Text style={{ color: '#94a3b8', fontSize: 12, marginTop: 2 }}>
-                        Base: ₹{selectedRequest.baseRate} + Distance: ₹{selectedRequest.distanceCharge}
-                      </Text>
-                    )}
-                  </View>
-                  <Text style={styles.modalPriceValue}>₹{selectedRequest.price || selectedRequest.amount || 350}</Text>
-                </View>
-
-                {/* Actions inside modal */}
-                <View style={styles.modalActionsRow}>
-                  <TouchableOpacity
-                    style={[styles.modalActionBtn, styles.modalRejectBtn]}
-                    onPress={() => {
-                      const reqId = selectedRequest._id;
-                      setSelectedRequest(null);
-                      handleRejectRequest(reqId);
-                    }}
-                  >
-                    <Text style={styles.rejectBtnText}>Reject</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.modalActionBtn, styles.modalAcceptBtn, acceptLoading[selectedRequest._id] && styles.modalAcceptBtnDisabled]}
-                    onPress={async () => {
-                      const reqId = selectedRequest._id;
-                      setSelectedRequest(null);
-                      await handleAcceptRequest(reqId);
-                    }}
-                    disabled={acceptLoading[selectedRequest._id]}
-                  >
-                    {acceptLoading[selectedRequest._id] ? (
-                      <ActivityIndicator size="small" color="#fff" />
-                    ) : (
-                      <Text style={styles.acceptBtnText}>Accept Request</Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
-          </View>
-        </View>
-      </Modal>
-
-      {/* Notifications Modal */}
-      <Modal
-        visible={notificationsVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setNotificationsVisible(false)}
-      >
-        <View style={styles.notifOverlay}>
-          <View style={styles.notifContent}>
-            {/* Modal Header */}
-            <View style={styles.notifHeader}>
-              <View style={styles.notifTitleRow}>
-                <Text style={styles.notifTitle}>Notifications</Text>
-                {unreadCount > 0 && (
-                  <View style={styles.notifCountBadge}>
-                    <Text style={styles.notifCountText}>{unreadCount}</Text>
-                  </View>
-                )}
-              </View>
-              <View style={styles.notifHeaderActions}>
-                {notifications.length > 0 && (
-                  <TouchableOpacity onPress={handleMarkAllAsRead} style={styles.markAllBtn}>
-                    <Text style={styles.markAllText}>Mark all as read</Text>
-                  </TouchableOpacity>
-                )}
-                <TouchableOpacity onPress={() => setNotificationsVisible(false)} style={styles.notifCloseBtn}>
-                  <Ionicons name="close" size={24} color="#FFF" />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Scrollable list */}
-            <ScrollView contentContainerStyle={styles.notifScroll} showsVerticalScrollIndicator={false}>
-              {notifications.length === 0 ? (
-                <View style={styles.notifEmptyState}>
-                  <View style={styles.notifBellCircle}>
-                    <Ionicons name="notifications-off-outline" size={36} color="#00BFA5" />
-                  </View>
-                  <Text style={styles.notifEmptyTitle}>All caught up!</Text>
-                  <Text style={styles.notifEmptySub}>You have no new notifications.</Text>
-                </View>
-              ) : (
-                notifications.map(notif => {
-                  // Determine icon based on notification type / title
-                  let iconName = "notifications-outline";
-                  let iconColor = "#9CA3AF";
-                  if (notif.title.includes("Message")) {
-                    iconName = "chatbubble-ellipses-outline";
-                    iconColor = "#3498DB";
-                  } else if (notif.title.includes("Payment")) {
-                    iconName = "wallet-outline";
-                    iconColor = "#2ECC71";
-                  } else if (notif.title.includes("System")) {
-                    iconName = "settings-outline";
-                    iconColor = "#F1C40F";
-                  }
-
-                  return (
-                    <TouchableOpacity
-                      key={notif.id}
-                      activeOpacity={0.8}
-                      onPress={() => handleTapNotification(notif.id)}
-                      style={[
-                        styles.notifItem,
-                        !notif.read && styles.notifItemUnread
-                      ]}
-                    >
-                      <View style={styles.notifItemLeft}>
-                        <View style={[styles.notifIconContainer, { backgroundColor: iconColor + "15" }]}>
-                          <Ionicons name={iconName} size={20} color={iconColor} />
-                        </View>
-                        {!notif.read && <View style={styles.unreadDot} />}
-                      </View>
-
-                      <View style={styles.notifItemCenter}>
-                        <View style={styles.notifItemHeader}>
-                          <Text style={[styles.notifItemTitle, !notif.read && styles.notifItemTitleUnread]}>
-                            {notif.title}
-                          </Text>
-                          <Text style={styles.notifItemTime}>{notif.time}</Text>
-                        </View>
-                        <Text style={styles.notifItemBody} numberOfLines={2}>
-                          {notif.body}
-                        </Text>
-                      </View>
-
-                      <TouchableOpacity
-                        onPress={() => handleDeleteNotification(notif.id)}
-                        style={styles.notifDeleteBtn}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                      >
-                        <Ionicons name="trash-outline" size={16} color="#E74C3C" />
-                      </TouchableOpacity>
-                    </TouchableOpacity>
-                  );
-                })
-              )}
-            </ScrollView>
-
-            {/* Clear All Footer */}
-            {notifications.length > 0 && (
-              <View style={styles.notifFooter}>
-                <TouchableOpacity onPress={handleClearAll} style={styles.clearAllBtn}>
-                  <Text style={styles.clearAllText}>Clear All Notifications</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
-        </View>
-      </Modal>
 
       {/* Side Drawer Menu */}
       <DrawerMenu
@@ -1148,16 +920,17 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8F9FA' },
-  bodyScroll: { paddingBottom: 90, paddingHorizontal: 16 },
-  // 1. HEADER SECTION
+  container: {
+    flex: 1,
+    backgroundColor: '#F4F5FB',
+  },
   header: {
-    backgroundColor: '#1a1a2e',
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
+    backgroundColor: '#362A84',
+    paddingTop: 46,
     paddingHorizontal: 20,
-    paddingTop: 50,
     paddingBottom: 24,
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
   },
   topRow: {
     flexDirection: 'row',
@@ -1165,138 +938,369 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 20,
   },
-  notificationBtn: {
-    position: 'relative',
-    padding: 4,
-  },
-  badge: {
-    position: 'absolute',
-    top: 2,
-    right: 2,
-    backgroundColor: '#E74C3C',
-    width: 16,
-    height: 16,
-    borderRadius: 8,
+  iconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  badgeText: {
-    color: '#FFF',
-    fontSize: 9,
-    fontWeight: 'bold',
+  greetingHeaderContainer: {
+    flex: 1,
+    marginLeft: 12,
   },
-  greetingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 20,
-  },
-  greetingTextContainer: {},
   greetingText: {
-    color: '#9CA3AF',
-    fontSize: 14,
+    color: '#CBD5E1',
+    fontSize: 13,
+    fontWeight: '500',
   },
   mechanicName: {
-    color: '#FFF',
-    fontSize: 22,
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginTop: 2,
+  },
+  headerRightRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  onlinePill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  onlinePillText: {
+    fontSize: 12,
     fontWeight: 'bold',
   },
-  avatarContainer: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: '#252542',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  onlineStatusRow: {
+  statusHeroCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 18,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#252542',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 14,
-    marginBottom: 20,
+    marginBottom: 16,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
   },
-  statusLabelContainer: {
+  statusHeroTextCol: {
+    flex: 1,
+  },
+  statusHeroTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1F2937',
+  },
+  statusHeroSub: {
+    fontSize: 13,
+    color: '#64748B',
+    marginTop: 4,
+  },
+  heroAvatarWrapper: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    overflow: 'hidden',
+    backgroundColor: '#F1F5F9',
+    borderWidth: 2,
+    borderColor: '#E2E8F0',
+  },
+  heroAvatarImage: {
+    width: '100%',
+    height: '100%',
+  },
+  statsContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  statTile: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#64748B',
+    fontWeight: '500',
+    marginBottom: 4,
+  },
+  statVal: {
+    fontSize: 19,
+    fontWeight: '800',
+    color: '#362A84',
+  },
+  statTileDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: '#E2E8F0',
+  },
+  ratingValRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  statusDot: {
+  bodyScroll: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 10,
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    fontSize: 17,
+    fontWeight: 'bold',
+    color: '#1F2937',
+  },
+  viewAllBtnText: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#362A84',
+  },
+  mockJobCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 18,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  jobTopHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  newBadge: {
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  newBadgeText: {
+    color: '#362A84',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  jobTimeText: {
+    fontSize: 12,
+    color: '#94A3B8',
+  },
+  jobTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 10,
+  },
+  jobLocationRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  jobAddressLine1: {
+    fontSize: 14,
+    color: '#475569',
+    fontWeight: '500',
+  },
+  jobAddressLine2: {
+    fontSize: 13,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  jobDistancePriceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  distanceBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  distanceText: {
+    fontSize: 13,
+    color: '#64748B',
+    fontWeight: '500',
+  },
+  jobPrice: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#10B981',
+  },
+  jobActionRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 14,
+  },
+  rejectButton: {
+    flex: 1,
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#362A84',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rejectButtonText: {
+    color: '#362A84',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  acceptButton: {
+    flex: 1,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#362A84',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#362A84',
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
+  },
+  acceptButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  timerContainer: {
+    marginTop: 4,
+  },
+  timerText: {
+    fontSize: 12,
+    color: '#64748B',
+    marginBottom: 6,
+  },
+  timerBarTrack: {
+    height: 5,
+    backgroundColor: '#EEF2FF',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  timerBarFill: {
+    height: '100%',
+    backgroundColor: '#362A84',
+    borderRadius: 3,
+  },
+  scheduleCardContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  scheduleItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  scheduleLeftRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  scheduleDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    marginRight: 8,
-  },
-  statusText: {
-    color: '#FFF',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  statsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: '#252542',
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginHorizontal: 4,
-  },
-  statValue: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginTop: 4,
-    marginBottom: 2,
-  },
-  statLabel: {
-    color: '#9CA3AF',
-    fontSize: 10,
-  },
-  starRow: {
-    flexDirection: 'row',
-    marginTop: 4,
-  },
-  // 2. PERFORMANCE BANNER
-  performanceBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#E8F8F5',
-    borderRadius: 12,
-    padding: 16,
-    marginVertical: 16,
-    borderWidth: 1,
-    borderColor: '#A3E4D7',
-  },
-  perfLeftIcon: {
     marginRight: 12,
   },
-  perfTextContainer: {
+  scheduleTextCol: {
     flex: 1,
   },
-  perfTitle: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#16A085',
-  },
-  perfSubtitle: {
-    fontSize: 11,
-    color: '#1abc9c',
-    marginTop: 2,
-  },
-  perfLinkRow: {
+  scheduleTimeRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
   },
-  perfLinkLabel: {
-    fontSize: 11,
+  scheduleTime: {
+    fontSize: 14,
     fontWeight: 'bold',
-    color: '#27AE60',
-    marginRight: 4,
+    color: '#1F2937',
+  },
+  scheduleService: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginLeft: 6,
+  },
+  scheduleLocation: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 4,
+  },
+  inProgressPill: {
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  inProgressPillText: {
+    color: '#362A84',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  upcomingPill: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  upcomingPillText: {
+    color: '#64748B',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  scheduleDivider: {
+    height: 1,
+    backgroundColor: '#F1F5F9',
+    marginVertical: 4,
+  },
+  emptyScheduleContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
+  },
+  emptyScheduleTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#334155',
+    marginBottom: 4,
+  },
+  emptyScheduleText: {
+    fontSize: 12,
+    color: '#94A3B8',
+    textAlign: 'center',
   },
   // 3. INCOMING REQUESTS
   requestsSectionHeader: {

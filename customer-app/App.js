@@ -1,4 +1,5 @@
 // App.js - Root component for the Customer Expo app
+import './src/utils/network'; // Global fetch network override
 import './src/i18n'; // Initialize i18next before any screen renders
 import React, { useState, useEffect, useRef } from 'react';
 import { LogBox, InteractionManager } from 'react-native';

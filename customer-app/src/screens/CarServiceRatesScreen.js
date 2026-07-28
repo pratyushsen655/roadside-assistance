@@ -29,7 +29,11 @@ const BASE_SERVICES = [
   { id: '10', name: 'Full Car Inspection', desc: '50-point checkup', baseRate: 399, icon: 'clipboard-check-outline', lib: 'MaterialCommunityIcons' },
 ];
 
-export default function CarServiceRatesScreen({ navigation }) {
+export default function CarServiceRatesScreen({ navigation, route }) {
+  React.useEffect(() => {
+    navigation.replace('Request', { vehicleType: 'car' });
+  }, [navigation]);
+
   const { t } = useTranslation();
   const [vehicleType, setVehicleType] = useState('car'); // car, suv, truck
 

@@ -28,6 +28,10 @@ const BIKE_SERVICES = [
 ];
 
 export default function BikeServiceRatesScreen({ navigation }) {
+  React.useEffect(() => {
+    navigation.replace('Request', { vehicleType: 'bike' });
+  }, [navigation]);
+
   const { t } = useTranslation();
 
   const handleInfoPress = (service) => {

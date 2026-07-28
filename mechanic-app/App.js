@@ -1,5 +1,8 @@
-// App.js - Root component for the Mechanic Expo app
+import './src/utils/network'; // Global fetch network override
+import './src/i18n'; // Initialize i18next before any component renders
 import React, { useEffect, useRef } from 'react';
+
+console.log(`[Mechanic App Bundle Verification] Bundle build timestamp: 2026-07-28T13:20:00.000Z | Expo SDK: ${require('expo/package.json').version}`);
 import { LogBox, InteractionManager } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';

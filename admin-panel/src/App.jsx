@@ -400,34 +400,42 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {mechanicsList.filter(m => m.kyc.status === 'pending').length === 0 ? (
+                  {mechanicsList.filter(m => (m.kyc?.status === 'pending' || (!m.kyc?.status && (m.kyc?.docUrl || m.documents?.identityProof || m.documents?.licenseImage)))).length === 0 ? (
                     <tr>
                       <td colSpan="7" style={{ textAlign: 'center', color: '#a0aec0', padding: '32px' }}>
                         KYC Queue is empty. No pending documents to verify.
                       </td>
                     </tr>
                   ) : (
-                    mechanicsList.filter(m => m.kyc.status === 'pending').map(m => (
-                      <tr key={m._id}>
-                        <td><strong>{m.name}</strong></td>
-                        <td>{m.email}</td>
-                        <td>{m.phone}</td>
-                        <td>{m.vehicleSpecializations.join(', ').toUpperCase()}</td>
-                        <td>
-                          <a href={m.kyc.docUrl} target="_blank" rel="noreferrer" style={{ color: '#ff9500' }}>
-                            View License File
-                          </a>
-                        </td>
-                        <td><span className="badge badge-pending">PENDING</span></td>
-                        <td>
-                          <div className="action-row">
-                            <button className="btn btn-primary" onClick={() => handleVerifyKYC(m._id, 'approved')}>Approve</button>
-                            <button className="btn btn-danger" onClick={() => handleVerifyKYC(m._id, 'rejected')}>Reject</button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
+                    mechanicsList.filter(m => (m.kyc?.status === 'pending' || (!m.kyc?.status && (m.kyc?.docUrl || m.documents?.identityProof || m.documents?.licenseImage)))).map(m => {
+                      const docUrl = m.kyc?.docUrl || m.documents?.identityProof || m.documents?.licenseImage || '';
+                      return (
+                        <tr key={m._id}>
+                          <td><strong>{m.name}</strong></td>
+                          <td>{m.email}</td>
+                          <td>{m.phone}</td>
+                          <td>{(m.vehicleSpecializations || []).join(', ').toUpperCase()}</td>
+                          <td>
+                            {docUrl ? (
+                              <a href={docUrl} target="_blank" rel="noreferrer" style={{ color: '#ff9500' }}>
+                                View Document ({m.kyc?.docType || 'ID Proof'})
+                              </a>
+                            ) : (
+                              <span style={{ color: '#718096' }}>No file</span>
+                            )}
+                          </td>
+                          <td><span className="badge badge-pending">PENDING</span></td>
+                          <td>
+                            <div className="action-row">
+                              <button className="btn btn-primary" onClick={() => handleVerifyKYC(m._id, 'approved')}>Approve</button>
+                              <button className="btn btn-danger" onClick={() => handleVerifyKYC(m._id, 'rejected')}>Reject</button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
+
                 </tbody>
               </table>
             </div>

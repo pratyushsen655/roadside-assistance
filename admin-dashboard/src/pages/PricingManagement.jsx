@@ -3,6 +3,7 @@ import api from '../config/api';
 
 export default function PricingManagement() {
   const [configs, setConfigs] = useState([]);
+  const [selectedVehicleFilter, setSelectedVehicleFilter] = useState('car');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
@@ -43,12 +44,17 @@ export default function PricingManagement() {
     e.preventDefault();
     if (!editingConfig) return;
 
+    if (Number(baseFareInput) < 0 || Number(perKmRateInput) < 0 || Number(minChargeInput) < 0) {
+      setError('Base Fare, Per-Km Rate, and Min Charge cannot be negative numbers.');
+      return;
+    }
+
     setIsSaving(true);
     setError('');
     setSuccessMessage('');
 
     try {
-      const response = await api.put(`/api/pricing/${editingConfig.serviceType}`, {
+      const response = await api.put(`/api/pricing/${editingConfig.serviceType}/${editingConfig.vehicleType}`, {
         baseFare: Number(baseFareInput),
         perKmRate: Number(perKmRateInput),
         minCharge: Number(minChargeInput),
@@ -57,7 +63,7 @@ export default function PricingManagement() {
       if (response.data.success) {
         // Update local state
         setConfigs(prev =>
-          prev.map(c => (c.serviceType === editingConfig.serviceType ? response.data.config : c))
+          prev.map(c => (c.serviceType === editingConfig.serviceType && c.vehicleType === editingConfig.vehicleType ? response.data.config : c))
         );
         
         // Show success notification
@@ -133,6 +139,23 @@ export default function PricingManagement() {
         </div>
       )}
 
+      {/* Vehicle Type Tabs Filter */}
+      <div className="flex flex-wrap gap-2 bg-gray-100/60 p-1.5 rounded-xl border border-gray-200/50 max-w-max">
+        {['car', 'bike', 'ev', 'auto', 'truck', 'tractor', 'bus'].map((vType) => (
+          <button
+            key={vType}
+            onClick={() => setSelectedVehicleFilter(vType)}
+            className={`px-5 py-2 rounded-lg text-xs font-bold transition-all uppercase tracking-wider ${
+              selectedVehicleFilter === vType
+                ? 'bg-accent text-white shadow-md shadow-accent/15'
+                : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50'
+            }`}
+          >
+            {vType === 'ev' ? 'EV' : vType}
+          </button>
+        ))}
+      </div>
+
       {/* Pricing Configurations Table */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="overflow-x-auto">
@@ -140,6 +163,7 @@ export default function PricingManagement() {
             <thead>
               <tr className="bg-gray-50/55 border-b border-gray-100 text-xs font-bold text-gray-500 uppercase tracking-wider">
                 <th className="px-6 py-4">Service Type</th>
+                <th className="px-6 py-4">Vehicle Type</th>
                 <th className="px-6 py-4">Base Fare</th>
                 <th className="px-6 py-4">Per Km Rate</th>
                 <th className="px-6 py-4">Min Charge</th>
@@ -149,32 +173,39 @@ export default function PricingManagement() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 text-sm">
-              {configs.map((config) => (
-                <tr key={config._id} className="hover:bg-gray-50/30 transition-colors">
-                  <td className="px-6 py-4 font-semibold text-gray-800">
-                    <div className="flex items-center gap-2">
-                      <span className="text-base">🛠️</span>
-                      <span>{formatServiceType(config.serviceType)}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 font-bold text-gray-700">₹{config.baseFare}</td>
-                  <td className="px-6 py-4 text-gray-600">₹{config.perKmRate}/km</td>
-                  <td className="px-6 py-4 text-gray-600">₹{config.minCharge}</td>
-                  <td className="px-6 py-4 text-gray-500 font-mono text-xs">{config.updatedBy || 'System'}</td>
-                  <td className="px-6 py-4 text-gray-400 text-xs">{formatDate(config.updatedAt)}</td>
-                  <td className="px-6 py-4 text-center">
-                    <button
-                      onClick={() => handleEditClick(config)}
-                      className="bg-accent text-white hover:bg-accent/90 px-4 py-1.5 rounded-lg text-xs font-semibold shadow-md shadow-accent/15 transition-all"
-                    >
-                      ✏️ Edit Config
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {configs.length === 0 && (
+              {configs
+                .filter(config => config.vehicleType === selectedVehicleFilter)
+                .map((config) => (
+                  <tr key={config._id} className="hover:bg-gray-50/30 transition-colors">
+                    <td className="px-6 py-4 font-semibold text-gray-800">
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">🛠️</span>
+                        <span>{formatServiceType(config.serviceType)}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="px-2.5 py-1 rounded-lg text-xs font-bold uppercase tracking-wider bg-gray-100 text-gray-600">
+                        {config.vehicleType === 'ev' ? 'EV' : config.vehicleType}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 font-bold text-gray-700">₹{config.baseFare}</td>
+                    <td className="px-6 py-4 text-gray-600">₹{config.perKmRate}/km</td>
+                    <td className="px-6 py-4 text-gray-600">₹{config.minCharge}</td>
+                    <td className="px-6 py-4 text-gray-500 font-mono text-xs">{config.updatedBy || 'System'}</td>
+                    <td className="px-6 py-4 text-gray-400 text-xs">{formatDate(config.updatedAt)}</td>
+                    <td className="px-6 py-4 text-center">
+                      <button
+                        onClick={() => handleEditClick(config)}
+                        className="bg-accent text-white hover:bg-accent/90 px-4 py-1.5 rounded-lg text-xs font-semibold shadow-md shadow-accent/15 transition-all"
+                      >
+                        ✏️ Edit Config
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              {configs.filter(config => config.vehicleType === selectedVehicleFilter).length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-6 py-8 text-center text-gray-400 italic">No pricing configurations found.</td>
+                  <td colSpan={8} className="px-6 py-8 text-center text-gray-400 italic">No pricing configurations found.</td>
                 </tr>
               )}
             </tbody>
@@ -198,7 +229,7 @@ export default function PricingManagement() {
               <span className="text-2xl">🏷️</span>
               <div>
                 <h3 className="text-lg font-bold text-gray-800">
-                  Edit Pricing: {formatServiceType(editingConfig.serviceType)}
+                  Edit Pricing: {formatServiceType(editingConfig.serviceType)} ({editingConfig.vehicleType === 'ev' ? 'EV' : editingConfig.vehicleType.toUpperCase()})
                 </h3>
                 <p className="text-xs text-gray-500">Update pricing parameters for this service type.</p>
               </div>

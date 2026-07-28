@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 const ServiceRequestSchema = new mongoose.Schema({
   customer: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   mechanic: { type: mongoose.Schema.Types.ObjectId, ref: 'Mechanic', default: null },
-  vehicleType: { type: String, enum: ['car', 'bike', 'auto', 'ev', 'other'], required: true },
+  vehicleType: { type: String, enum: ['car', 'bike', 'auto', 'ev', 'other', 'truck', 'tractor', 'bus'], required: true },
   vehicleModel: { type: String, default: '' },
   vehicleNumber: { type: String, default: '' },
   serviceType: { type: String, enum: ['flat_tire', 'battery_jump', 'towing', 'fuel_delivery', 'engine_repair', 'puncture_repair', 'breakdown', 'oil_change', 'other'], default: 'breakdown' },
@@ -54,7 +54,14 @@ const ServiceRequestSchema = new mongoose.Schema({
     mechanicId: { type: mongoose.Schema.Types.ObjectId, ref: 'Mechanic' },
     action: { type: String, enum: ['offered', 'accepted', 'rejected', 'timeout'] },
     timestamp: { type: Date, default: Date.now }
-  }]
+  }],
+  dispatchStatus: { type: String, enum: ['searching', 'assigned', 'unfulfilled'], default: 'searching' },
+  dispatchedMechanics: [{
+    mechanicId: { type: mongoose.Schema.Types.ObjectId, ref: 'Mechanic' },
+    dispatchedAt: { type: Date, default: Date.now },
+    status: { type: String, enum: ['pending', 'rejected', 'timedout', 'accepted'] }
+  }],
+  currentCandidateMechanic: { type: mongoose.Schema.Types.ObjectId, ref: 'Mechanic', default: null }
 }, { timestamps: true });
 ServiceRequestSchema.index({ customerLocation: '2dsphere' });
 

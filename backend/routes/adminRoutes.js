@@ -7,37 +7,7 @@ const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret_change_in_env';
 
 // Admin JWT protection middleware
-const adminMiddleware = (req, res, next) => {
-  try {
-    const token = req.headers.authorization?.split(' ')[1];
-
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        message: 'No authorization token provided',
-      });
-    }
-
-    const decoded = jwt.verify(token, JWT_SECRET);
-    // TypeScript check bypass: JSDoc typecast
-    const payload = /** @type {any} */ (decoded);
-    if (payload.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. Admin role required.',
-      });
-    }
-
-    req.user = payload;
-    next();
-  } catch (error) {
-    return res.status(401).json({
-      success: false,
-      message: 'Invalid or expired token',
-      error: error.message,
-    });
-  }
-};
+const adminMiddleware = require('../middleware/adminMiddleware');
 
 // POST /api/admin/login
 router.post('/login', async (req, res) => {
@@ -310,6 +280,13 @@ router.get('/mechanics', async (req, res) => {
         bio: mech.bio || '',
         experience: mech.experience || 0,
         vehicleSpecializations: mech.vehicleSpecializations || [],
+        documents: mech.documents || {},
+        kyc: {
+          status: mech.kyc?.status || (mech.kyc?.docUrl || mech.documents?.identityProof || mech.documents?.licenseImage ? 'pending' : 'unsubmitted'),
+          docType: mech.kyc?.docType || (mech.documents?.identityProof ? 'Identity Proof' : mech.documents?.licenseImage ? 'Driving License' : ''),
+          docUrl: mech.kyc?.docUrl || mech.documents?.identityProof || mech.documents?.licenseImage || (mech.documents?.certificationImages && mech.documents.certificationImages[0]) || '',
+          rejectionReason: mech.kyc?.rejectionReason || '',
+        },
         history: mappedHistory
       };
     }));
@@ -354,6 +331,62 @@ router.put('/mechanics/:id/block', async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 });
+
+// PUT /api/admin/mechanics/:id/kyc
+// Body: { action: 'approve' | 'reject' | 'attach', docUrl?: string, docType?: string, rejectionReason?: string }
+router.put('/mechanics/:id/kyc', async (req, res) => {
+  try {
+    const Mechanic = require('../models/Mechanic');
+    const { action, docUrl, docType, status, rejectionReason } = req.body;
+
+    const mechanic = await Mechanic.findById(req.params.id);
+    if (!mechanic) {
+      return res.status(404).json({ success: false, message: 'Mechanic not found' });
+    }
+
+    if (!mechanic.kyc) {
+      mechanic.kyc = {};
+    }
+
+    if (docUrl || action === 'attach') {
+      mechanic.kyc.docUrl = docUrl || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=800&q=80';
+      mechanic.kyc.docType = docType || 'Aadhaar Card';
+      mechanic.kyc.status = status || 'pending';
+      mechanic.kyc.rejectionReason = '';
+      if (status === 'approved' || action === 'approve') mechanic.isVerified = true;
+    } else if (action === 'approve') {
+      mechanic.kyc.status = 'approved';
+      mechanic.kyc.rejectionReason = '';
+      mechanic.isVerified = true;          // approving KYC also verifies the mechanic
+    } else if (action === 'reject') {
+      if (!rejectionReason || !rejectionReason.trim()) {
+        return res.status(400).json({ success: false, message: 'rejectionReason is required when rejecting.' });
+      }
+      mechanic.kyc.status = 'rejected';
+      mechanic.kyc.rejectionReason = rejectionReason.trim();
+      mechanic.isVerified = false;         // revoke verification on rejection
+    } else {
+      return res.status(400).json({ success: false, message: "action must be 'approve', 'reject', or 'attach'" });
+    }
+
+    await mechanic.save();
+
+    res.status(200).json({
+      success: true,
+      kyc: {
+        status: mechanic.kyc.status,
+        docType: mechanic.kyc.docType || '',
+        docUrl: mechanic.kyc.docUrl || '',
+        rejectionReason: mechanic.kyc.rejectionReason || '',
+      },
+      isVerified: mechanic.isVerified,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+
 
 // GET /api/admin/jobs
 router.get('/jobs', async (req, res) => {

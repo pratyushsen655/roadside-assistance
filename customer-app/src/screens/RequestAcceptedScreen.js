@@ -6,7 +6,6 @@ import MapView, { Marker, Polyline } from 'react-native-maps';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { AuthContext } from '../context/AuthContext';
 import { getSocket } from '../config/socket';
-import RazorpayCheckout from 'react-native-razorpay';
 
 // Inline API URL fallback
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://roadside-assistance-production-ddaf.up.railway.app';
@@ -133,7 +132,6 @@ export default function RequestAcceptedScreen() {
   const [distance, setDistance] = useState(null);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [arrivalOtp, setArrivalOtp] = useState('');
-  const [paymentInProgress, setPaymentInProgress] = useState(false);
 
   const fetchRequestDetails = async () => {
     if (!requestId || !token) return;
@@ -171,93 +169,6 @@ export default function RequestAcceptedScreen() {
   useEffect(() => {
     fetchRequestDetails();
   }, [requestId, token]);
-
-  const handlePayment = async () => {
-    if (paymentInProgress || !request) return;
-    setPaymentInProgress(true);
-    try {
-      const finalPrice = request.accepted_price || request.pricing?.totalAmount || request.amount || 350;
-      
-      const response = await fetch(`${API_URL}/api/payments/create-order`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          requestId: request._id,
-          amount: finalPrice
-        })
-      });
-      const data = await response.json();
-      
-      if (!data.success) {
-        Alert.alert('Payment Error', data.message || 'Failed to create payment order');
-        setPaymentInProgress(false);
-        return;
-      }
-
-      // Open Razorpay Checkout
-      const options = {
-        description: 'Roadside Assistance Service',
-        image: 'https://i.imgur.com/3g7A62K.png',
-        key: data.keyId || 'rzp_test_YourKeyId',
-        amount: Math.round(Number(finalPrice) * 100), // in paise
-        currency: 'INR',
-        order_id: data.orderId,
-        name: 'RoadMitra RescueMe',
-        prefill: {
-          email: 'customer@roadmitra.com',
-          contact: '9999999999',
-          name: 'Customer App User'
-        },
-        theme: { color: '#27AE60' }
-      };
-
-      RazorpayCheckout.open(options)
-        .then(async (paymentData) => {
-          console.log('[Razorpay] Payment Success:', paymentData);
-          // Verify signature on backend
-          const verifyRes = await fetch(`${API_URL}/api/payments/verify`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`
-            },
-            body: JSON.stringify({
-              razorpay_order_id: paymentData.razorpay_order_id,
-              razorpay_payment_id: paymentData.razorpay_payment_id,
-              razorpay_signature: paymentData.razorpay_signature,
-              requestId: request._id
-            })
-          });
-          const verifyData = await verifyRes.json();
-          if (verifyData.success) {
-            Alert.alert('Success', 'Payment completed successfully!', [
-              {
-                text: 'Okay',
-                onPress: () => {
-                  navigation.navigate('Home');
-                }
-              }
-            ]);
-          } else {
-            Alert.alert('Verification Failed', verifyData.message || 'Could not verify payment signature.');
-          }
-        })
-        .catch((err) => {
-          console.log('[Razorpay] Payment Cancelled/Failed:', err);
-          Alert.alert('Payment Cancelled', 'Razorpay checkout was closed or payment failed.');
-        })
-        .finally(() => {
-          setPaymentInProgress(false);
-        });
-    } catch (err) {
-      console.error('[Payment Flow Error]', err);
-      Alert.alert('Error', 'An unexpected error occurred during checkout.');
-      setPaymentInProgress(false);
-    }
-  };
 
   // Socket listeners for live location, status, & ETA updates
   useEffect(() => {
@@ -371,16 +282,19 @@ export default function RequestAcceptedScreen() {
     };
   }, [token, requestId]);
 
-  // Auto trigger payment checkout when status turns completed and paymentStatus is pending (and paymentMethod isn't cash)
+  // Auto redirect to Payment screen when status turns completed and paymentStatus is pending (and paymentMethod isn't cash)
   useEffect(() => {
     if (
       status === 'completed' &&
       request &&
       request.paymentStatus === 'pending' &&
-      request.paymentMethod !== 'cash' &&
-      !paymentInProgress
+      request.paymentMethod !== 'cash'
     ) {
-      handlePayment();
+      navigation.navigate('Payment', {
+        jobId: request._id,
+        mechanicName: mechanic?.name || 'Rescue Assist',
+        amount: request.accepted_price || request.pricing?.totalAmount || request.amount || 350
+      });
     }
   }, [status, request]);
 
@@ -661,20 +575,19 @@ export default function RequestAcceptedScreen() {
               </View>
             ) : (
               <TouchableOpacity
-                style={[styles.trackBtn, paymentInProgress && { opacity: 0.7 }]}
-                onPress={handlePayment}
-                disabled={paymentInProgress}
+                style={styles.trackBtn}
+                onPress={() => {
+                  navigation.navigate('Payment', {
+                    jobId: request._id,
+                    mechanicName: mechanic?.name || 'Rescue Assist',
+                    amount: request.accepted_price || request.pricing?.totalAmount || request.amount || 350
+                  });
+                }}
               >
-                {paymentInProgress ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <>
-                    <Ionicons name="card" size={20} color="#fff" />
-                    <Text style={styles.trackBtnText}>
-                      Pay ₹{request.accepted_price || request.pricing?.totalAmount || request.amount || 350} Now
-                    </Text>
-                  </>
-                )}
+                <Ionicons name="card" size={20} color="#fff" />
+                <Text style={styles.trackBtnText}>
+                  Pay ₹{request.accepted_price || request.pricing?.totalAmount || request.amount || 350} Now
+                </Text>
               </TouchableOpacity>
             )
           ) : (

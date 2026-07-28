@@ -1,8 +1,10 @@
 import React, { useContext, useEffect } from 'react';
-import { Text, View, ActivityIndicator, Platform, NativeModules, NativeEventEmitter } from 'react-native';
+import { Text, View, ActivityIndicator, Platform, NativeModules, NativeEventEmitter, Alert } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 
 import { AuthContext } from '../context/AuthContext';
 
@@ -22,7 +24,7 @@ import RegisterScreen from '../screens/RegisterScreen';
 import LanguageSelectionScreen from '../screens/LanguageSelectionScreen';
 import IncomingRequestScreen from '../screens/IncomingRequestScreen';
 import { useLanguage } from '../context/LanguageContext';
-import { getSocket } from '../config/socket';
+import { getSocket, joinMechanicRoom } from '../config/socket';
 
 const { RingingModule } = NativeModules;
 
@@ -39,155 +41,179 @@ const AuthStack = () => (
   </Stack.Navigator>
 );
 
-import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet, TouchableOpacity } from 'react-native';
 
-const MainTabs = () => (
-  <Tab.Navigator
-    screenOptions={{
-      headerShown: false,
-      tabBarStyle: {
-        backgroundColor: '#1a1a2e',
-        borderTopColor: '#252542',
-        borderTopWidth: 1,
-        paddingBottom: 5,
-        height: 70,
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        elevation: 10,
-        shadowColor: '#000000',
-        shadowOffset: { width: 0, height: -3 },
-        shadowOpacity: 0.3,
-        shadowRadius: 5,
-        zIndex: 100,
-      },
-      tabBarActiveTintColor: '#00BFA5',
-      tabBarInactiveTintColor: '#aaaaaa',
-    }}
-  >
-    <Tab.Screen 
-      name="Home" 
-      component={HomeScreen} 
-      options={{ 
-        tabBarIcon: ({color, size}) => <Ionicons name="home" size={size} color={color} /> 
-      }} 
-    />
-    <Tab.Screen 
-      name="Jobs" 
-      component={JobsScreen} 
-      options={{ 
-        tabBarIcon: ({color, size}) => <Ionicons name="clipboard-outline" size={size} color={color} /> 
-      }} 
-    />
-    <Tab.Screen 
-      name="SOSAlerts" 
-      component={SOSAlertsScreen} 
-      options={{ 
-        title: "New Job",
-        tabBarButton: (props) => (
-          <TouchableOpacity 
-            {...props} 
-            style={navStyles.floatingTabButton} 
-            activeOpacity={0.85}
-          >
-            <View style={navStyles.floatingTabButtonInner}>
-              <Ionicons name="add" size={32} color="#fff" />
-            </View>
-          </TouchableOpacity>
-        )
-      }} 
-    />
-    <Tab.Screen 
-      name="Earnings" 
-      component={EarningsScreen} 
-      options={{ 
-        tabBarIcon: ({color, size}) => <Ionicons name="wallet-outline" size={size} color={color} /> 
-      }} 
-    />
-    <Tab.Screen 
-      name="Profile" 
-      component={ProfileScreen} 
-      options={{ 
-        tabBarIcon: ({color, size}) => <Ionicons name="person-outline" size={size} color={color} /> 
-      }} 
-    />
-  </Tab.Navigator>
-);
+// TAB_BAR_CONTENT_HEIGHT is the fixed visual height of the tab bar content area
+// (icons + labels). insets.bottom is added dynamically so the bar automatically
+// clears the Android gesture strip / iOS home indicator on every device.
+const TAB_BAR_CONTENT_HEIGHT = 60;
 
-const navStyles = StyleSheet.create({
-  floatingTabButton: {
-    top: -24,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#00BFA5',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4,
-    shadowRadius: 6,
-    elevation: 8,
-  },
-  floatingTabButtonInner: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#00BFA5',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-});
+function MainTabs() {
+  const insets = useSafeAreaInsets();
+  const bottomInset = Platform.OS === 'android' ? Math.max(insets.bottom, 28) : Math.max(insets.bottom, 12);
+
+  return (
+    <Tab.Navigator
+      safeAreaInsets={{ bottom: bottomInset }}
+      screenOptions={{
+        headerShown: false,
+        tabBarStyle: {
+          backgroundColor: '#362A84',
+          borderTopColor: 'rgba(255, 255, 255, 0.1)',
+          borderTopWidth: 1,
+          height: 60 + bottomInset,
+          paddingBottom: bottomInset,
+          paddingTop: 8,
+          elevation: 8,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: -2 },
+          shadowOpacity: 0.05,
+          shadowRadius: 5,
+        },
+        tabBarActiveTintColor: '#FFFFFF',
+        tabBarInactiveTintColor: '#94A3B8',
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: '600',
+          marginTop: 2,
+        },
+      }}
+    >
+      <Tab.Screen
+        name="Home"
+        component={HomeScreen}
+        options={{
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? "home" : "home-outline"} size={22} color={color} />
+          )
+        }}
+      />
+      <Tab.Screen
+        name="Jobs"
+        component={JobsScreen}
+        options={{
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? "briefcase" : "briefcase-outline"} size={22} color={color} />
+          )
+        }}
+      />
+      <Tab.Screen
+        name="Earnings"
+        component={EarningsScreen}
+        options={{
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? "wallet" : "wallet-outline"} size={22} color={color} />
+          )
+        }}
+      />
+      <Tab.Screen
+        name="Profile"
+        component={ProfileScreen}
+        options={{
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? "person" : "person-outline"} size={22} color={color} />
+          )
+        }}
+      />
+    </Tab.Navigator>
+  );
+}
 
 const AppNavigator = ({ navigationRef }) => {
-  const { mechanicToken, isLoading } = useContext(AuthContext);
+  const { mechanicToken, mechanic, isLoading, addPendingRequest, removePendingRequest } = useContext(AuthContext);
   const { languageLoading, hasSavedLanguage } = useLanguage();
 
   useEffect(() => {
     if (!mechanicToken) return;
 
-    // 1. Setup Socket.io Global Listener (Layer 6 Foreground Case)
+    // 1. Setup Socket.io Global Listener (App-Level Scope)
     let socket;
     let handleSocketIncomingRequest;
+    let handleRequestCancelledOrTimeout;
     try {
-      socket = getSocket(mechanicToken);
+      const mechId = mechanic?._id || mechanic?.id || mechanic?.mechanicId;
+      socket = getSocket(mechanicToken, mechId);
+      if (mechId) {
+        joinMechanicRoom(mechId);
+      }
       if (socket) {
+        console.log(`[TRACE App-Level Listener Registered] Socket event listeners attached in AppNavigator | mechanicId: "${mechId}" | Timestamp: ${new Date().toISOString()}`);
+
         handleSocketIncomingRequest = (data) => {
-          console.log('[Socket Global Listener] Incoming request received:', data);
-          if (navigationRef.current?.isReady()) {
-            navigationRef.current?.navigate('IncomingRequest', { requestData: data });
+          console.log(`[TRACE App-Level Event Fired] Incoming request received! Storing in global state. Payload:`, JSON.stringify(data));
+          
+          try {
+            // 1. Push to global store so HomeScreen & all components update immediately
+            addPendingRequest(data);
+
+            // 2. Trigger visible UI auto-navigation
+            const navReady = navigationRef.current?.isReady();
+            console.log(`[TRACE Navigation State] Is Navigation Ready: ${navReady}`);
+            if (navReady) {
+              console.log(`[TRACE UI Trigger] Navigating to IncomingRequest screen...`);
+              navigationRef.current?.navigate('IncomingRequest', { requestData: data });
+            } else {
+              console.error(`[TRACE UI Navigation Error] Navigation container is NOT ready yet!`);
+              Alert.alert('NAV ERROR', 'Navigation container is NOT ready yet!');
+            }
+          } catch (navErr) {
+            console.error('[CRITICAL NAVIGATION EXCEPTION] Failed in handleSocketIncomingRequest:', navErr);
+            Alert.alert('NAV ERROR', navErr.message || String(navErr));
           }
         };
 
+        handleRequestCancelledOrTimeout = (data) => {
+          console.log(`[TRACE Request Cancelled/Timeout] Removing request from global state:`, data);
+          const reqId = data?.requestId || data?._id;
+          if (reqId) {
+            removePendingRequest(reqId);
+          }
+        };
+
+        socket.on('new_breakdown_request', handleSocketIncomingRequest);
         socket.on('incoming_request', handleSocketIncomingRequest);
+        socket.on('incoming-request', handleSocketIncomingRequest);
+        socket.on('new:job:request', handleSocketIncomingRequest);
+        socket.on('new_request_available', handleSocketIncomingRequest);
+        socket.on('incoming_request_timeout', handleRequestCancelledOrTimeout);
+        socket.on('request_cancelled', handleRequestCancelledOrTimeout);
       }
     } catch (err) {
-      console.log('[Socket Global Listener] Failed to hook socket listener:', err.message);
+      console.log('[TRACE App-Level Listener ERROR] Failed to hook socket listener:', err.message);
     }
 
-    // 2. Setup Native Module Event Listener (Android Layer 4 & 6 Foreground Case)
+    // 2. Setup Native Module Event Listener
     let subscription;
     if (Platform.OS === 'android' && RingingModule) {
       try {
         const eventEmitter = new NativeEventEmitter(RingingModule);
         subscription = eventEmitter.addListener('onIncomingRequest', (data) => {
-          console.log('[Native Global Listener] Incoming request received:', data);
+          console.log('[TRACE Native Event Fired] Incoming request received:', data);
+          addPendingRequest(data);
           if (navigationRef.current?.isReady()) {
             navigationRef.current?.navigate('IncomingRequest', { requestData: data });
           }
         });
       } catch (err) {
-        console.log('[Native Global Listener] Failed to hook event emitter:', err.message);
+        console.log('[TRACE Native Event ERROR] Failed to hook event emitter:', err.message);
       }
     }
 
     return () => {
       if (socket && handleSocketIncomingRequest) {
+        console.log(`[TRACE Listener Cleanup] Cleaning up socket listeners in AppNavigator`);
+        socket.off('new_breakdown_request', handleSocketIncomingRequest);
         socket.off('incoming_request', handleSocketIncomingRequest);
+        socket.off('incoming-request', handleSocketIncomingRequest);
+        socket.off('new:job:request', handleSocketIncomingRequest);
+        socket.off('new_request_available', handleSocketIncomingRequest);
+        socket.off('incoming_request_timeout', handleRequestCancelledOrTimeout);
+        socket.off('request_cancelled', handleRequestCancelledOrTimeout);
       }
       if (subscription) {
         subscription.remove();
       }
     };
-  }, [mechanicToken, navigationRef]);
+  }, [mechanicToken, mechanic, navigationRef, addPendingRequest, removePendingRequest]);
 
   if (isLoading || languageLoading) {
     return (
@@ -209,7 +235,7 @@ const AppNavigator = ({ navigationRef }) => {
   }
 
   return (
-    <NavigationContainer 
+    <NavigationContainer
       ref={navigationRef}
       onReady={() => {
         console.log('[NavigationContainer] Navigation is ready');

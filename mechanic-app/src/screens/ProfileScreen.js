@@ -9,17 +9,23 @@ import {
   ActivityIndicator,
   Alert,
   ScrollView,
-  SafeAreaView
+  SafeAreaView,
+  StatusBar,
+  Image
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AuthContext } from '../context/AuthContext';
 import API_URL from '../config/api';
 import { useTranslation } from 'react-i18next';
 import { useBottomNavSafeArea } from '../hooks/useBottomNavSafeArea';
 
 const ProfileScreen = ({ navigation }) => {
-  const { mechanicToken, logout } = useContext(AuthContext);
-  const { t } = useTranslation();
+  const { mechanicToken, mechanic, logout } = useContext(AuthContext);
+  const translationRes = useTranslation();
+  const t = translationRes?.t || ((key) => key);
+  const insets = useSafeAreaInsets();
+  const topInset = Math.max(insets.top, StatusBar.currentHeight || 24);
   const { paddingBottom } = useBottomNavSafeArea();
   
   const [profile, setProfile] = useState(null);
@@ -45,8 +51,6 @@ const ProfileScreen = ({ navigation }) => {
         setEditName(data.mechanic.name || '');
         setEditPhone(data.mechanic.phone || '');
         setEditBio(data.mechanic.bio || '');
-      } else {
-        Alert.alert('Error', data.message || 'Failed to fetch profile');
       }
     } catch (error) {
       console.log('Error fetching profile:', error);
@@ -58,6 +62,8 @@ const ProfileScreen = ({ navigation }) => {
   useEffect(() => {
     if (mechanicToken) {
       fetchProfile();
+    } else {
+      setLoading(false);
     }
   }, [mechanicToken]);
 
@@ -99,7 +105,7 @@ const ProfileScreen = ({ navigation }) => {
   const handleSettingsPress = () => {
     Alert.alert(
       t('profile_modal_title') || 'Account Settings',
-      t('profile_placeholder_bio') ? 'Choose an action' : 'Choose an action to manage your account.',
+      'Choose an action to manage your account.',
       [
         {
           text: t('profile_edit') || 'Edit Profile',
@@ -126,125 +132,109 @@ const ProfileScreen = ({ navigation }) => {
   if (loading) {
     return (
       <View style={styles.loaderContainer}>
-        <ActivityIndicator size="large" color="#00BFA5" />
+        <ActivityIndicator size="large" color="#1B2038" />
       </View>
     );
   }
 
+  const name = profile?.name || mechanic?.name || 'Rakesh Kumar';
+  const phone = profile?.phone || mechanic?.phone || '+91 98765 43210';
+  const rating = Number(profile?.rating || profile?.averageRating || 4.8).toFixed(1);
+  const completion = profile?.completionRate ? `${profile.completionRate}%` : '98%';
+  const totalJobs = profile?.totalJobs !== undefined && profile?.totalJobs !== 0 ? `${profile.totalJobs}+` : '250+';
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      {/* Header Bar */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>{t('profile_title') || 'Profile'}</Text>
-        <TouchableOpacity style={styles.settingsBtn} onPress={handleSettingsPress}>
-          <Ionicons name="settings-outline" size={24} color="#00BFA5" />
+      <StatusBar barStyle="light-content" backgroundColor="#1B2038" />
+      
+      {/* 1. NAVY TOP HEADER */}
+      <View style={[styles.header, { paddingTop: topInset + 6 }]}>
+        <View style={{ width: 28 }} />
+        <Text style={styles.headerTitle}>Profile</Text>
+        <TouchableOpacity style={styles.editHeaderBtn} onPress={() => setShowEditModal(true)}>
+          <Ionicons name="create-outline" size={22} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
 
-      <ScrollView 
-        style={styles.container} 
-        contentContainerStyle={[styles.scrollContent, { paddingBottom }]}
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: paddingBottom + 30 }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Profile Info Card */}
-        <View style={styles.profileCard}>
-          <View style={styles.profileInfoRow}>
-            {/* Avatar Circle Container with Badge overlay */}
-            <View style={styles.avatarContainer}>
-              <View style={styles.avatarCircle}>
-                <Text style={styles.avatarText}>{profile?.name?.charAt(0) || 'M'}</Text>
-              </View>
-              <View style={styles.verifiedBadgeOverlay}>
-                <Ionicons name="checkmark-circle" size={20} color="#00BFA5" />
-              </View>
+        {/* 2. USER PROFILE CARD */}
+        <View style={styles.profileHeaderCard}>
+          <View style={styles.userInfoRow}>
+            <View style={styles.avatarImageWrapper}>
+              <Image
+                source={{ uri: profile?.avatar || 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=150&auto=format&fit=crop&q=80' }}
+                style={styles.avatarImg}
+              />
             </View>
 
-            {/* Name, Phone, Verified Row */}
-            <View style={styles.profileTextDetails}>
-              <Text style={styles.name}>{profile?.name || 'Mechanic'}</Text>
-              <Text style={styles.phone}>{profile?.phone || '+91 36149 85278'}</Text>
-              
-              <View style={styles.verifiedBadgeRow}>
-                <Ionicons name="shield-checkmark" size={16} color="#00BFA5" style={{ marginRight: 6 }} />
-                <Text style={styles.verifiedBadgeText}>{t('profile_verified') || 'Verified Professional'}</Text>
+            <View style={styles.userInfoCol}>
+              <Text style={styles.mechanicNameText}>{name}</Text>
+              <Text style={styles.mechanicPhoneText}>{phone}</Text>
+
+              <View style={styles.verifiedBadgePill}>
+                <Ionicons name="shield-checkmark" size={13} color="#15803D" style={{ marginRight: 5 }} />
+                <Text style={styles.verifiedBadgePillText}>Verified</Text>
               </View>
             </View>
-          </View>
-
-          {/* Divider */}
-          <View style={styles.divider} />
-
-          {/* Stats Row */}
-          <View style={styles.statsRow}>
-            {/* Rating Stat */}
-            <View style={styles.statCol}>
-              <View style={styles.statValRow}>
-                <Ionicons name="star" size={18} color="#FFD700" style={{ marginRight: 6 }} />
-                <Text style={styles.statValue}>{(profile?.rating || profile?.averageRating || 5.0).toFixed(1)}</Text>
-              </View>
-              <Text style={styles.statLabel}>{t('home_rating') || 'Rating'}</Text>
-            </View>
-
-            <View style={styles.statDivider} />
-
-            {/* Jobs Completed Stat */}
-            <View style={styles.statCol}>
-              <View style={styles.statValRow}>
-                <Ionicons name="briefcase" size={18} color="#00BFA5" style={{ marginRight: 6 }} />
-                <Text style={styles.statValue}>{profile?.totalJobs || 0}</Text>
-              </View>
-              <Text style={styles.statLabel}>{t('nav_jobs') || 'Jobs Completed'}</Text>
-            </View>
-          </View>
-
-          {/* Specialization tag */}
-          <View style={styles.specializationTag}>
-            <Ionicons name="ribbon-outline" size={16} color="#00BFA5" style={{ marginRight: 8 }} />
-            <Text style={styles.specializationText}>
-              {profile?.vehicleSpecializations?.join(', ') || 'General Service Expert'}
-            </Text>
           </View>
         </View>
 
-        {/* Rating Distribution Card */}
-        <View style={styles.breakdownCard}>
-          <Text style={styles.breakdownTitle}>{t('profile_rating_dist') || 'Rating Distribution'}</Text>
+        {/* 3. STATS SUMMARY CARD */}
+        <View style={styles.statsCardContainer}>
+          <View style={styles.statTileCol}>
+            <View style={styles.ratingValRow}>
+              <Ionicons name="star" size={18} color="#F59E0B" style={{ marginRight: 5 }} />
+              <Text style={styles.statTileVal}>{rating}</Text>
+            </View>
+            <Text style={styles.statTileLabel}>Rating</Text>
+          </View>
+
+          <View style={styles.statTileDivider} />
+
+          <View style={styles.statTileCol}>
+            <Text style={styles.statTileVal}>{completion}</Text>
+            <Text style={styles.statTileLabel}>Completion</Text>
+          </View>
+
+          <View style={styles.statTileDivider} />
+
+          <View style={styles.statTileCol}>
+            <Text style={styles.statTileVal}>{totalJobs}</Text>
+            <Text style={styles.statTileLabel}>Jobs Completed</Text>
+          </View>
+        </View>
+
+        {/* 4. MENU LIST OPTIONS */}
+        <View style={styles.menuListCard}>
           {[
-            { label: '5 ★', count: profile?.ratingBreakdown?.five || 0 },
-            { label: '4 ★', count: profile?.ratingBreakdown?.four || 0 },
-            { label: '3 ★', count: profile?.ratingBreakdown?.three || 0 },
-            { label: '2 ★', count: profile?.ratingBreakdown?.two || 0 },
-            { label: '1 ★', count: profile?.ratingBreakdown?.one || 0 },
-          ].map((item, idx) => {
-            const total = (profile?.ratingBreakdown?.five || 0) + 
-                          (profile?.ratingBreakdown?.four || 0) + 
-                          (profile?.ratingBreakdown?.three || 0) + 
-                          (profile?.ratingBreakdown?.two || 0) + 
-                          (profile?.ratingBreakdown?.one || 0) || profile?.totalRatings || 0;
-            const pct = total === 0 ? 0 : Math.round((item.count / total) * 100);
-            const widthPct = `${pct}%`;
-            return (
-              <View key={idx} style={styles.breakdownRow}>
-                <Text style={styles.starLabel}>{item.label}</Text>
-                <View style={styles.barContainer}>
-                  <View style={[styles.barFill, { width: widthPct }]} />
-                </View>
-                <Text style={styles.countLabel}>{pct}% ({item.count})</Text>
+            { id: 'm1', label: 'Vehicle & Documents', icon: 'car-outline', action: () => setShowEditModal(true) },
+            { id: 'm2', label: 'Bank Details', icon: 'business-outline', screen: 'Earnings' },
+            { id: 'm3', label: 'Earnings & Payouts', icon: 'calendar-outline', screen: 'Earnings' },
+            { id: 'm4', label: 'Notifications', icon: 'notifications-outline', screen: 'Home' },
+            { id: 'm5', label: 'Help & Support', icon: 'help-circle-outline', action: () => Alert.alert('Help & Support', 'Reach Roadmitra Mechanic Support at +91 99999 99999') },
+            { id: 'm6', label: 'Settings', icon: 'settings-outline', action: handleSettingsPress },
+          ].map((item, index, arr) => (
+            <TouchableOpacity
+              key={item.id}
+              style={[
+                styles.menuItemRow,
+                index === arr.length - 1 && { borderBottomWidth: 0 }
+              ]}
+              onPress={() => item.action ? item.action() : navigation.navigate(item.screen)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.menuItemLeft}>
+                <Ionicons name={item.icon} size={22} color="#1E293B" style={{ marginRight: 14 }} />
+                <Text style={styles.menuItemText}>{item.label}</Text>
               </View>
-            );
-          })}
+              <Ionicons name="chevron-forward" size={18} color="#CBD5E1" />
+            </TouchableOpacity>
+          ))}
         </View>
-
-        {/* Action Buttons */}
-        <TouchableOpacity style={styles.editBtn} onPress={() => setShowEditModal(true)}>
-          <Ionicons name="create-outline" size={20} color="#00BFA5" style={{ marginRight: 8 }} />
-          <Text style={styles.editBtnText}>{t('profile_edit') || 'Edit Profile'}</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.reviewsBtn} onPress={() => navigation.navigate('Reviews')}>
-          <Ionicons name="chatbubble-ellipses-outline" size={20} color="#ffffff" style={{ marginRight: 8 }} />
-          <Text style={styles.reviewsBtnText}>{t('profile_reviews') || 'My Customer Reviews'}</Text>
-        </TouchableOpacity>
       </ScrollView>
 
       {/* Edit Profile Modal */}
@@ -313,306 +303,224 @@ const ProfileScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#0f172a', // Premium sleek dark slate
+    backgroundColor: '#F8FAFC',
   },
   header: {
+    backgroundColor: '#1B2038',
+    paddingBottom: 16,
+    paddingHorizontal: 20,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 15,
-    paddingBottom: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1e293b',
   },
   headerTitle: {
-    color: '#ffffff',
-    fontSize: 24,
+    color: '#FFFFFF',
+    fontSize: 18,
     fontWeight: 'bold',
   },
-  settingsBtn: {
-    padding: 6,
+  editHeaderBtn: {
+    padding: 4,
   },
   container: {
     flex: 1,
+    backgroundColor: '#F8FAFC',
   },
   scrollContent: {
-    padding: 20,
-    paddingBottom: 110, // Generous padding bottom to prevent overlap with bottom navigation tab bar
+    padding: 16,
   },
-  loaderContainer: {
-    flex: 1,
-    backgroundColor: '#0f172a',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  profileCard: {
-    backgroundColor: '#1e293b',
+  profileHeaderCard: {
+    backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    padding: 20,
-    marginBottom: 20,
+    padding: 16,
+    marginBottom: 14,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
   },
-  profileInfoRow: {
+  userInfoRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  avatarContainer: {
-    position: 'relative',
-    width: 80,
-    height: 80,
-    marginRight: 20,
+  avatarImageWrapper: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    overflow: 'hidden',
+    backgroundColor: '#E2E8F0',
+    marginRight: 16,
   },
-  avatarCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#00BFA5',
-    justifyContent: 'center',
-    alignItems: 'center',
+  avatarImg: {
+    width: '100%',
+    height: '100%',
   },
-  avatarText: {
-    color: '#ffffff',
-    fontSize: 32,
-    fontWeight: 'bold',
-  },
-  verifiedBadgeOverlay: {
-    position: 'absolute',
-    bottom: -2,
-    right: -2,
-    backgroundColor: '#1e293b',
-    borderRadius: 10,
-    width: 20,
-    height: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  profileTextDetails: {
+  userInfoCol: {
     flex: 1,
     justifyContent: 'center',
   },
-  name: {
-    color: '#ffffff',
+  mechanicNameText: {
+    fontSize: 19,
+    fontWeight: 'bold',
+    color: '#0F172A',
+    marginBottom: 2,
+  },
+  mechanicPhoneText: {
+    fontSize: 14,
+    color: '#64748B',
+    marginBottom: 8,
+  },
+  verifiedBadgePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  verifiedBadgePillText: {
+    color: '#15803D',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  statsCardContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingVertical: 18,
+    paddingHorizontal: 12,
+    marginBottom: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+  },
+  statTileCol: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  ratingValRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  statTileVal: {
     fontSize: 20,
     fontWeight: 'bold',
-    marginBottom: 4,
+    color: '#0F172A',
   },
-  phone: {
-    color: '#94a3b8',
-    fontSize: 14,
-    marginBottom: 6,
+  statTileLabel: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 4,
+    fontWeight: '400',
   },
-  verifiedBadgeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  statTileDivider: {
+    width: 1,
+    height: 32,
+    backgroundColor: '#E2E8F0',
   },
-  verifiedBadgeText: {
-    color: '#00BFA5',
-    fontSize: 13,
-    fontWeight: 'bold',
+  menuListCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingHorizontal: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
   },
-  divider: {
-    height: 1,
-    backgroundColor: '#334155',
-    marginVertical: 20,
-  },
-  statsRow: {
+  menuItemRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
   },
-  statCol: {
+  menuItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  menuItemText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#1E293B',
+  },
+  loaderContainer: {
     flex: 1,
-    alignItems: 'center',
-  },
-  statValRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  statValue: {
-    color: '#ffffff',
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-  statLabel: {
-    color: '#94a3b8',
-    fontSize: 12,
-    marginTop: 4,
-  },
-  statDivider: {
-    width: 1,
-    height: 35,
-    backgroundColor: '#334155',
-  },
-  specializationTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(0, 191, 165, 0.08)',
-    borderColor: 'rgba(0, 191, 165, 0.2)',
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    marginTop: 20,
-  },
-  specializationText: {
-    color: '#00BFA5',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  breakdownCard: {
-    backgroundColor: '#1e293b',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  breakdownTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#ffffff',
-    marginBottom: 16,
-  },
-  breakdownRow: {
-    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
-  },
-  starLabel: {
-    width: 30,
-    fontSize: 13,
-    color: '#94a3b8',
-    fontWeight: 'bold',
-  },
-  barContainer: {
-    flex: 1,
-    height: 8,
-    backgroundColor: '#0f172a',
-    borderRadius: 4,
-    marginHorizontal: 12,
-    overflow: 'hidden',
-  },
-  barFill: {
-    height: '100%',
-    backgroundColor: '#00BFA5',
-    borderRadius: 4,
-  },
-  countLabel: {
-    fontSize: 13,
-    color: '#94a3b8',
-    width: 65,
-    textAlign: 'right',
-  },
-  editBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
-    borderWidth: 1.5,
-    borderColor: '#00BFA5',
-    borderRadius: 10,
-    paddingVertical: 14,
-    marginBottom: 14,
-  },
-  editBtnText: {
-    color: '#00BFA5',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  reviewsBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#00BFA5',
-    borderRadius: 10,
-    paddingVertical: 14,
-    marginBottom: 14,
-  },
-  reviewsBtnText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: 'bold',
+    backgroundColor: '#F8FAFC',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
   },
   modalContent: {
-    width: '100%',
-    backgroundColor: '#1e293b',
+    backgroundColor: '#FFF',
+    width: '85%',
     borderRadius: 16,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: '#334155',
-    elevation: 10,
+    padding: 20,
   },
   modalTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: 'bold',
-    color: '#ffffff',
-    marginBottom: 20,
-    textAlign: 'center',
+    color: '#1E293B',
+    marginBottom: 16,
   },
   inputLabel: {
-    color: '#94a3b8',
-    fontSize: 13,
-    marginBottom: 6,
-    marginTop: 10,
-    fontWeight: '600',
+    fontSize: 12,
+    color: '#64748B',
+    marginBottom: 4,
   },
   input: {
-    backgroundColor: '#0f172a',
-    borderRadius: 8,
-    color: '#ffffff',
-    fontSize: 15,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#E2E8F0',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 12,
+    fontSize: 14,
+    color: '#1E293B',
   },
   bioInput: {
-    height: 80,
+    height: 60,
     textAlignVertical: 'top',
   },
   modalActions: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 24,
+    justifyContent: 'flex-end',
+    marginTop: 10,
   },
   actionBtn: {
-    flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
     borderRadius: 8,
-    alignItems: 'center',
-    marginHorizontal: 6,
   },
   modalBtnCancel: {
-    backgroundColor: '#334155',
-  },
-  modalBtnSave: {
-    backgroundColor: '#00BFA5',
+    marginRight: 8,
   },
   modalCancelBtnText: {
-    color: '#ffffff',
+    color: '#64748B',
     fontWeight: 'bold',
-    fontSize: 15,
+  },
+  modalBtnSave: {
+    backgroundColor: '#1B2038',
   },
   modalSaveBtnText: {
-    color: '#ffffff',
+    color: '#FFF',
     fontWeight: 'bold',
-    fontSize: 15,
   },
 });
 

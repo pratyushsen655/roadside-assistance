@@ -88,67 +88,107 @@ export default function HomeScreen({ navigation }) {
 
   const fetchCurrentLocation = async () => {
     try {
-      setLocationLoading(true);
-      
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         setCurrentLocation(t('request.locationDenied', 'Location permission denied'));
         return;
       }
 
-      const position = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
+      setLocationLoading(true);
+      let locationResolved = false;
 
-      const { latitude, longitude } = position.coords;
-      setCoordinates({ lat: latitude, lng: longitude });
+      const handleLocationResolved = async (position) => {
+        if (!position || !position.coords) return;
+        const { latitude, longitude } = position.coords;
+        setCoordinates({ lat: latitude, lng: longitude });
+        
+        // Unblock UI by dismissing loading indicator as soon as any location is resolved
+        setLocationLoading(false);
 
-      const googleLocation = await reverseGeocodeWithGoogle(latitude, longitude);
-      if (googleLocation) {
-        setCurrentLocation(googleLocation);
-        await AsyncStorage.setItem('lastLocation', JSON.stringify({
-          name: googleLocation,
-          lat: latitude,
-          lng: longitude,
-          timestamp: Date.now(),
-        }));
-        return;
+        const googleLocation = await reverseGeocodeWithGoogle(latitude, longitude);
+        if (googleLocation) {
+          setCurrentLocation(googleLocation);
+          await AsyncStorage.setItem('lastLocation', JSON.stringify({
+            name: googleLocation,
+            lat: latitude,
+            lng: longitude,
+            timestamp: Date.now(),
+          }));
+          return;
+        }
+
+        const geocode = await Location.reverseGeocodeAsync(
+          { latitude, longitude },
+          { useGoogleMaps: false }
+        ).catch(() => null);
+
+        if (geocode && geocode.length > 0) {
+          const place = geocode[0];
+          const parts = [];
+          const specificArea = place.subregion || place.street || place.district;
+          if (specificArea) parts.push(specificArea);
+          
+          const cityName = place.city || place.region;
+          if (cityName && cityName !== specificArea) parts.push(cityName);
+          
+          const cleanLocation = parts.length > 0 
+            ? parts.join(', ') 
+            : place.formattedAddress || t('request.currentLocation', 'Current Location');
+          
+          setCurrentLocation(cleanLocation);
+          
+          await AsyncStorage.setItem('lastLocation', JSON.stringify({
+            name: cleanLocation,
+            lat: latitude,
+            lng: longitude,
+            timestamp: Date.now(),
+          }));
+        } else {
+          setCurrentLocation(t('request.currentLocation', 'Current Location'));
+        }
+      };
+
+      // 1. Fetch cached last known location (near-zero delay)
+      try {
+        const lastKnown = await Location.getLastKnownPositionAsync({ maxAge: 60000 });
+        if (lastKnown) {
+          locationResolved = true;
+          await handleLocationResolved(lastKnown);
+        }
+      } catch (err) {
+        console.log('Error getting last known position:', err);
       }
 
-      const geocode = await Location.reverseGeocodeAsync(
-        { latitude, longitude },
-        { useGoogleMaps: false }
+      // 2. Fetch fresh location in background with Balanced accuracy, raced with 8s timeout
+      const fetchFreshLocation = async () => {
+        return await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+      };
+
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Location timeout')), 8000)
       );
 
-      if (geocode && geocode.length > 0) {
-        const place = geocode[0];
-        
-        const parts = [];
-        const specificArea = place.subregion || place.street || place.district;
-        if (specificArea) parts.push(specificArea);
-        
-        const cityName = place.city || place.region;
-        if (cityName && cityName !== specificArea) parts.push(cityName);
-        
-        const cleanLocation = parts.length > 0 
-          ? parts.join(', ') 
-          : place.formattedAddress || t('request.currentLocation', 'Current Location');
-        
-        setCurrentLocation(cleanLocation);
-        
-        await AsyncStorage.setItem('lastLocation', JSON.stringify({
-          name: cleanLocation,
-          lat: latitude,
-          lng: longitude,
-          timestamp: Date.now(),
-        }));
-      } else {
-        setCurrentLocation(t('request.currentLocation', 'Current Location'));
+      try {
+        const freshLocation = await Promise.race([
+          fetchFreshLocation(),
+          timeoutPromise
+        ]);
+        if (freshLocation) {
+          await handleLocationResolved(freshLocation);
+        }
+      } catch (raceErr) {
+        console.log('Fresh location fetch timed out or failed:', raceErr.message);
+        if (!locationResolved) {
+          setCurrentLocation(t('request.locationError', 'Unable to fetch location'));
+        }
+      } finally {
+        setLocationLoading(false);
       }
     } catch (error) {
       console.log('Location error:', error);
       setCurrentLocation(t('request.locationError', 'Unable to fetch location'));
-    } finally {
       setLocationLoading(false);
     }
   };
@@ -261,7 +301,7 @@ export default function HomeScreen({ navigation }) {
           {/* Card 1: Car */}
           <TouchableOpacity
             style={styles.categoryCard}
-            onPress={() => navigation.navigate('CarServiceRates')}
+            onPress={() => navigation.navigate('Request', { vehicleType: 'car' })}
             activeOpacity={0.8}
           >
             <View style={styles.cardHeader}>
@@ -279,7 +319,7 @@ export default function HomeScreen({ navigation }) {
           {/* Card 2: Bike */}
           <TouchableOpacity
             style={styles.categoryCard}
-            onPress={() => navigation.navigate('BikeServiceRates')}
+            onPress={() => navigation.navigate('Request', { vehicleType: 'bike' })}
             activeOpacity={0.8}
           >
             <View style={styles.cardHeader}>
@@ -297,7 +337,7 @@ export default function HomeScreen({ navigation }) {
           {/* Card 3: Auto */}
           <TouchableOpacity
             style={styles.categoryCard}
-            onPress={() => navigation.navigate('CarServiceRates')}
+            onPress={() => navigation.navigate('Request', { vehicleType: 'auto' })}
             activeOpacity={0.8}
           >
             <View style={styles.cardHeader}>
@@ -315,7 +355,7 @@ export default function HomeScreen({ navigation }) {
           {/* Card 4: E-Vehicle */}
           <TouchableOpacity
             style={styles.categoryCard}
-            onPress={() => navigation.navigate('CarServiceRates')}
+            onPress={() => navigation.navigate('Request', { vehicleType: 'e-vehicle' })}
             activeOpacity={0.8}
           >
             <View style={styles.cardHeader}>
@@ -334,7 +374,7 @@ export default function HomeScreen({ navigation }) {
         {/* 5. Other Card */}
         <TouchableOpacity
           style={styles.otherCard}
-          onPress={() => navigation.navigate('CarServiceRates')}
+          onPress={() => navigation.navigate('MoreVehicles')}
           activeOpacity={0.8}
         >
           <View style={styles.otherCardContent}>

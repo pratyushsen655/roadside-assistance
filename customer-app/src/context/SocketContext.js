@@ -4,7 +4,7 @@ import { AuthContext } from './AuthContext';
 
 export const SocketContext = createContext();
 
-const SOCKET_URL = 'http://10.0.2.2:5000'; // Host loopback for emulator. Match server port.
+const SOCKET_URL = process.env.EXPO_PUBLIC_SOCKET_URL || 'https://roadside-assistance-production-ddaf.up.railway.app';
 
 export const SocketProvider = ({ children }) => {
   const { user, token } = useContext(AuthContext);

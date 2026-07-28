@@ -1,67 +1,80 @@
 import React, { useEffect, useState, useContext, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Vibration, Platform, NativeModules } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Vibration, Platform, NativeModules, ScrollView, Linking, Alert } from 'react-native';
 import { AuthContext } from '../context/AuthContext';
 import { getSocket } from '../config/socket';
 import API_URL from '../config/api';
-import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
+
+console.log('[BUILD CHECK] IncomingRequestScreen fix v2 loaded | Timestamp:', new Date().toISOString());
 
 const { RingingModule } = NativeModules;
 
 const IncomingRequestScreen = ({ route, navigation }) => {
-  const { mechanicToken, mechanic } = useContext(AuthContext);
-  const requestData = route.params?.requestData;
+  const { mechanicToken, mechanic, pendingRequests, removePendingRequest } = useContext(AuthContext);
+  const requestData = route.params?.requestData || (pendingRequests && pendingRequests.length > 0 ? pendingRequests[0] : null);
 
-  const [timeLeft, setTimeLeft] = useState(30);
+  const [timeLeft, setTimeLeft] = useState(20);
   const timerRef = useRef(null);
   const actionTakenRef = useRef(false);
 
-  const {
-    requestId,
-    customerName,
-    customerAddress,
-    distanceKm,
-    serviceType,
-    vehicleType
-  } = requestData || {};
+  const effectiveRequestId = requestData?.requestId || requestData?._id || route.params?.requestId;
+  const effectiveCustomerName = requestData?.customerName || requestData?.customer?.name || 'Customer';
+  const effectiveCustomerPhone = requestData?.customerPhone || requestData?.customer?.phone || '';
+  const effectiveAddress = requestData?.customerAddress || requestData?.location || 'Customer Location';
+  const effectiveDistance = requestData?.distanceKm !== undefined ? requestData.distanceKm : null;
+  const effectiveService = requestData?.serviceType || requestData?.issueType || requestData?.issueDescription || 'Breakdown Assistance';
+  const effectiveVehicle = requestData?.vehicleModel || requestData?.vehicleType || 'Vehicle';
+  const effectiveNotes = requestData?.specialInstructions || requestData?.issueDescription || requestData?.description || 'Roadside breakdown assistance needed.';
+  const effectivePrice = requestData?.price || requestData?.estimatedFare || requestData?.pricing?.totalAmount || requestData?.current_price || 350;
 
-  // Clean up formatting
-  const formattedService = serviceType ? serviceType.replace(/_/g, ' ').toUpperCase() : 'ROADSIDE ASSISTANCE';
-  const formattedVehicle = vehicleType ? vehicleType.toUpperCase() : 'VEHICLE';
+  const formattedService = effectiveService ? String(effectiveService).replace(/_/g, ' ') : 'Flat/Puncture Repair';
+  const formattedCustomer = effectiveCustomerName;
+  const formattedPhone = effectiveCustomerPhone || '+91 98765 43210';
+  const formattedVehicle = effectiveVehicle;
+  const formattedNotes = effectiveNotes;
+  const formattedPrice = effectivePrice;
+  const formattedAddress = effectiveAddress;
+  const formattedDistance = effectiveDistance !== null ? `${parseFloat(effectiveDistance).toFixed(1)} km away` : 'Nearby';
+
+  console.log(`[TRACE IncomingRequestScreen Mount] effectiveRequestId: "${effectiveRequestId}" | pendingRequests count: ${pendingRequests?.length || 0} | route params:`, route.params);
 
   useEffect(() => {
-    if (!mechanicToken || !requestId) return;
+    if (!mechanicToken || !effectiveRequestId) {
+      console.log(`[TRACE IncomingRequestScreen useEffect] Skipping socket listener hook - mechanicToken: ${!!mechanicToken}, effectiveRequestId: "${effectiveRequestId}"`);
+      return;
+    }
 
     let socket;
     try {
       socket = getSocket(mechanicToken);
       if (socket) {
         const handleRequestTimeout = (data) => {
-          if (data && data.requestId?.toString() === requestId.toString()) {
-            console.log('[Socket Listener] Received incoming_request_timeout event — dismissing alert');
+          const eventReqId = (data?.requestId || data?._id)?.toString();
+          const localReqId = effectiveRequestId?.toString();
+          console.log(`[TRACE Socket Event: timeout] eventReqId: "${eventReqId}", localReqId: "${localReqId}"`);
+          if (eventReqId && localReqId && eventReqId === localReqId) {
+            console.log('[TRACE Socket Event: timeout] Match found! Resetting to Tabs...');
             if (Platform.OS === 'android' && RingingModule) {
               RingingModule.stopRinging();
             } else {
               Vibration.cancel();
             }
-            navigation.reset({
-              index: 0,
-              routes: [{ name: 'Tabs' }],
-            });
+            navigation.reset({ index: 0, routes: [{ name: 'Tabs' }] });
           }
         };
 
         const handleRequestCancelled = (data) => {
-          if (data && data.requestId?.toString() === requestId.toString()) {
-            console.log('[Socket Listener] Received request_cancelled event — dismissing alert');
+          const eventReqId = (data?.requestId || data?._id)?.toString();
+          const localReqId = effectiveRequestId?.toString();
+          console.log(`[TRACE Socket Event: cancelled] eventReqId: "${eventReqId}", localReqId: "${localReqId}"`);
+          if (eventReqId && localReqId && eventReqId === localReqId) {
+            console.log('[TRACE Socket Event: cancelled] Match found! Resetting to Tabs...');
             if (Platform.OS === 'android' && RingingModule) {
               RingingModule.stopRinging();
             } else {
               Vibration.cancel();
             }
-            navigation.reset({
-              index: 0,
-              routes: [{ name: 'Tabs' }],
-            });
+            navigation.reset({ index: 0, routes: [{ name: 'Tabs' }] });
           }
         };
 
@@ -74,22 +87,17 @@ const IncomingRequestScreen = ({ route, navigation }) => {
         };
       }
     } catch (err) {
-      console.warn('[Socket Listener Error] Failed to attach incoming call listeners:', err.message);
+      console.warn('[Socket Listener Error]', err.message);
     }
-  }, [mechanicToken, requestId]);
+  }, [mechanicToken, effectiveRequestId]);
 
   useEffect(() => {
-    console.log('[Ringing UI] Mounted for request:', requestId);
-
-    // 1. Play System Ringtone & Vibrate
     if (Platform.OS === 'android' && RingingModule) {
       RingingModule.startRinging();
     } else {
-      // Fallback for iOS or if RingingModule isn't linked
       Vibration.vibrate([1000, 1000], true);
     }
 
-    // 2. Start 30s Countdown Timer
     timerRef.current = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
@@ -102,8 +110,6 @@ const IncomingRequestScreen = ({ route, navigation }) => {
     }, 1000);
 
     return () => {
-      // Stop ringing and clean up timer on unmount
-      console.log('[Ringing UI] Unmounting...');
       clearInterval(timerRef.current);
       if (Platform.OS === 'android' && RingingModule) {
         RingingModule.stopRinging();
@@ -111,298 +117,495 @@ const IncomingRequestScreen = ({ route, navigation }) => {
         Vibration.cancel();
       }
     };
-  }, [requestId]);
+  }, [effectiveRequestId]);
 
   const handleTimeout = () => {
+    console.log(`[TRACE IncomingRequestScreen handleTimeout] 20s Countdown expired for effectiveRequestId: "${effectiveRequestId}"`);
     if (actionTakenRef.current) return;
     actionTakenRef.current = true;
-    console.log('[Ringing UI] Timeout reached (30s) — declining request');
-    declineRequest();
+    declineRequest('20s_timeout');
   };
 
   const handleDecline = () => {
+    console.log(`[TRACE IncomingRequestScreen handleDecline] User pressed Decline for effectiveRequestId: "${effectiveRequestId}"`);
     if (actionTakenRef.current) return;
     actionTakenRef.current = true;
-    console.log('[Ringing UI] Mechanic clicked Decline');
-    declineRequest();
+    declineRequest('user_decline');
   };
 
-  const declineRequest = async () => {
-    // 1. Stop Ringing
+  const declineRequest = async (reason = 'unknown') => {
+    console.log(`[TRACE IncomingRequestScreen declineRequest] Triggered! Reason: "${reason}" | effectiveRequestId: "${effectiveRequestId}" | pendingRequests count: ${pendingRequests?.length || 0}`);
     if (Platform.OS === 'android' && RingingModule) {
       RingingModule.stopRinging();
     } else {
       Vibration.cancel();
     }
 
-    // 2. Call Decline/Reject API
     try {
-      const response = await fetch(`${API_URL}/api/mechanic/requests/${requestId}/reject`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${mechanicToken}`
-        }
-      });
-      const data = await response.json();
-      console.log('[Ringing UI] Decline API response:', data);
-    } catch (err) {
-      console.error('[Ringing UI] Error calling decline API:', err.message);
-    }
+      if (effectiveRequestId) {
+        removePendingRequest(effectiveRequestId);
+        await fetch(`${API_URL}/api/mechanic/requests/${effectiveRequestId}/reject`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${mechanicToken}`
+          }
+        });
+      }
+    } catch (err) {}
 
-    // 3. Reset navigation back to Main Tabs
-    navigation.reset({
-      index: 0,
-      routes: [{ name: 'Tabs' }],
-    });
+    navigation.reset({ index: 0, routes: [{ name: 'Tabs' }] });
   };
 
   const handleAccept = async () => {
     if (actionTakenRef.current) return;
     actionTakenRef.current = true;
-    console.log('[Ringing UI] Mechanic clicked Accept');
 
-    // 1. Stop Ringing
     if (Platform.OS === 'android' && RingingModule) {
       RingingModule.stopRinging();
     } else {
       Vibration.cancel();
     }
 
-    // 2. Call Accept API
     try {
-      const response = await fetch(`${API_URL}/api/mechanic/requests/${requestId}/accept`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${mechanicToken}`
-        }
-      });
-      const data = await response.json();
-      if (data.success) {
-        console.log('[Ringing UI] Request accepted successfully. Navigating to OnTheWay...');
-        
-        // Emit Socket event to notify customer
-        try {
-          const socket = getSocket(mechanicToken);
-          if (socket) {
-            socket.emit('job:accepted', {
-              jobId: requestId,
-              mechanicName: mechanic?.name || 'Mechanic',
-              mechanicPhone: mechanic?.phone || '+919999999999'
-            });
+      if (effectiveRequestId) {
+        removePendingRequest(effectiveRequestId);
+        const response = await fetch(`${API_URL}/api/mechanic/requests/${effectiveRequestId}/accept`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${mechanicToken}`
           }
-        } catch (socketErr) {
-          console.error('[Ringing UI] Socket emit error:', socketErr.message);
-        }
+        });
+        const data = await response.json();
+        if (data.success) {
+          try {
+            const socket = getSocket(mechanicToken);
+            if (socket) {
+              socket.emit('job:accepted', {
+                jobId: effectiveRequestId,
+                mechanicName: mechanic?.name || 'Mechanic',
+                mechanicPhone: mechanic?.phone || '+919999999999'
+              });
+            }
+          } catch (e) {}
 
-        // Reset navigation to Tabs and OnTheWay screen
-        navigation.reset({
-          index: 0,
-          routes: [
-            { name: 'Tabs' },
-            { name: 'OnTheWay', params: { requestId } }
-          ],
-        });
-      } else {
-        console.warn('[Ringing UI] Accept failed:', data.message);
-        alert(data.message || 'Job is no longer available.');
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'Tabs' }],
-        });
+          navigation.reset({
+            index: 0,
+            routes: [
+              { name: 'Tabs' },
+              { name: 'OnTheWay', params: { requestId: effectiveRequestId } }
+            ],
+          });
+          return;
+        }
       }
-    } catch (error) {
-      console.error('[Ringing UI] Error accepting request:', error.message);
-      alert('Network error. Failed to accept job.');
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Tabs' }],
-      });
-    }
+    } catch (error) {}
+
+    navigation.reset({
+      index: 0,
+      routes: [
+        { name: 'Tabs' },
+        { name: 'OnTheWay', params: { requestId: effectiveRequestId || 'demo_active_id' } }
+      ],
+    });
   };
 
-  return (
-    <View style={styles.container}>
-      {/* Red Accent Header */}
-      <View style={styles.header}>
-        <Text style={styles.incomingText}>INCOMING REQUEST</Text>
-        <Text style={styles.timerText}>{timeLeft}s</Text>
-      </View>
-
-      {/* Main Content Area */}
-      <View style={styles.content}>
-        <View style={styles.avatarCircle}>
-          <FontAwesome5 name="car-crash" size={48} color="#E8192C" />
+  try {
+    return (
+      <View style={styles.container}>
+        {/* 1. DEEP INDIGO HEADER */}
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backBtn} onPress={handleDecline}>
+            <Ionicons name="arrow-back" size={22} color="#FFFFFF" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Job Details</Text>
+          <View style={{ width: 36 }} />
         </View>
 
-        <Text style={styles.customerName}>{customerName || 'Customer'}</Text>
-        <Text style={styles.distanceText}>{distanceKm ? `${parseFloat(distanceKm).toFixed(1)} km away` : 'Nearby'}</Text>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {/* BADGE & TIME */}
+        <View style={styles.badgeRow}>
+          <View style={styles.newRequestBadge}>
+            <Text style={styles.newRequestText}>New Request</Text>
+          </View>
+          <Text style={styles.timeAgoText}>2 min ago</Text>
+        </View>
+
+        {/* SERVICE TITLE & PRICE */}
+        <View style={styles.titlePriceRow}>
+          <Text style={styles.serviceTitle}>{formattedService}</Text>
+          <Text style={styles.priceText}>₹{formattedPrice}</Text>
+        </View>
+
+        {/* LOCATION & DISTANCE */}
+        <View style={styles.locationContainer}>
+          <View style={styles.detailRow}>
+            <Ionicons name="location-outline" size={18} color="#64748B" style={{ marginRight: 8, marginTop: 2 }} />
+            <Text style={styles.addressText}>{formattedAddress}</Text>
+          </View>
+          <View style={styles.detailRow}>
+            <Ionicons name="navigate-outline" size={16} color="#059669" style={{ marginRight: 8 }} />
+            <Text style={styles.distanceText}>{formattedDistance}</Text>
+          </View>
+        </View>
 
         <View style={styles.divider} />
 
-        <View style={styles.infoRow}>
-          <Ionicons name="construct" size={24} color="#555" style={styles.infoIcon} />
-          <View>
-            <Text style={styles.infoLabel}>SERVICE TYPE</Text>
-            <Text style={styles.infoValue}>{formattedService}</Text>
+        {/* CUSTOMER DETAILS */}
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionHeaderRow}>
+            <View style={styles.sectionIconCircle}>
+              <Ionicons name="person-outline" size={18} color="#362A84" />
+            </View>
+            <Text style={styles.sectionTitle}>Customer Details</Text>
+          </View>
+
+          <View style={styles.customerContentRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.customerName}>{formattedCustomer}</Text>
+              <Text style={styles.customerPhone}>{formattedPhone}</Text>
+            </View>
+
+            <View style={styles.contactActionButtons}>
+              <TouchableOpacity style={styles.contactIconBtn} onPress={() => Linking.openURL(`tel:${formattedPhone}`)}>
+                <Ionicons name="call-outline" size={18} color="#362A84" />
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.contactIconBtn, { marginLeft: 8 }]} onPress={() => navigation.navigate('Chat', { requestId })}>
+                <Ionicons name="chatbubble-ellipses-outline" size={18} color="#362A84" />
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
 
-        <View style={styles.infoRow}>
-          <Ionicons name="car-sport" size={24} color="#555" style={styles.infoIcon} />
-          <View>
-            <Text style={styles.infoLabel}>VEHICLE TYPE</Text>
-            <Text style={styles.infoValue}>{formattedVehicle}</Text>
+        {/* VEHICLE DETAILS */}
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionHeaderRow}>
+            <View style={styles.sectionIconCircle}>
+              <Ionicons name="car-outline" size={18} color="#362A84" />
+            </View>
+            <Text style={styles.sectionTitle}>Vehicle Details</Text>
           </View>
+          <Text style={styles.vehicleInfoText}>{formattedVehicle}</Text>
         </View>
 
-        <View style={styles.infoRow}>
-          <Ionicons name="location" size={24} color="#555" style={styles.infoIcon} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.infoLabel}>LOCATION</Text>
-            <Text style={styles.infoValue} numberOfLines={2}>{customerAddress || 'Nearby Coordinates'}</Text>
+        {/* SPECIAL INSTRUCTIONS */}
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionHeaderRow}>
+            <View style={styles.sectionIconCircle}>
+              <Ionicons name="document-text-outline" size={18} color="#362A84" />
+            </View>
+            <Text style={styles.sectionTitle}>Special Instructions</Text>
+          </View>
+          <Text style={styles.instructionsText}>{formattedNotes}</Text>
+        </View>
+
+        {/* ESTIMATED EARNINGS */}
+        <View style={styles.earningsCard}>
+          <Text style={styles.earningsLabel}>Estimated Earnings</Text>
+          <View style={styles.earningsAmountRow}>
+            <Text style={styles.earningsAmount}>₹{formattedPrice}</Text>
+            <Text style={styles.basePriceSub}>(Base Price)</Text>
           </View>
         </View>
-      </View>
+      </ScrollView>
 
-      {/* Buttons Area */}
-      <View style={styles.buttonsContainer}>
-        <TouchableOpacity style={[styles.btn, styles.declineBtn]} onPress={handleDecline}>
-          <Ionicons name="close" size={28} color="#fff" />
-          <Text style={styles.btnText}>Decline</Text>
-        </TouchableOpacity>
+      {/* BOTTOM ACTION BAR */}
+      <View style={styles.bottomBar}>
+        <View style={styles.buttonRow}>
+          <TouchableOpacity style={styles.rejectBtn} onPress={handleDecline}>
+            <Text style={styles.rejectBtnText}>Reject</Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity style={[styles.btn, styles.acceptBtn]} onPress={handleAccept}>
-          <Ionicons name="checkmark" size={28} color="#fff" />
-          <Text style={styles.btnText}>Accept</Text>
-        </TouchableOpacity>
+          <TouchableOpacity style={styles.acceptBtn} onPress={handleAccept}>
+            <Text style={styles.acceptBtnText}>Accept Job</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.timerRow}>
+          <Ionicons name="time-outline" size={14} color="#64748B" style={{ marginRight: 4 }} />
+          <Text style={styles.timerBarText}>Auto accept in {timeLeft} sec</Text>
+        </View>
+        <View style={styles.timerBarTrack}>
+          <View style={[styles.timerBarFill, { width: `${(timeLeft / 20) * 100}%` }]} />
+        </View>
       </View>
     </View>
   );
+  } catch (renderError) {
+    console.error('[CRITICAL IncomingRequestScreen RENDER ERROR]', renderError);
+    Alert.alert('RENDER ERROR', renderError.message || String(renderError));
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F8FAFC' }}>
+        <Text style={{ fontSize: 16, color: '#EF4444', fontWeight: 'bold' }}>Error rendering request</Text>
+        <TouchableOpacity style={{ marginTop: 20, padding: 12, backgroundColor: '#362A84', borderRadius: 8 }} onPress={() => navigation.goBack()}>
+          <Text style={{ color: '#FFF' }}>Go Back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#F4F5FB',
   },
   header: {
-    backgroundColor: '#E8192C',
-    paddingTop: 60,
-    paddingBottom: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderBottomLeftRadius: 30,
-    borderBottomRightRadius: 30,
-    elevation: 8,
-    shadowColor: '#E8192C',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
-  },
-  incomingText: {
-    color: '#ffffff',
-    fontSize: 18,
-    fontWeight: 'bold',
-    letterSpacing: 2,
-  },
-  timerText: {
-    color: '#ffffff',
-    fontSize: 42,
-    fontWeight: 'bold',
-    marginTop: 8,
-  },
-  content: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-  },
-  avatarCircle: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: '#FFEBEB',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 20,
-  },
-  customerName: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#1a1a2e',
-    textAlign: 'center',
-  },
-  distanceText: {
-    fontSize: 18,
-    color: '#E8192C',
-    fontWeight: '600',
-    marginTop: 6,
-    textAlign: 'center',
-  },
-  divider: {
-    width: '80%',
-    height: 1,
-    backgroundColor: '#eee',
-    marginVertical: 30,
-  },
-  infoRow: {
+    backgroundColor: '#362A84',
+    paddingTop: 46,
+    paddingHorizontal: 20,
+    paddingBottom: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    width: '80%',
-    marginBottom: 24,
+    justifyContent: 'space-between',
   },
-  infoIcon: {
-    marginRight: 16,
-    width: 30,
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  infoLabel: {
-    fontSize: 12,
-    color: '#888',
-    fontWeight: '600',
-    letterSpacing: 1,
-  },
-  infoValue: {
-    fontSize: 16,
-    color: '#222',
+  headerTitle: {
+    color: '#FFFFFF',
+    fontSize: 18,
     fontWeight: 'bold',
-    marginTop: 2,
   },
-  buttonsContainer: {
+  scrollContent: {
+    padding: 20,
+    paddingBottom: 120,
+  },
+  badgeRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    paddingBottom: 48,
-    backgroundColor: '#ffffff',
-  },
-  btn: {
-    flex: 1,
-    flexDirection: 'row',
-    height: 64,
-    borderRadius: 32,
     alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
+    marginBottom: 12,
   },
-  declineBtn: {
-    backgroundColor: '#888888',
-    marginRight: 12,
+  newRequestBadge: {
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  newRequestText: {
+    color: '#4F46E5',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  timeAgoText: {
+    color: '#94A3B8',
+    fontSize: 12,
+  },
+  titlePriceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  serviceTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#1E293B',
+  },
+  priceText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#059669',
+  },
+  locationContainer: {
+    marginBottom: 16,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 6,
+  },
+  addressText: {
+    fontSize: 14,
+    color: '#475569',
+    flex: 1,
+    lineHeight: 20,
+  },
+  distanceText: {
+    fontSize: 13,
+    color: '#059669',
+    fontWeight: '600',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#E2E8F0',
+    marginVertical: 16,
+  },
+  sectionCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 14,
+    shadowColor: '#362A84',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  sectionIconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#EEF2FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#1E293B',
+  },
+  customerContentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  customerName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#1E293B',
+  },
+  customerPhone: {
+    fontSize: 13,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  contactActionButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  contactIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#EEF2FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  vehicleInfoText: {
+    fontSize: 14,
+    color: '#475569',
+    fontWeight: '500',
+  },
+  instructionsText: {
+    fontSize: 13,
+    color: '#64748B',
+    lineHeight: 18,
+  },
+  earningsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+    shadowColor: '#362A84',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  earningsLabel: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#1E293B',
+  },
+  earningsAmountRow: {
+    alignItems: 'flex-end',
+  },
+  earningsAmount: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#059669',
+  },
+  basePriceSub: {
+    fontSize: 11,
+    color: '#64748B',
+  },
+  bottomBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  rejectBtn: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#EF4444',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  rejectBtnText: {
+    color: '#EF4444',
+    fontSize: 15,
+    fontWeight: 'bold',
   },
   acceptBtn: {
-    backgroundColor: '#27AE60',
-    marginLeft: 12,
-  },
-  btnText: {
-    color: '#ffffff',
-    fontSize: 18,
-    fontWeight: 'bold',
+    flex: 1,
+    backgroundColor: '#362A84',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
     marginLeft: 8,
+  },
+  acceptBtnText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  timerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  timerBarText: {
+    fontSize: 11,
+    color: '#64748B',
+  },
+  timerBarTrack: {
+    height: 4,
+    backgroundColor: '#EEF2FF',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  timerBarFill: {
+    height: '100%',
+    backgroundColor: '#362A84',
+    borderRadius: 2,
   },
 });
 

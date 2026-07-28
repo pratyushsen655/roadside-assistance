@@ -86,7 +86,7 @@ const ProgressTracker = ({ currentStep }) => {
   );
 };
 
-export default function OnTheWayScreen() {
+const OnTheWayScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
   const { requestId } = route.params || {};
@@ -505,119 +505,39 @@ export default function OnTheWayScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Top green accent bar */}
-      <View style={styles.topAccent} />
+      {/* 1. DEEP INDIGO HEADER */}
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.navigate('Home')}>
+          <Ionicons name="arrow-back" size={22} color="#FFFFFF" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Job In Progress</Text>
+        <TouchableOpacity style={styles.shieldBtn} onPress={() => navigation.navigate('SOSAlerts')}>
+          <Ionicons name="shield-checkmark-outline" size={22} color="#FFFFFF" />
+        </TouchableOpacity>
+      </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* STATUS CARD */}
-        <View style={styles.card}>
-          <View style={styles.statusRow}>
-            <View style={styles.statusIconWrapper}>
-              <View style={styles.greenCircleIcon}>
-                <MaterialCommunityIcons name="scooter" size={20} color="#fff" />
-              </View>
-            </View>
-            <View style={styles.statusTextWrapper}>
-              <Text style={styles.statusTitle}>On the Way</Text>
-              <Text style={styles.statusSubtitle}>Head to the customer location</Text>
-            </View>
-            <View style={styles.etaWrapper}>
-              <Text style={styles.etaLabel}>ETA</Text>
-              <Text style={styles.etaValue}>{eta}</Text>
-            </View>
-          </View>
-          {/* Progress Tracker */}
-          <ProgressTracker currentStep={currentStep} />
-        </View>
-
-        {/* CUSTOMER INFO CARD */}
-        <View style={styles.card}>
-          <View style={styles.customerRow}>
-            {customerObj.photo ? (
-              <Image source={{ uri: customerObj.photo }} style={styles.customerAvatar} />
-            ) : (
-              <View style={[styles.customerAvatar, { backgroundColor: '#E5E7EB', alignItems: 'center', justifyContent: 'center' }]}>
-                <Ionicons name="person" size={24} color="#9CA3AF" />
-              </View>
-            )}
-            <View style={styles.customerInfo}>
-              <Text style={styles.customerName}>{customerObj.name || 'Customer'}</Text>
-              <View style={styles.ratingRow}>
-                <MaterialCommunityIcons name="star" size={14} color="#F1C40F" />
-                <Text style={styles.ratingText}>
-                  {customerObj.rating?.toFixed(1) || '5.0'} ({customerObj.reviewsCount || 12})
+        {/* TOP JOB SUMMARY CARD */}
+        <View style={styles.jobSummaryCard}>
+          <View style={styles.jobSummaryHeaderRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.jobSummaryTitle}>{formatServiceType(request.serviceType || 'Flat/Puncture Repair')}</Text>
+              <View style={styles.locationRow}>
+                <Ionicons name="location-outline" size={14} color="#64748B" style={{ marginRight: 4 }} />
+                <Text style={styles.locationText} numberOfLines={1}>
+                  {request.customerAddress || 'DLF Cyber City, Phase 2 Gurugram, Haryana'}
                 </Text>
               </View>
             </View>
-            <View style={styles.customerActions}>
-              <TouchableOpacity style={styles.outlinedGreenBtnCompact} onPress={handleCall}>
-                <Ionicons name="call" size={14} color="#27AE60" />
-                <Text style={styles.outlinedBtnTextCompact}>Call</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.outlinedGreenBtnCompact} onPress={handleChat}>
-                <MaterialCommunityIcons name="chat" size={14} color="#27AE60" />
-                <Text style={styles.outlinedBtnTextCompact}>Chat</Text>
-              </TouchableOpacity>
+            <View style={styles.inProgressBadge}>
+              <Text style={styles.inProgressBadgeText}>In Progress</Text>
             </View>
           </View>
         </View>
 
-        {/* SERVICE DETAILS CARD */}
-        <View style={styles.card}>
-          <View style={styles.serviceHeader}>
-            <MaterialCommunityIcons name="wrench" size={20} color="#27AE60" />
-            <Text style={styles.serviceHeaderText}>Service Details</Text>
-          </View>
-          <View style={styles.serviceDetailsRow}>
-            <View style={styles.serviceCol}>
-              <Text style={styles.serviceLabel}>Service</Text>
-              <Text style={styles.serviceValue}>{formatServiceType(request.serviceType)}</Text>
-            </View>
-            <View style={styles.verticalDivider} />
-            <View style={styles.serviceCol}>
-              <Text style={styles.serviceLabel}>Vehicle</Text>
-              <Text style={styles.serviceValue}>{request.vehicleModel || request.vehicleType || 'Car'}</Text>
-            </View>
-            <View style={styles.verticalDivider} />
-            <View style={styles.serviceCol}>
-              <View style={styles.labelWithIcon}>
-                <Ionicons name="card-outline" size={12} color="#6B7280" style={{ marginRight: 2 }} />
-                <Text style={styles.serviceLabel}>Vehicle No.</Text>
-              </View>
-              <Text style={styles.serviceValue}>{request.vehicleNumber?.trim() || 'Not provided'}</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* CUSTOMER LOCATION CARD */}
-        <View style={styles.card}>
-          <View style={styles.locationHeader}>
-            <MaterialCommunityIcons name="map-marker" size={20} color="#27AE60" />
-            <Text style={styles.locationHeaderText}>Customer Location</Text>
-          </View>
-          <Text style={styles.addressText}>{request.customerAddress || 'Address not provided'}</Text>
-          <View style={styles.locationStatsRow}>
-            <View style={styles.locationStatCol}>
-              <View style={styles.statLabelRow}>
-                <MaterialCommunityIcons name="wrench-clock" size={14} color="#27AE60" style={{ marginRight: 4 }} />
-                <Text style={styles.statLabel}>Distance</Text>
-              </View>
-              <Text style={styles.statValue}>{distance ? `${distance} km` : '--'}</Text>
-            </View>
-            <View style={styles.verticalDivider} />
-            <View style={styles.locationStatCol}>
-              <View style={styles.statLabelRow}>
-                <Ionicons name="time-outline" size={14} color="#27AE60" style={{ marginRight: 4 }} />
-                <Text style={styles.statLabel}>ETA</Text>
-              </View>
-              <Text style={styles.statValue}>{eta}</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* MAP VIEW */}
-        {isValidCoordinate(customerCoords) && (
-          <View style={styles.mapCard}>
+        {/* MAP VIEW CONTAINER */}
+        <View style={styles.mapCard}>
+          {isValidCoordinate(customerCoords) ? (
             <MapView
               style={styles.map}
               initialRegion={{
@@ -628,52 +548,86 @@ export default function OnTheWayScreen() {
               }}
               showsUserLocation={false}
             >
-              <Marker coordinate={customerCoords} pinColor="red" title="Customer Location" />
+              <Marker coordinate={customerCoords} title="Customer Location">
+                <View style={styles.customerMarkerPin}>
+                  <Text style={{ fontSize: 16 }}>📍</Text>
+                </View>
+              </Marker>
               {isValidCoordinate(mechanicLoc) && (
                 <Marker coordinate={mechanicLoc} title="Your Location">
                   <View style={styles.mechanicMarkerDot} />
                 </Marker>
               )}
               {isValidCoordinate(mechanicLoc) && (
-                <Polyline coordinates={[mechanicLoc, customerCoords]} strokeColor="#3498DB" strokeWidth={4} />
+                <Polyline coordinates={[mechanicLoc, customerCoords]} strokeColor="#4F46E5" strokeWidth={4} />
               )}
             </MapView>
-          </View>
-        )}
+          ) : (
+            <View style={styles.mapFallback}>
+              <Ionicons name="map-outline" size={40} color="#94A3B8" />
+              <Text style={styles.mapFallbackText}>Live Map Navigation</Text>
+            </View>
+          )}
 
-        {/* ACTION BUTTON ROW */}
-        <View style={styles.actionRow}>
-          <TouchableOpacity style={styles.solidGreenBtn} onPress={handleStartNavigation}>
-            <Ionicons name="navigate" size={16} color="#fff" />
-            <Text style={styles.solidBtnText}>Start Navigation</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.outlinedGreenBtn} onPress={handleCall}>
-            <Ionicons name="call" size={16} color="#27AE60" />
-            <Text style={styles.outlinedBtnText}>Call Customer</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.outlinedGreenBtn} onPress={handleChat}>
-            <MaterialCommunityIcons name="chat" size={16} color="#27AE60" />
-            <Text style={styles.outlinedBtnText}>Chat</Text>
+          {/* Map Overlay Pill */}
+          <View style={styles.mapDistanceOverlay}>
+            <Ionicons name="car-outline" size={16} color="#362A84" style={{ marginRight: 6 }} />
+            <Text style={styles.mapDistanceText}>{distance ? `${distance} km` : '2.4 km'} • {eta || '8 min'}</Text>
+          </View>
+
+          {/* Recenter Button */}
+          <TouchableOpacity style={styles.recenterBtn} onPress={handleStartNavigation}>
+            <Ionicons name="locate" size={20} color="#362A84" />
           </TouchableOpacity>
         </View>
 
-        {/* SAFETY NOTICE */}
-        <View style={styles.safetyCard}>
-          <View style={styles.safetyHeader}>
-            <MaterialCommunityIcons name="shield-check" size={20} color="#F39C12" />
-            <Text style={styles.safetyTitle}>Safety First</Text>
+        {/* CUSTOMER CARD */}
+        <View style={styles.sectionCard}>
+          <Text style={styles.cardSectionLabel}>Customer</Text>
+          <View style={styles.customerRow}>
+            <Text style={styles.customerName}>{customerObj.name || 'Ankit Verma'}</Text>
+
+            <View style={styles.actionIconRow}>
+              <TouchableOpacity style={styles.contactIconBtn} onPress={handleCall}>
+                <Ionicons name="call-outline" size={18} color="#362A84" />
+              </TouchableOpacity>
+
+              <TouchableOpacity style={[styles.contactIconBtn, { marginLeft: 8 }]} onPress={handleChat}>
+                <Ionicons name="chatbubble-ellipses-outline" size={18} color="#362A84" />
+              </TouchableOpacity>
+            </View>
           </View>
-          <Text style={styles.safetyText}>Please follow traffic rules and reach the customer safely.</Text>
         </View>
 
-        {/* BOTTOM ACTIONS */}
-        <View style={styles.bottomActionsContainer}>
-          <TouchableOpacity style={styles.arrivedBtn} onPress={handleArrived}>
-            <Text style={styles.arrivedBtnText}>I've Arrived at Location</Text>
+        {/* VEHICLE INFO CARD */}
+        <View style={styles.sectionCard}>
+          <Text style={styles.cardSectionLabel}>Vehicle</Text>
+          <Text style={styles.vehicleText}>
+            {request.vehicleModel || 'Honda City'} • {request.vehicleNumber || 'HR26DK1234'} • {request.vehicleColor || 'White'}
+          </Text>
+        </View>
+
+        {/* JOB AMOUNT CARD */}
+        <View style={styles.sectionCard}>
+          <View style={styles.priceRow}>
+            <View>
+              <Text style={styles.cardSectionLabel}>Job Amount</Text>
+              <Text style={styles.basePriceSub}>Base Price ₹{request.price || 150}</Text>
+            </View>
+            <Text style={styles.jobAmountText}>₹{request.price || 150}</Text>
+          </View>
+        </View>
+
+        {/* BOTTOM ACTION BUTTONS */}
+        <View style={styles.bottomButtonsContainer}>
+          <TouchableOpacity style={styles.markCompletedBtn} onPress={handleArrived}>
+            <Ionicons name="checkmark-circle-outline" size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
+            <Text style={styles.markCompletedText}>Mark as Completed</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowCancelModal(true)}>
-            <Ionicons name="close-circle" size={18} color="#E74C3C" style={{ marginRight: 6 }} />
-            <Text style={styles.cancelBtnText}>Cancel Job</Text>
+
+          <TouchableOpacity style={styles.needHelpBtn} onPress={() => Alert.alert('Support', 'Connecting to Roadside Assistance Support line...')}>
+            <Ionicons name="call-outline" size={16} color="#EF4444" style={{ marginRight: 6 }} />
+            <Text style={styles.needHelpText}>Need Help?</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -704,12 +658,12 @@ export default function OnTheWayScreen() {
         </View>
       </Modal>
 
-      {/* OTP verification Modal */}
+      {/* OTP Verification Modal */}
       <Modal visible={showOtpModal} transparent animationType="slide" onRequestClose={() => setShowOtpModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.otpModalContent}>
             <View style={styles.otpModalHeader}>
-              <Ionicons name="shield-checkmark" size={24} color="#27AE60" />
+              <Ionicons name="shield-checkmark" size={24} color="#362A84" />
               <Text style={styles.otpModalTitle}>Verify Arrival OTP</Text>
             </View>
             <Text style={styles.otpModalMessage}>
@@ -719,7 +673,7 @@ export default function OnTheWayScreen() {
             <View style={styles.otpInputRow}>
               {otpVal.map((digit, index) => (
                 <TextInput
-                   key={index}
+                  key={index}
                   ref={otpRefs[index]}
                   style={styles.otpBox}
                   keyboardType="number-pad"
@@ -761,141 +715,270 @@ export default function OnTheWayScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8F9FA' },
-  topAccent: { height: 4, backgroundColor: '#27AE60' },
-  scrollContent: { padding: 16, paddingBottom: 40 },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  errorText: { color: '#E74C3C', fontSize: 16 },
-  card: { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginVertical: 8, elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, shadowOffset: { width: 0, height: 2 } },
-  // STATUS CARD
-  statusRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
-  statusIconWrapper: { marginRight: 12 },
-  greenCircleIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#27AE60', justifyContent: 'center', alignItems: 'center' },
-  statusTextWrapper: { flex: 1 },
-  statusTitle: { fontSize: 18, fontWeight: 'bold', color: '#1F2937' },
-  statusSubtitle: { fontSize: 12, color: '#6B7280' },
-  etaWrapper: { alignItems: 'flex-end' },
-  etaLabel: { fontSize: 11, color: '#6B7280' },
-  etaValue: { fontSize: 24, fontWeight: 'bold', color: '#27AE60' },
-  // Progress Tracker
-  progressContainer: {
-    marginVertical: 4,
-    position: 'relative',
-  },
-  progressLineBg: {
-    position: 'absolute',
-    top: 13,
-    left: 30,
-    right: 30,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    zIndex: 0,
-  },
-  progressLineSegment: {
+  container: {
     flex: 1,
-    height: 2,
+    backgroundColor: '#F4F5FB',
   },
-  progressLineCompleted: {
-    borderColor: '#27AE60',
-    borderWidth: 1,
-    borderStyle: 'dashed',
-  },
-  progressLinePending: {
-    backgroundColor: '#B3B3B3',
-    height: 2,
-  },
-  stepsRow: {
+  header: {
+    backgroundColor: '#362A84',
+    paddingTop: 46,
+    paddingHorizontal: 20,
+    paddingBottom: 16,
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    zIndex: 1,
-  },
-  stepWrapper: {
     alignItems: 'center',
-    width: 70,
+    justifyContent: 'space-between',
   },
-  circle: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  stepLabel: { fontSize: 10, color: '#6B7280', marginTop: 6, textAlign: 'center' },
-  stepLabelCurrent: { color: '#27AE60', fontWeight: 'bold' },
-  // CUSTOMER INFO
-  customerRow: { flexDirection: 'row', alignItems: 'center' },
-  customerAvatar: { width: 50, height: 50, borderRadius: 25, marginRight: 12 },
-  customerInfo: { flex: 1 },
-  customerName: { fontSize: 16, fontWeight: 'bold', color: '#1F2937' },
-  ratingRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
-  ratingText: { fontSize: 12, color: '#4B5563', marginLeft: 4 },
-  customerActions: { flexDirection: 'row', gap: 6 },
-  outlinedGreenBtnCompact: { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: '#27AE60', borderRadius: 16, paddingHorizontal: 10, paddingVertical: 6, justifyContent: 'center' },
-  outlinedBtnTextCompact: { fontSize: 11, color: '#27AE60', marginLeft: 3, fontWeight: 'bold' },
-  // SERVICE DETAILS
-  serviceHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  serviceHeaderText: { fontSize: 15, fontWeight: 'bold', color: '#1F2937', marginLeft: 6 },
-  serviceDetailsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  serviceCol: { alignItems: 'center', flex: 1 },
-  serviceLabel: { fontSize: 11, color: '#6B7280' },
-  labelWithIcon: { flexDirection: 'row', alignItems: 'center' },
-  serviceValue: { fontSize: 13, fontWeight: 'bold', color: '#1F2937', marginTop: 3, textAlign: 'center' },
-  verticalDivider: { width: 1, backgroundColor: '#E5E7EB', height: 35 },
-  // LOCATION CARD
-  locationHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  locationHeaderText: { fontSize: 15, fontWeight: 'bold', color: '#1F2937', marginLeft: 6 },
-  addressText: { fontSize: 13, color: '#4B5563', marginBottom: 12, lineHeight: 18 },
-  locationStatsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  locationStatCol: { alignItems: 'center', flex: 1 },
-  statLabelRow: { flexDirection: 'row', alignItems: 'center' },
-  statLabel: { fontSize: 11, color: '#6B7280' },
-  statValue: { fontSize: 14, fontWeight: 'bold', color: '#1F2937', marginTop: 3 },
-  // MAP
-  mapCard: { height: 250, borderRadius: 12, overflow: 'hidden', marginVertical: 8, borderWidth: 1, borderColor: '#E5E7EB' },
-  map: { flex: 1 },
-  mechanicMarkerDot: { width: 16, height: 16, borderRadius: 8, backgroundColor: '#27AE60', borderWidth: 2, borderColor: '#fff' },
-  // ACTION ROW
-  actionRow: { flexDirection: 'row', justifyContent: 'space-between', marginVertical: 8, gap: 6 },
-  solidGreenBtn: { flex: 1.5, backgroundColor: '#27AE60', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, borderRadius: 8 },
-  outlinedGreenBtn: { flex: 1, borderColor: '#27AE60', borderWidth: 1.5, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, borderRadius: 8 },
-  solidBtnText: { color: '#fff', fontSize: 13, fontWeight: 'bold', marginLeft: 4 },
-  outlinedBtnText: { color: '#27AE60', fontSize: 13, fontWeight: 'bold', marginLeft: 4 },
-  // SAFETY NOTICE
-  safetyCard: { backgroundColor: '#FEF9E7', borderRadius: 12, padding: 16, marginVertical: 8, borderLeftWidth: 4, borderLeftColor: '#F39C12' },
-  safetyHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
-  safetyTitle: { fontSize: 14, fontWeight: 'bold', color: '#1F2937', marginLeft: 6 },
-  safetyText: { fontSize: 12, color: '#4B5563' },
-  // BOTTOM ACTIONS
-  bottomActionsContainer: { marginTop: 12, gap: 8 },
-  arrivedBtn: { backgroundColor: '#1E8449', paddingVertical: 14, borderRadius: 8, alignItems: 'center', justifyContents: 'center', elevation: 2 },
-  arrivedBtnText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
-  cancelBtn: { borderColor: '#E74C3C', borderWidth: 1.5, paddingVertical: 14, borderRadius: 8, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' },
-  cancelBtnText: { color: '#E74C3C', fontSize: 16, fontWeight: 'bold' },
-  // MODALS
+  shieldBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerTitle: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  scrollContent: {
+    padding: 20,
+    paddingBottom: 40,
+  },
+  jobSummaryCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#362A84',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  jobSummaryHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  jobSummaryTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1E293B',
+    marginBottom: 4,
+  },
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  locationText: {
+    fontSize: 13,
+    color: '#64748B',
+  },
+  inProgressBadge: {
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  inProgressBadgeText: {
+    color: '#4F46E5',
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  mapCard: {
+    height: 220,
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 16,
+    position: 'relative',
+    backgroundColor: '#FFFFFF',
+  },
+  map: {
+    width: '100%',
+    height: '100%',
+  },
+  mapFallback: {
+    flex: 1,
+    backgroundColor: '#EEF2FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mapFallbackText: {
+    color: '#64748B',
+    fontSize: 13,
+    marginTop: 6,
+  },
+  customerMarkerPin: {
+    backgroundColor: '#FFF',
+    borderRadius: 12,
+    padding: 4,
+  },
+  mechanicMarkerDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: '#4F46E5',
+    borderWidth: 2,
+    borderColor: '#FFF',
+  },
+  mapDistanceOverlay: {
+    position: 'absolute',
+    top: 14,
+    left: 14,
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  mapDistanceText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#1E293B',
+  },
+  recenterBtn: {
+    position: 'absolute',
+    bottom: 14,
+    right: 14,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  sectionCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#362A84',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  cardSectionLabel: {
+    fontSize: 12,
+    color: '#94A3B8',
+    marginBottom: 4,
+  },
+  customerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  customerName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#1E293B',
+  },
+  actionIconRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  contactIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#EEF2FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  vehicleText: {
+    fontSize: 14,
+    color: '#1E293B',
+    fontWeight: '500',
+  },
+  priceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  basePriceSub: {
+    fontSize: 12,
+    color: '#64748B',
+  },
+  jobAmountText: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#059669',
+  },
+  bottomButtonsContainer: {
+    marginTop: 10,
+    alignItems: 'center',
+  },
+  markCompletedBtn: {
+    backgroundColor: '#362A84',
+    borderRadius: 14,
+    width: '100%',
+    paddingVertical: 14,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  markCompletedText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  needHelpBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  needHelpText: {
+    color: '#EF4444',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  errorText: { color: '#EF4444', fontSize: 16 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  modalContent: { width: '85%', backgroundColor: '#fff', borderRadius: 16, padding: 24, elevation: 10 },
-  modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#1F2937', marginBottom: 8 },
-  modalMessage: { fontSize: 14, color: '#4B5563', lineHeight: 20, marginBottom: 16 },
-  cancelInput: { borderWidth: 1.5, borderColor: '#D1D5DB', borderRadius: 8, padding: 10, fontSize: 14, color: '#1F2937', marginBottom: 20 },
-  modalButtonsRow: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12 },
-  modalBtnKeep: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, justifyContent: 'center' },
-  modalBtnKeepText: { color: '#4B5563', fontWeight: 'bold', fontSize: 14 },
-  modalBtnConfirm: { backgroundColor: '#E74C3C', borderRadius: 8, paddingHorizontal: 16, paddingVertical: 10, justifyContent: 'center' },
-  modalBtnConfirmText: { color: '#fff', fontWeight: 'bold', fontSize: 14 },
-  // OTP Modal
-  otpModalContent: { width: '85%', backgroundColor: '#fff', borderRadius: 16, padding: 24, elevation: 10, alignItems: 'center' },
-  otpModalHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
-  otpModalTitle: { fontSize: 18, fontWeight: 'bold', color: '#1F2937' },
-  otpModalMessage: { fontSize: 13, color: '#6B7280', textAlign: 'center', marginBottom: 20, lineHeight: 18 },
-  otpInputRow: { flexDirection: 'row', gap: 12, justifyContent: 'center', marginBottom: 24 },
-  otpBox: { width: 50, height: 56, borderWidth: 2, borderColor: '#27AE60', borderRadius: 8, textAlign: 'center', fontSize: 24, fontWeight: 'bold', color: '#27AE60', backgroundColor: '#F4FBF7' },
-  otpActionRow: { flexDirection: 'row', gap: 12, alignSelf: 'stretch' },
-  otpCancelBtn: { flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#6B7280' },
-  otpCancelBtnText: { color: '#6B7280', fontWeight: 'bold' },
-  otpVerifyBtn: { flex: 2, backgroundColor: '#27AE60', paddingVertical: 12, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  otpVerifyBtnText: { color: '#fff', fontWeight: 'bold' },
-  otpErrorText: { color: '#E74C3C', fontSize: 13, marginBottom: 12, textAlign: 'center', fontWeight: 'bold' },
-  resendBtn: { marginVertical: 12, padding: 8 },
-  resendBtnText: { color: '#27AE60', fontWeight: 'bold', fontSize: 14, textDecorationLine: 'underline' },
+  modalContent: { backgroundColor: '#FFF', width: '85%', borderRadius: 16, padding: 20 },
+  modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#1E293B', marginBottom: 8 },
+  modalMessage: { fontSize: 13, color: '#64748B', marginBottom: 16 },
+  cancelInput: { borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 8, padding: 10, marginBottom: 16 },
+  modalButtonsRow: { flexDirection: 'row', justifyContent: 'flex-end' },
+  modalBtnKeep: { paddingVertical: 8, paddingHorizontal: 16, marginRight: 8 },
+  modalBtnKeepText: { color: '#64748B', fontWeight: 'bold' },
+  modalBtnConfirm: { backgroundColor: '#EF4444', borderRadius: 8, paddingVertical: 8, paddingHorizontal: 16 },
+  modalBtnConfirmText: { color: '#FFF', fontWeight: 'bold' },
+  otpModalContent: { backgroundColor: '#FFF', width: '85%', borderRadius: 16, padding: 20 },
+  otpModalHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  otpModalTitle: { fontSize: 18, fontWeight: 'bold', color: '#1E293B', marginLeft: 8 },
+  otpModalMessage: { fontSize: 13, color: '#64748B', marginBottom: 16 },
+  otpErrorText: { color: '#EF4444', fontSize: 12, marginBottom: 8 },
+  otpInputRow: { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 16 },
+  otpBox: { width: 44, height: 48, borderWidth: 1, borderColor: '#362A84', borderRadius: 8, textAlign: 'center', fontSize: 20, fontWeight: 'bold' },
+  resendBtn: { alignSelf: 'center', marginBottom: 16 },
+  resendBtnText: { color: '#4F46E5', fontSize: 12, fontWeight: '600' },
+  otpActionRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  otpCancelBtn: { flex: 1, paddingVertical: 10, alignItems: 'center' },
+  otpCancelBtnText: { color: '#64748B', fontWeight: 'bold' },
+  otpVerifyBtn: { flex: 1.5, backgroundColor: '#362A84', borderRadius: 8, paddingVertical: 10, alignItems: 'center' },
+  otpVerifyBtnText: { color: '#FFF', fontWeight: 'bold' },
 });
+
+export default OnTheWayScreen;

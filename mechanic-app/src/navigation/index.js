@@ -1,5 +1,5 @@
 import React, { useContext } from 'react';
-import { Text, View, ActivityIndicator } from 'react-native';
+import { Text, View, ActivityIndicator, Platform } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -37,32 +37,35 @@ const AuthStack = () => (
 
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, TouchableOpacity } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const MainTabs = () => (
-  <Tab.Navigator
-    screenOptions={{
-      headerShown: false,
-      tabBarStyle: {
-        backgroundColor: '#1a1a2e',
-        borderTopColor: '#252542',
-        borderTopWidth: 1,
-        paddingBottom: 5,
-        height: 70,
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        elevation: 10,
-        shadowColor: '#000000',
-        shadowOffset: { width: 0, height: -3 },
-        shadowOpacity: 0.3,
-        shadowRadius: 5,
-        zIndex: 100,
-      },
-      tabBarActiveTintColor: '#00BFA5',
-      tabBarInactiveTintColor: '#aaaaaa',
-    }}
-  >
+const MainTabs = () => {
+  const insets = useSafeAreaInsets();
+  const bottomInset = Platform.OS === 'android' ? Math.max(insets.bottom, 28) : Math.max(insets.bottom, 12);
+
+  return (
+    <Tab.Navigator
+      safeAreaInsets={{ bottom: bottomInset }}
+      screenOptions={{
+        headerShown: false,
+        tabBarStyle: {
+          backgroundColor: '#362A84',
+          borderTopColor: 'rgba(255, 255, 255, 0.1)',
+          borderTopWidth: 1,
+          height: 60 + bottomInset,
+          paddingBottom: bottomInset,
+          paddingTop: 8,
+          elevation: 10,
+          shadowColor: '#000000',
+          shadowOffset: { width: 0, height: -3 },
+          shadowOpacity: 0.3,
+          shadowRadius: 5,
+          zIndex: 100,
+        },
+        tabBarActiveTintColor: '#FFFFFF',
+        tabBarInactiveTintColor: '#94A3B8',
+      }}
+    >
     <Tab.Screen 
       name="Home" 
       component={HomeScreen} 
@@ -110,7 +113,8 @@ const MainTabs = () => (
       }} 
     />
   </Tab.Navigator>
-);
+  );
+};
 
 const navStyles = StyleSheet.create({
   floatingTabButton: {

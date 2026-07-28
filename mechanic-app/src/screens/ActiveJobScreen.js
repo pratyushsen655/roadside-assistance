@@ -8,38 +8,6 @@ import { AuthContext } from '../context/AuthContext';
 import { getSocket } from '../config/socket';
 import API_URL from '../config/api';
 
-let QRCode;
-try {
-  QRCode = require('react-native-qrcode-svg').default;
-} catch (e) {
-  QRCode = null;
-}
-
-const RenderQR = ({ value, size = 200 }) => {
-  const [useFallback, setUseFallback] = useState(!QRCode);
-
-  if (!useFallback && QRCode) {
-    try {
-      return (
-        <View style={{ padding: 12, backgroundColor: '#ffffff', borderRadius: 16 }}>
-          <QRCode value={value} size={size} color="#000000" backgroundColor="#ffffff" onError={() => setUseFallback(true)} />
-        </View>
-      );
-    } catch (e) {
-      return (
-        <View style={{ padding: 12, backgroundColor: '#ffffff', borderRadius: 16 }}>
-          <Image source={{ uri: `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(value)}&size=${size}x${size}` }} style={{ width: size, height: size }} />
-        </View>
-      );
-    }
-  }
-
-  return (
-    <View style={{ padding: 12, backgroundColor: '#ffffff', borderRadius: 16 }}>
-      <Image source={{ uri: `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(value)}&size=${size}x${size}` }} style={{ width: size, height: size }} />
-    </View>
-  );
-};
 
 
 const { width, height } = Dimensions.get('window');
@@ -148,9 +116,6 @@ export default function ActiveJobScreen({ route, navigation }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [showChecklistModal, setShowChecklistModal] = useState(false);
 
-  const [qrLoading, setQrLoading] = useState(false);
-  const [qrCodeUrl, setQrCodeUrl] = useState('');
-  const [qrMethod, setQrMethod] = useState(''); // 'qr' or 'payment_link'
   const [paymentPaid, setPaymentPaid] = useState(false);
   const [finalAmount, setFinalAmount] = useState(0);
   
@@ -326,14 +291,10 @@ export default function ActiveJobScreen({ route, navigation }) {
     }, 3000);
   };
 
-  const generatePaymentQR = async () => {
-    if (isMounted.current) {
-      setQrLoading(true);
-      setPaymentPaid(false);
-      setQrCodeUrl('');
-    }
+
+  const simulatePaymentSuccess = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/payments/create-qr-order`, {
+      const response = await fetch(`${API_URL}/api/payments/simulate-payment`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -343,22 +304,13 @@ export default function ActiveJobScreen({ route, navigation }) {
       });
       const data = await response.json();
       if (data.success) {
-        if (isMounted.current) {
-          setQrCodeUrl(data.qrUrl);
-          setQrMethod(data.method);
-          setFinalAmount(data.amount || earnings || 350);
-        }
-        startPaymentPolling();
+        handlePaymentSuccess();
       } else {
-        Alert.alert('Payment Setup Failed', data.message || 'Could not generate QR payment.');
+        Alert.alert('Simulation Failed', data.message || 'Could not simulate payment.');
       }
     } catch (err) {
-      console.error('[ActiveJobScreen] Error generating payment QR:', err);
-      Alert.alert('Error', 'Unable to reach payment server.');
-    } finally {
-      if (isMounted.current) {
-        setQrLoading(false);
-      }
+      console.error('[ActiveJobScreen] Error simulating payment:', err);
+      Alert.alert('Error', 'Unable to reach payment server for simulation.');
     }
   };
 
@@ -403,8 +355,9 @@ export default function ActiveJobScreen({ route, navigation }) {
           if (isMounted.current) {
             setEarnings(data.earningsEarned || 350);
             setFinalAmount(data.earningsEarned || 350);
+            setPaymentPaid(false);
             setShowCompleteModal(true);
-            generatePaymentQR();
+            startPaymentPolling();
           }
         }
       } else {
@@ -573,73 +526,41 @@ export default function ActiveJobScreen({ route, navigation }) {
       <Modal visible={showCompleteModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            {qrLoading ? (
-              <View style={{ alignItems: 'center', padding: 20 }}>
-                <ActivityIndicator size="large" color="#00BFA5" style={{ marginBottom: 15 }} />
-                <Text style={styles.modalTitle}>Generating Payment QR...</Text>
-                <Text style={styles.modalText}>Fetching secure order from Razorpay</Text>
+            {!paymentPaid ? (
+              <View style={{ alignItems: 'center', width: '100%' }}>
+                <Text style={styles.modalTitle}>Waiting for Payment</Text>
+                <Text style={[styles.earningsValue, { marginBottom: 20 }]}>₹{finalAmount}</Text>
+                
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, marginBottom: 20 }}>
+                  <ActivityIndicator size="small" color="#00BFA5" style={{ marginRight: 8 }} />
+                  <Text style={{ color: '#aaaaaa', fontSize: 14 }}>Waiting for customer payment...</Text>
+                </View>
+
+                {(__DEV__ || (typeof API_URL === 'string' && API_URL.includes('localhost'))) && (
+                  <TouchableOpacity
+                    style={[styles.modalBtn, { marginTop: 20, backgroundColor: '#E67E22' }]}
+                    onPress={simulatePaymentSuccess}
+                  >
+                    <Text style={styles.modalBtnText}>⚡ Simulate Payment Success</Text>
+                  </TouchableOpacity>
+                )}
               </View>
-            ) : qrCodeUrl ? (
-              !paymentPaid ? (
-                <View style={{ alignItems: 'center', width: '100%' }}>
-                  <Text style={styles.modalTitle}>Scan to Pay</Text>
-                  <Text style={[styles.earningsValue, { marginBottom: 20 }]}>₹{finalAmount}</Text>
-                  
-                  <RenderQR value={qrCodeUrl} size={200} />
-                  
-                  <Text style={[styles.modalText, { marginTop: 20, marginBottom: 5 }]}>
-                    {qrMethod === 'qr' ? 'UPI QR Code' : 'Payment Link QR Code'}
-                  </Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10 }}>
-                    <ActivityIndicator size="small" color="#00BFA5" style={{ marginRight: 8 }} />
-                    <Text style={{ color: '#aaaaaa', fontSize: 14 }}>Waiting for customer payment...</Text>
-                  </View>
-                </View>
-              ) : (
-                <View style={{ alignItems: 'center', width: '100%' }}>
-                  <Text style={styles.modalSuccessIcon}>✅</Text>
-                  <Text style={styles.modalTitle}>Payment Received!</Text>
-                  <Text style={styles.modalText}>Customer has paid the total amount of ₹{finalAmount}.</Text>
-
-                  <View style={styles.earningsBox}>
-                    <Text style={styles.earningsLabel}>Your Net Earnings (80%)</Text>
-                    <Text style={styles.earningsValue}>₹{earnings}</Text>
-                  </View>
-
-                  <TouchableOpacity
-                    style={[styles.modalBtn, { backgroundColor: '#1E88E5', marginBottom: 12 }]}
-                    onPress={() => Linking.openURL(`${API_URL}/api/requests/${jobId}/invoice`)}
-                  >
-                    <Text style={styles.modalBtnText}>📄 View PDF Invoice</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.modalBtn}
-                    onPress={() => {
-                      setShowCompleteModal(false);
-                      navigation.navigate('Home');
-                    }}
-                  >
-                    <Text style={styles.modalBtnText}>Back to Home</Text>
-                  </TouchableOpacity>
-                </View>
-              )
             ) : (
               <View style={{ alignItems: 'center', width: '100%' }}>
-                <Text style={styles.modalSuccessIcon}>🎉</Text>
-                <Text style={styles.modalTitle}>Job Completed!</Text>
-                <Text style={styles.modalText}>You have successfully resolved the breakdown request.</Text>
+                <Text style={styles.modalSuccessIcon}>✅</Text>
+                <Text style={styles.modalTitle}>Payment Received!</Text>
+                <Text style={styles.modalText}>Customer has paid the total amount of ₹{finalAmount}.</Text>
 
                 <View style={styles.earningsBox}>
-                  <Text style={styles.earningsLabel}>Earnings Earned</Text>
+                  <Text style={styles.earningsLabel}>Your Net Earnings (80%)</Text>
                   <Text style={styles.earningsValue}>₹{earnings}</Text>
                 </View>
 
                 <TouchableOpacity
-                  style={[styles.modalBtn, { backgroundColor: '#E74C3C', marginBottom: 12 }]}
-                  onPress={generatePaymentQR}
+                  style={[styles.modalBtn, { backgroundColor: '#1E88E5', marginBottom: 12 }]}
+                  onPress={() => Linking.openURL(`${API_URL}/api/requests/${jobId}/invoice`)}
                 >
-                  <Text style={styles.modalBtnText}>Retry Generating QR Code</Text>
+                  <Text style={styles.modalBtnText}>📄 View PDF Invoice</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity

@@ -2,6 +2,7 @@
   "expo": {
     "name": "RoadMitra",
     "slug": "roadside-customer-app",
+    "owner": "pratyushsen4321",
     "version": "1.0.0",
     "icon": "./assets/icon.png",
     "splash": {
@@ -26,7 +27,8 @@
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION",
-        "INTERNET"
+        "INTERNET",
+        "ACCESS_NETWORK_STATE"
       ],
       "config": {
         "googleMaps": {
@@ -38,20 +40,15 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-font",
-      "expo-status-bar",
-      "expo-sharing"
+      "expo-font"
     ],
-    "extra": {
-      "eas": {
-        "projectId": "eb0f84c2-b175-4fb3-8082-af8ce4e99aa9"
-      }
-    },
     "cli": {
       "appVersionSource": "native"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "b136a2fb-7e99-4322-ba3a-946e9d29ce2f"
+      }
     }
-  },
-  "cli": {
-    "appVersionSource": "native"
   }
 }

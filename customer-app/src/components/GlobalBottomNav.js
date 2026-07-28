@@ -1,6 +1,6 @@
 // src/components/GlobalBottomNav.js
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Dimensions } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Dimensions, Platform } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
@@ -10,6 +10,7 @@ const { width } = Dimensions.get('window');
 
 export default function GlobalBottomNav({ state: propState, navigation: propNavigation }) {
   const insets = useSafeAreaInsets();
+  const safeBottom = Platform.OS === 'android' ? Math.max(insets.bottom, 28) : Math.max(insets.bottom, 16);
   const { t } = useTranslation();
 
   // Try to use navigation from props first, then from hooks
@@ -49,7 +50,7 @@ export default function GlobalBottomNav({ state: propState, navigation: propNavi
   };
 
   return (
-    <View style={[styles.bottomNavBar, { bottom: Math.max(insets.bottom, 16) }]}>
+    <View style={[styles.bottomNavBar, { bottom: safeBottom }]}>
       {/* Home Tab */}
       <TouchableOpacity 
         style={styles.navTab} 

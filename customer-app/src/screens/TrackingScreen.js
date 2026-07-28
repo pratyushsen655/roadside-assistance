@@ -2,6 +2,7 @@ import React, { useEffect, useState, useContext, useRef } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Linking, Alert, Dimensions, ActivityIndicator
 } from 'react-native';
+import API_URL from '../config/api';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
@@ -62,7 +63,6 @@ export default function TrackingScreen({ route, navigation }) {
     if (!jobId || !token) return;
     const fetchRequestDetails = async () => {
       try {
-        const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://roadside-assistance-production-ddaf.up.railway.app';
         const res = await fetch(`${API_URL}/api/requests/${jobId}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
@@ -87,7 +87,6 @@ export default function TrackingScreen({ route, navigation }) {
     if (!mechanicId) return;
     const fetchRating = async () => {
       try {
-        const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://roadside-assistance-production-ddaf.up.railway.app';
         const res = await fetch(`${API_URL}/api/ratings/mechanic/${mechanicId}`);
         const data = await res.json();
         if (res.ok && data && data.ratings) {
@@ -119,27 +118,45 @@ export default function TrackingScreen({ route, navigation }) {
     (async () => {
       try {
         let { status: permissionStatus } = await Location.requestForegroundPermissionsAsync();
-        if (permissionStatus === 'granted') {
-          let loc = null;
-          try {
-            loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-          } catch {
-            // GPS unavailable (device indoors, location services off, etc.)
-            // Fall back to last known position so the map still renders
-            loc = await Location.getLastKnownPositionAsync();
+        if (permissionStatus !== 'granted') {
+          if (isMounted.current) setMapLoading(false);
+          return;
+        }
+
+        // 1. Use cached last-known position to unblock the map immediately
+        const lastKnown = await Location.getLastKnownPositionAsync({ maxAge: 60000 }).catch(() => null);
+        if (lastKnown && lastKnown.coords) {
+          if (isMounted.current) {
+            setCustomerCoords({
+              latitude: lastKnown.coords.latitude,
+              longitude: lastKnown.coords.longitude
+            });
+            setMapLoading(false); // Show map right away
           }
-          if (loc) {
-            if (isMounted.current) {
-              setCustomerCoords({
-                latitude: loc.coords.latitude,
-                longitude: loc.coords.longitude
-              });
-            }
+        }
+
+        // 2. Fetch fresh location in background with Balanced accuracy, raced with 8s timeout
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Location timeout')), 8000)
+        );
+        try {
+          const fresh = await Promise.race([
+            Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+            timeoutPromise
+          ]);
+          if (fresh && fresh.coords && isMounted.current) {
+            setCustomerCoords({
+              latitude: fresh.coords.latitude,
+              longitude: fresh.coords.longitude
+            });
           }
+        } catch (raceErr) {
+          // GPS unavailable or timed out — last-known or route.params coords remain
+          console.log('[TrackingScreen] Fresh location timed out or failed:', raceErr.message);
         }
       } catch (err) {
         // Permission denied or another OS-level error — silently keep route.params coords
-        console.log('Location permission/fetch error (using route params fallback):', err?.message);
+        console.log('[TrackingScreen] Location permission/fetch error (using route params fallback):', err?.message);
       } finally {
         if (isMounted.current) {
           setMapLoading(false);
@@ -255,7 +272,6 @@ export default function TrackingScreen({ route, navigation }) {
           style: 'destructive',
           onPress: async () => {
             try {
-              const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://roadside-assistance-production-ddaf.up.railway.app';
               const response = await fetch(`${API_URL}/api/requests/${jobId}`, {
                 method: 'PUT',
                 headers: {

@@ -31,6 +31,8 @@ import BikeServiceRatesScreen from '../screens/BikeServiceRatesScreen';
 import CarServiceRatesScreen from '../screens/CarServiceRatesScreen';
 import SOSCustomerBoardScreen from '../screens/SOSCustomerBoardScreen';
 import SearchingScreen from '../screens/SearchingScreen';
+import MoreVehiclesScreen from '../screens/MoreVehiclesScreen';
+import ServiceRatesScreen from '../screens/ServiceRatesScreen';
 
 
 const Stack = createNativeStackNavigator();
@@ -79,6 +81,8 @@ export default function RootNavigator() {
           />
           <Stack.Screen name="BikeServiceRates" component={BikeServiceRatesScreen} />
           <Stack.Screen name="CarServiceRates" component={CarServiceRatesScreen} />
+          <Stack.Screen name="MoreVehicles" component={MoreVehiclesScreen} />
+          <Stack.Screen name="ServiceRates" component={ServiceRatesScreen} />
         </>
       ) : (
         <>

@@ -1,36 +1,74 @@
 import React, { useState, useEffect, useRef, useContext } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
-  SafeAreaView, ActivityIndicator, Alert, Modal, Animated, Platform
+  SafeAreaView, ActivityIndicator, Alert, Animated, Platform,
+  Linking, AppState
 } from 'react-native';
 import { AuthContext, API_URL } from '../context/AuthContext';
 import { downloadInvoice } from '../utils/downloadInvoice';
 
-// Safe require for react-native-razorpay to support Expo Go simulations
-let RazorpayCheckout;
-try {
-  RazorpayCheckout = require('react-native-razorpay').default;
-} catch (e) {
-  console.log('[PaymentScreen] Razorpay SDK not available natively (common in Expo Go/development). Fallback simulator will be used.');
-}
-
 export default function PaymentScreen({ route, navigation }) {
   const { jobId, mechanicName, amount } = route.params || {};
-  const { token, user } = useContext(AuthContext);
+  const { token } = useContext(AuthContext);
 
   const [loading, setLoading] = useState(false);
-  const [showSimModal, setShowSimModal] = useState(false);
+  const [verificationLoading, setVerificationLoading] = useState(false);
   const [showSuccessOverlay, setShowSuccessOverlay] = useState(false);
+  
+  // UPI Flow States
+  const [paymentStatus, setPaymentStatus] = useState('PENDING'); // PENDING, SUBMITTED, SUCCESS, FAILURE, CANCELLED
+  const [noUpiApp, setNoUpiApp] = useState(false);
+  const [orderId, setOrderId] = useState('');
 
   // Animation Refs
   const checkScale = useRef(new Animated.Value(0)).current;
   const overlayOpacity = useRef(new Animated.Value(0)).current;
 
-  const baseFare = amount ? amount - 29 : 321;
-  const platformFee = 29;
   const totalAmount = amount || 350;
 
-  // Function to show success animation and redirect
+  // Check if UPI apps are installed on mount
+  useEffect(() => {
+    const checkUpiPresence = async () => {
+      try {
+        const dummyUri = 'upi://pay?pa=merchant@upi&pn=RescueAssist&am=10&cu=INR&tn=test';
+        const canOpen = await Linking.canOpenURL(dummyUri);
+        setNoUpiApp(!canOpen);
+      } catch (err) {
+        console.log('[PaymentScreen] Error checking UPI app presence:', err);
+        setNoUpiApp(true);
+      }
+    };
+    checkUpiPresence();
+  }, []);
+
+  // Poll payment status every 3 seconds while in SUBMITTED state
+  useEffect(() => {
+    let intervalId;
+    if (paymentStatus === 'SUBMITTED' && jobId) {
+      intervalId = setInterval(pollPaymentStatus, 3000);
+    }
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
+  }, [paymentStatus, orderId]);
+
+  // Monitor AppState change (when returning from UPI app)
+  useEffect(() => {
+    const handleAppStateChange = (nextAppState) => {
+      if (nextAppState === 'active' && paymentStatus === 'SUBMITTED') {
+        pollPaymentStatus();
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => {
+      subscription.remove();
+    };
+  }, [paymentStatus, orderId]);
+
+  // Function to show success animation
   const triggerSuccessAnimation = () => {
     setShowSuccessOverlay(true);
     Animated.parallel([
@@ -48,9 +86,10 @@ export default function PaymentScreen({ route, navigation }) {
     ]).start();
   };
 
-  // Pay Now tap handler
+  // Create Order and launch UPI app
   const handlePayNow = async () => {
     setLoading(true);
+    setPaymentStatus('PENDING');
     try {
       // 1. Create order on backend
       const resOrder = await fetch(`${API_URL}/api/payments/create-order`, {
@@ -64,212 +103,190 @@ export default function PaymentScreen({ route, navigation }) {
 
       const orderData = await resOrder.json();
       if (!resOrder.ok) {
-        throw new Error(orderData.message || 'Failed to create Razorpay order');
+        throw new Error(orderData.message || 'Failed to create payment order');
       }
 
-      const { orderId, keyId } = orderData;
+      const fetchedOrderId = orderData.orderId;
+      setOrderId(fetchedOrderId);
 
-      // 2. Open Razorpay Checkout or Simulation Popup
-      if (RazorpayCheckout && Platform.OS !== 'web') {
-        const options = {
-          description: 'Roadside Assistance Payment',
-          image: 'https://cdn-icons-png.flaticon.com/512/3208/3208413.png',
-          currency: 'INR',
-          key: keyId,
-          amount: Math.round(totalAmount * 100),
-          order_id: orderId,
-          name: 'Roadside Assistance',
-          prefill: {
-            contact: user?.phone || '+919999999999',
-            email: user?.email || 'customer@roadside.com'
-          },
-          theme: { color: '#B34700' }
-        };
+      // 2. Generate UPI Intent URI
+      const upiUri = `upi://pay?pa=merchant@upi&pn=RescueAssist&am=${totalAmount}&cu=INR&tn=${fetchedOrderId}`;
 
-        RazorpayCheckout.open(options)
-          .then(async (data) => {
-            // Success callback
-            await verifyPayment({
-              razorpayOrderId: orderId,
-              razorpayPaymentId: data.razorpay_payment_id,
-              razorpaySignature: data.razorpay_signature,
-              jobId
-            });
-          })
-          .catch((error) => {
-            console.log('[Razorpay Error]', error);
-            Alert.alert('Payment Failed', error.description || 'Transaction cancelled by user.');
-            setLoading(false);
-          });
-      } else {
-        // Fallback simulation modal for Expo Go / Web / Missing SDK
+      // 3. Check if UPI app can open the URI
+      const canOpen = await Linking.canOpenURL(upiUri);
+      if (!canOpen) {
+        setNoUpiApp(true);
+        setPaymentStatus('FAILURE');
+        Alert.alert('No UPI App Found', 'No UPI app found. Please install Google Pay, PhonePe, Paytm, or BHIM.');
         setLoading(false);
-        setShowSimModal(true);
+        return;
       }
+
+      // 4. Launch UPI Intent and set status to SUBMITTED
+      setPaymentStatus('SUBMITTED');
+      setLoading(false);
+      
+      await Linking.openURL(upiUri);
     } catch (err) {
       Alert.alert('Error', err.message || 'Could not initiate payment.');
+      setPaymentStatus('FAILURE');
       setLoading(false);
     }
   };
 
-  // Verify Razorpay Payment Details on Backend
-  const verifyPayment = async (paymentDetails) => {
-    setLoading(true);
+  // Verify payment status on backend
+  const pollPaymentStatus = async () => {
+    if (!jobId) return;
+    setVerificationLoading(true);
     try {
-      const resVerify = await fetch(`${API_URL}/api/payments/verify`, {
-        method: 'POST',
+      const res = await fetch(`${API_URL}/api/payments/status/${jobId}`, {
         headers: {
-          'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(paymentDetails)
+        }
       });
-
-      const data = await resVerify.json();
-      if (resVerify.ok) {
+      const data = await res.json();
+      if (data.success && data.paid) {
+        setPaymentStatus('SUCCESS');
         triggerSuccessAnimation();
-      } else {
-        Alert.alert('Verification Failed', data.message || 'We could not verify your payment.');
       }
     } catch (err) {
-      Alert.alert('Error', 'Unable to reach payment verification server.');
+      console.log('[PaymentScreen] Error checking payment status:', err);
     } finally {
-      setLoading(false);
+      setVerificationLoading(false);
     }
   };
 
-  // Pay with Cash handler
-  const handlePayCash = async () => {
-    Alert.alert(
-      'Pay on Cash',
-      'Confirm that you will settle the amount of ₹' + totalAmount + ' in cash directly with the mechanic.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Confirm Cash Payment',
-          onPress: async () => {
-            setLoading(true);
-            try {
-              const resCash = await fetch(`${API_URL}/api/payments/pay-cash`, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({ jobId })
-              });
-
-              const data = await resCash.json();
-              if (resCash.ok) {
-                triggerSuccessAnimation();
-              } else {
-                Alert.alert('Error', data.message || 'Failed to process cash payment option.');
-              }
-            } catch (err) {
-              Alert.alert('Error', 'Unable to reach payment server.');
-            } finally {
-              setLoading(false);
-            }
-          }
+  // Custom Simulator actions for Testing
+  const runSimulatedPaymentState = async (state) => {
+    if (state === 'SUCCESS') {
+      setLoading(true);
+      try {
+        // Direct simulation via simulate-payment endpoint
+        const response = await fetch(`${API_URL}/api/payments/simulate-payment`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ requestId: jobId })
+        });
+        const data = await response.json();
+        if (data.success) {
+          setPaymentStatus('SUCCESS');
+          triggerSuccessAnimation();
+        } else {
+          Alert.alert('Simulation Failed', data.message || 'Could not simulate success.');
         }
-      ]
-    );
-  };
-
-  // Custom Simulator actions
-  const runSimulatedPayment = async (success) => {
-    setShowSimModal(false);
-    if (!success) {
-      Alert.alert('Payment Failed', 'Simulated transaction rejection.');
-      return;
+      } catch (err) {
+        Alert.alert('Error', 'Unable to reach payment simulation server.');
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      setPaymentStatus(state);
     }
-
-    setLoading(true);
-    // Simulate API orderId from local state
-    await verifyPayment({
-      razorpayOrderId: 'order_mock_' + Math.random().toString(36).substring(7),
-      razorpayPaymentId: 'pay_mock_' + Math.random().toString(36).substring(7),
-      razorpaySignature: 'mock_signature', // Dev signature bypass
-      jobId
-    });
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Invoice Settlement</Text>
-          <Text style={styles.headerSubtitle}>Choose a payment option to complete your booking</Text>
-        </View>
-
-        {/* Invoice Summary Card */}
         <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <Text style={styles.brandTitle}>🚗 RESCUE ASSIST</Text>
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>Invoice Pending</Text>
+          <Text style={styles.headerTitle}>Settle Service Invoice</Text>
+          
+          <View style={styles.divider} />
+
+          {/* Merchant Name */}
+          <View style={styles.row}>
+            <Text style={styles.label}>Merchant Name</Text>
+            <Text style={styles.value}>{mechanicName || 'Rescue Assist'}</Text>
+          </View>
+
+          {/* Amount Display */}
+          <View style={styles.amountContainer}>
+            <Text style={styles.amountLabel}>Total Payable Amount</Text>
+            <Text style={styles.amountValue}>₹{totalAmount}</Text>
+          </View>
+
+          <View style={styles.divider} />
+
+          {/* Warning Message if no UPI app installed */}
+          {noUpiApp && (
+            <View style={styles.warningBox}>
+              <Text style={styles.warningText}>
+                No UPI app found. Please install Google Pay, PhonePe, Paytm, or BHIM.
+              </Text>
             </View>
-          </View>
+          )}
 
-          <View style={styles.divider} />
-
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Assigned Mechanic</Text>
-            <Text style={styles.detailValue}>{mechanicName || 'Professional Mechanic'}</Text>
-          </View>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Service Request ID</Text>
-            <Text style={styles.detailValueMono}>{jobId ? jobId.substring(18) : 'N/A'}</Text>
-          </View>
-
-          <View style={styles.divider} />
-
-          {/* Breakdown */}
-          <View style={styles.priceRow}>
-            <Text style={styles.priceLabel}>Service Charge</Text>
-            <Text style={styles.priceValue}>₹{baseFare}</Text>
-          </View>
-          <View style={styles.priceRow}>
-            <Text style={styles.priceLabel}>Platform Convenience Fee</Text>
-            <Text style={styles.priceValue}>₹{platformFee}</Text>
-          </View>
-
-          <View style={styles.dividerBold} />
-
-          <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>Total Bill Amount</Text>
-            <Text style={styles.totalValue}>₹{totalAmount}</Text>
-          </View>
-        </View>
-
-        {/* Payment Options Actions */}
-        <View style={styles.actionContainer}>
-          {loading ? (
-            <View style={styles.loaderBox}>
+          {/* Action Button */}
+          {loading || verificationLoading ? (
+            <View style={styles.loaderContainer}>
               <ActivityIndicator size="large" color="#B34700" />
-              <Text style={styles.loaderText}>Verifying invoice transaction...</Text>
+              <Text style={styles.loaderText}>
+                {verificationLoading ? 'Verifying payment on backend...' : 'Initiating payment...'}
+              </Text>
             </View>
           ) : (
-            <>
+            <TouchableOpacity
+              style={[styles.payBtn, noUpiApp && styles.disabledBtn]}
+              onPress={handlePayNow}
+              disabled={noUpiApp}
+              activeOpacity={0.9}
+            >
+              <Text style={styles.payBtnText}>Pay with UPI</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Current UPI Payment Status indicator */}
+          {paymentStatus !== 'PENDING' && (
+            <View style={styles.statusIndicator}>
+              <Text style={[styles.statusText, styles[`statusText_${paymentStatus}`]]}>
+                Transaction Status: {paymentStatus}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Developer Sandbox Simulator controls */}
+        {(__DEV__ || noUpiApp) && (
+          <View style={styles.simulatorCard}>
+            <Text style={styles.simTitle}>🛠️ Developer Simulator (UPI Response)</Text>
+            <Text style={styles.simSubtitle}>
+              Simulate standard response states from external UPI apps during development.
+            </Text>
+            <View style={styles.simButtonsContainer}>
               <TouchableOpacity
-                style={styles.payBtn}
-                onPress={handlePayNow}
-                activeOpacity={0.9}
+                style={[styles.simBtn, styles.simBtnSuccess]}
+                onPress={() => runSimulatedPaymentState('SUCCESS')}
               >
-                <Text style={styles.payBtnText}>Pay Online ₹{totalAmount}</Text>
+                <Text style={styles.simBtnText}>Simulate SUCCESS</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.cashBtn}
-                onPress={handlePayCash}
-                activeOpacity={0.8}
+                style={[styles.simBtn, styles.simBtnFailure]}
+                onPress={() => runSimulatedPaymentState('FAILURE')}
               >
-                <Text style={styles.cashBtnText}>Settled via Cash to Mechanic</Text>
+                <Text style={styles.simBtnText}>Simulate FAILURE</Text>
               </TouchableOpacity>
-            </>
-          )}
-        </View>
+            </View>
+
+            <View style={styles.simButtonsContainer}>
+              <TouchableOpacity
+                style={[styles.simBtn, styles.simBtnSubmitted]}
+                onPress={() => runSimulatedPaymentState('SUBMITTED')}
+              >
+                <Text style={styles.simBtnText}>Simulate SUBMITTED</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.simBtn, styles.simBtnCancelled]}
+                onPress={() => runSimulatedPaymentState('CANCELLED')}
+              >
+                <Text style={styles.simBtnText}>Simulate CANCELLED</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
       </ScrollView>
 
       {/* SUCCESS OVERLAY */}
@@ -323,45 +340,6 @@ export default function PaymentScreen({ route, navigation }) {
           </Animated.View>
         </Animated.View>
       )}
-
-      {/* EXPO GO SIMULATION MODAL */}
-      <Modal
-        visible={showSimModal}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowSimModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Razorpay Sandbox Simulator</Text>
-            <Text style={styles.modalBody}>
-              You are currently running the app in development mode / Expo Go without native Razorpay libraries.
-              Select an option to simulate a response:
-            </Text>
-
-            <TouchableOpacity
-              style={styles.simSuccessBtn}
-              onPress={() => runSimulatedPayment(true)}
-            >
-              <Text style={styles.simBtnText}>🟢 Simulate Successful Payment</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.simFailBtn}
-              onPress={() => runSimulatedPayment(false)}
-            >
-              <Text style={styles.simBtnText}>🔴 Simulate Failed Payment</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.simCancelBtn}
-              onPress={() => setShowSimModal(false)}
-            >
-              <Text style={styles.simCancelBtnText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 }
@@ -374,121 +352,87 @@ const styles = StyleSheet.create({
   container: {
     flexGrow: 1,
     padding: 24,
-    justifyContent: 'space-between'
-  },
-  header: {
-    marginTop: 20,
-    marginBottom: 24
-  },
-  headerTitle: {
-    fontSize: 26,
-    fontWeight: '800',
-    color: '#1A1A2E',
-    textAlign: 'center',
-    marginBottom: 6
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-    paddingHorizontal: 20
+    justifyContent: 'center',
+    backgroundColor: '#FAFAFA'
   },
   card: {
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
     borderWidth: 1,
     borderColor: '#EAEAEA',
-    padding: 20,
+    padding: 24,
     shadowColor: '#000',
     shadowOpacity: 0.04,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
-    elevation: 3
+    elevation: 3,
+    marginBottom: 20
   },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center'
-  },
-  brandTitle: {
-    fontSize: 15,
-    fontWeight: 'bold',
-    color: '#B34700',
-    letterSpacing: 1
-  },
-  badge: {
-    backgroundColor: '#FFEFE6',
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 12
-  },
-  badgeText: {
-    fontSize: 11,
-    fontWeight: 'bold',
-    color: '#B34700'
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#1A1A2E',
+    textAlign: 'center',
+    marginBottom: 10
   },
   divider: {
     height: 1,
     backgroundColor: '#F0F0F0',
     marginVertical: 16
   },
-  dividerBold: {
-    height: 2,
-    backgroundColor: '#F0F0F0',
-    marginVertical: 16
-  },
-  detailRow: {
+  row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 10
+    alignItems: 'center',
+    marginBottom: 20
   },
-  detailLabel: {
-    fontSize: 13,
-    color: '#888'
-  },
-  detailValue: {
-    fontSize: 13,
-    fontWeight: 'bold',
-    color: '#333'
-  },
-  detailValueMono: {
-    fontSize: 12,
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-    fontWeight: 'bold',
-    color: '#666'
-  },
-  priceRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 8
-  },
-  priceLabel: {
+  label: {
     fontSize: 14,
-    color: '#555'
+    color: '#666',
+    fontWeight: '500'
   },
-  priceValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333'
-  },
-  totalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center'
-  },
-  totalLabel: {
+  value: {
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '700',
     color: '#1A1A2E'
   },
-  totalValue: {
-    fontSize: 24,
+  amountContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 20,
+    backgroundColor: '#FFF7F2',
+    borderRadius: 16,
+    paddingVertical: 20,
+    borderWidth: 1,
+    borderColor: '#FFE0CC'
+  },
+  amountLabel: {
+    fontSize: 13,
+    color: '#B34700',
+    fontWeight: '600',
+    marginBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5
+  },
+  amountValue: {
+    fontSize: 36,
     fontWeight: '800',
     color: '#B34700'
   },
-  actionContainer: {
-    marginTop: 30,
-    marginBottom: 10
+  warningBox: {
+    backgroundColor: '#FFEBEE',
+    borderWidth: 1,
+    borderColor: '#FFCDD2',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 20
+  },
+  warningText: {
+    color: '#C62828',
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 18
   },
   payBtn: {
     backgroundColor: '#B34700',
@@ -499,28 +443,20 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
-    marginBottom: 14
+    elevation: 4
+  },
+  disabledBtn: {
+    backgroundColor: '#CCCCCC',
+    shadowOpacity: 0,
+    elevation: 0
   },
   payBtnText: {
     color: '#FFFFFF',
     fontWeight: 'bold',
-    fontSize: 16
+    fontSize: 16,
+    letterSpacing: 0.5
   },
-  cashBtn: {
-    backgroundColor: 'transparent',
-    borderWidth: 1.5,
-    borderColor: '#CCC',
-    paddingVertical: 15,
-    borderRadius: 14,
-    alignItems: 'center'
-  },
-  cashBtnText: {
-    color: '#777',
-    fontWeight: '700',
-    fontSize: 14
-  },
-  loaderBox: {
+  loaderContainer: {
     alignItems: 'center',
     paddingVertical: 15
   },
@@ -529,6 +465,73 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#B34700',
     fontWeight: '600'
+  },
+  statusIndicator: {
+    marginTop: 16,
+    alignItems: 'center'
+  },
+  statusText: {
+    fontSize: 14,
+    fontWeight: '700'
+  },
+  statusText_SUBMITTED: {
+    color: '#FF8F00'
+  },
+  statusText_FAILURE: {
+    color: '#C62828'
+  },
+  statusText_CANCELLED: {
+    color: '#555555'
+  },
+  statusText_SUCCESS: {
+    color: '#2E7D32'
+  },
+  simulatorCard: {
+    backgroundColor: '#2E3842',
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#4A5560'
+  },
+  simTitle: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginBottom: 6
+  },
+  simSubtitle: {
+    color: '#B0BEC5',
+    fontSize: 12,
+    lineHeight: 16,
+    marginBottom: 16
+  },
+  simButtonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10
+  },
+  simBtn: {
+    flex: 0.48,
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center'
+  },
+  simBtnText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: 'bold'
+  },
+  simBtnSuccess: {
+    backgroundColor: '#2E7D32'
+  },
+  simBtnFailure: {
+    backgroundColor: '#C62828'
+  },
+  simBtnSubmitted: {
+    backgroundColor: '#FF8F00'
+  },
+  simBtnCancelled: {
+    backgroundColor: '#546E7A'
   },
   successOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -573,65 +576,6 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     lineHeight: 18
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center'
-  },
-  modalContent: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 24,
-    width: '85%',
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    elevation: 8
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 10
-  },
-  modalBody: {
-    fontSize: 13,
-    color: '#555',
-    lineHeight: 18,
-    marginBottom: 20
-  },
-  simSuccessBtn: {
-    backgroundColor: '#E8F5E9',
-    paddingVertical: 14,
-    borderRadius: 10,
-    alignItems: 'center',
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: '#A5D6A7'
-  },
-  simFailBtn: {
-    backgroundColor: '#FFEBEE',
-    paddingVertical: 14,
-    borderRadius: 10,
-    alignItems: 'center',
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#FFCDD2'
-  },
-  simBtnText: {
-    fontWeight: 'bold',
-    fontSize: 14,
-    color: '#333'
-  },
-  simCancelBtn: {
-    alignItems: 'center',
-    paddingVertical: 5
-  },
-  simCancelBtnText: {
-    color: '#999',
-    fontWeight: '600'
   },
   successBtnContainer: {
     width: '100%',

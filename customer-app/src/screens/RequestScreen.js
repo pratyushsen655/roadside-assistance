@@ -45,6 +45,8 @@ const fetchComponentsFromAddress = async (address) => {
 import * as Location from 'expo-location';
 import { getSocket } from '../config/socket';
 
+import { getItem, setItem } from '../utils/storage';
+
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://roadside-assistance-production-ddaf.up.railway.app';
 
 export default function RequestScreen({ navigation, route }) {
@@ -90,6 +92,40 @@ export default function RequestScreen({ navigation, route }) {
 
   const [fareEstimate, setFareEstimate] = useState(null);
   const [fetchingEstimate, setFetchingEstimate] = useState(false);
+  const [pricingConfigs, setPricingConfigs] = useState([]);
+  const [fetchingPricing, setFetchingPricing] = useState(false);
+
+  const fetchPricingConfigs = async () => {
+    if (!token) return;
+    setFetchingPricing(true);
+    try {
+      // Load cached pricing first to avoid blank display on slow networks
+      const cached = await getItem('@cached_pricing_configs');
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setPricingConfigs(parsed);
+          }
+        } catch (e) {}
+      }
+
+      const response = await fetch(`${API_URL}/api/pricing`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const data = await response.json();
+      if (data.success && data.configs) {
+        setPricingConfigs(data.configs);
+        await setItem('@cached_pricing_configs', JSON.stringify(data.configs));
+      }
+    } catch (err) {
+      console.log('Error fetching pricing configurations:', err);
+    } finally {
+      setFetchingPricing(false);
+    }
+  };
 
   const fetchFareEstimate = async () => {
     if (!latitude || !longitude || !token) return;
@@ -123,6 +159,31 @@ export default function RequestScreen({ navigation, route }) {
   useEffect(() => {
     fetchFareEstimate();
   }, [serviceType, vehicleType, latitude, longitude, token]);
+
+  // Fetch pricing configs on mount and listen to real-time pricing:updated socket event
+  useEffect(() => {
+    if (!token) return;
+    fetchPricingConfigs();
+
+    let socket;
+    try {
+      socket = getSocket(token);
+      if (socket) {
+        socket.on('pricing:updated', () => {
+          console.log('[Socket Client] Real-time pricing update received from admin — refetching pricing configs...');
+          fetchPricingConfigs();
+        });
+      }
+    } catch (err) {
+      console.log('Error attaching socket listener for pricing updates:', err);
+    }
+
+    return () => {
+      if (socket) {
+        socket.off('pricing:updated');
+      }
+    };
+  }, [token]);
 
   const handleOpenSavedAddresses = async () => {
     setAddressModalVisible(true);
@@ -180,30 +241,75 @@ export default function RequestScreen({ navigation, route }) {
           if (status === 'granted') {
             console.log('[Geocoding DEBUG] Location permission granted');
             setCustomerAddress('Fetching address...');
-            console.log('[Geocoding DEBUG] Calling Location.getCurrentPositionAsync...');
-            const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-            console.log('[Geocoding DEBUG] getCurrentPositionAsync resolved:', loc.coords);
-            setLatitude(loc.coords.latitude);
-            setLongitude(loc.coords.longitude);
-            
-            console.log('[Geocoding DEBUG] Calling Location.reverseGeocodeAsync...');
-            const [geo] = await Location.reverseGeocodeAsync({
-              latitude: loc.coords.latitude,
-              longitude: loc.coords.longitude
-            });
-            console.log('[Geocoding DEBUG] reverseGeocodeAsync resolved:', geo);
-            if (geo) {
-              const displayAddress = `${geo.name || geo.street || ''}, ${geo.city || geo.district || ''}`;
-              // Fetch detailed components from Google API
-              const components = await fetchComponentsFromLatLng(loc.coords.latitude, loc.coords.longitude);
-              const parsed = parseLocationAddress(components, displayAddress);
-              setLocationInfo(parsed);
-              setCustomerAddress(displayAddress || 'HSR Layout, Bengaluru');
-            } else {
+
+            let locationResolved = false;
+
+            const handleLocationResolved = async (loc) => {
+              if (!loc || !loc.coords) return;
+              console.log('[Geocoding DEBUG] Location resolved (cached or fresh):', loc.coords);
+              setLatitude(loc.coords.latitude);
+              setLongitude(loc.coords.longitude);
+              
+              console.log('[Geocoding DEBUG] Calling Location.reverseGeocodeAsync...');
+              const geoResults = await Location.reverseGeocodeAsync({
+                latitude: loc.coords.latitude,
+                longitude: loc.coords.longitude
+              }).catch(err => {
+                console.log('[RequestScreen] reverseGeocodeAsync error:', err);
+                return [];
+              });
+
+              const geo = geoResults && geoResults.length > 0 ? geoResults[0] : null;
+              console.log('[Geocoding DEBUG] reverseGeocodeAsync resolved:', geo);
+              if (geo) {
+                const displayAddress = `${geo.name || geo.street || ''}, ${geo.city || geo.district || ''}`;
+                // Fetch detailed components from Google API
+                const components = await fetchComponentsFromLatLng(loc.coords.latitude, loc.coords.longitude);
+                const parsed = parseLocationAddress(components, displayAddress);
+                setLocationInfo(parsed);
+                setCustomerAddress(displayAddress || 'HSR Layout, Bengaluru');
+              } else {
                 const fallbackAddress = 'HSR Layout, Bengaluru';
                 const components = await fetchComponentsFromLatLng(loc.coords.latitude, loc.coords.longitude);
                 setCustomerAddress(fallbackAddress);
                 setLocationInfo(parseLocationAddress(components, fallbackAddress));
+              }
+            };
+
+            // 1. Try to get cached location (getLastKnownPositionAsync)
+            try {
+              const lastKnown = await Location.getLastKnownPositionAsync({ maxAge: 60000 });
+              if (lastKnown) {
+                locationResolved = true;
+                await handleLocationResolved(lastKnown);
+              }
+            } catch (err) {
+              console.log('Error getting last known position in RequestScreen:', err);
+            }
+
+            // 2. Fetch fresh location in background with Balanced accuracy, raced with 8s timeout
+            const fetchFreshLocation = async () => {
+              return await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+            };
+
+            const timeoutPromise = new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('Location fetch timeout')), 8000)
+            );
+
+            try {
+              const freshLocation = await Promise.race([
+                fetchFreshLocation(),
+                timeoutPromise
+              ]);
+              if (freshLocation) {
+                await handleLocationResolved(freshLocation);
+              }
+            } catch (raceErr) {
+              console.log('Fresh location fetch timed out or failed in RequestScreen:', raceErr.message);
+              if (!locationResolved) {
+                setCustomerAddress('HSR Layout, Bengaluru');
+                setLocationInfo(parseLocationAddress([], 'HSR Layout, Bengaluru'));
+              }
             }
           } else {
             Alert.alert('Permission Denied', 'Please enable location permissions to locate you automatically.');
@@ -324,14 +430,45 @@ export default function RequestScreen({ navigation, route }) {
   }, [token]);
 
   const services = [
-    { label: 'Flat/Puncture Repair', value: 'tire_repair', icon: 'car-tire-alert', library: 'MaterialCommunityIcons' },
-    { label: 'Towing', value: 'towing', icon: 'truck', library: 'FontAwesome5' },
-    { label: 'Fuel Delivery', value: 'fuel_delivery', icon: 'gas-station', library: 'MaterialCommunityIcons' },
-    { label: 'Engine Repair', value: 'engine_repair', icon: 'wrench', library: 'FontAwesome5' },
-    { label: 'Battery Jump', value: 'battery', icon: 'flash', library: 'Ionicons' },
-    { label: 'Lock Out', value: 'lock_out', icon: 'key', library: 'Ionicons' },
-    { label: 'Other', value: 'other', icon: 'help-circle', library: 'Ionicons' },
+    { label: 'Flat/Puncture Repair', value: 'tire_repair', dbType: 'flat-tire', icon: 'car-tire-alert', library: 'MaterialCommunityIcons' },
+    { label: 'Towing', value: 'towing', dbType: 'towing', icon: 'truck', library: 'FontAwesome5' },
+    { label: 'Fuel Delivery', value: 'fuel_delivery', dbType: 'fuel-delivery', icon: 'gas-station', library: 'MaterialCommunityIcons' },
+    { label: 'Engine Repair', value: 'engine_repair', dbType: 'engine-repair', icon: 'wrench', library: 'FontAwesome5' },
+    { label: 'Battery Jump', value: 'battery', dbType: 'battery_jump', icon: 'flash', library: 'Ionicons' },
+    { label: 'Lock Out', value: 'lock_out', dbType: 'other', icon: 'key', library: 'Ionicons' },
+    { label: 'Other', value: 'other', dbType: 'other', icon: 'help-circle', library: 'Ionicons' },
   ];
+
+  const getServicePriceTag = (service) => {
+    if (service.value === 'other') {
+      return 'Custom Quote';
+    }
+
+    const normalizedVehicle = vehicleType === 'e-vehicle' ? 'ev' : vehicleType;
+    const config = pricingConfigs.find(
+      c => c.serviceType === service.dbType && c.vehicleType === normalizedVehicle
+    );
+
+    if (!config) {
+      if (fetchingPricing) return '...';
+      // Fallbacks if backend pricing hasn't loaded yet
+      if (service.value === 'tire_repair') return '₹299';
+      if (service.value === 'towing') return '₹999 + ₹30/km';
+      if (service.value === 'fuel_delivery') return '₹499 + Fuel';
+      if (service.value === 'engine_repair') return '₹699';
+      if (service.value === 'battery') return '₹399';
+      if (service.value === 'lock_out') return '₹499';
+      return 'Custom Quote';
+    }
+
+    if (service.value === 'fuel_delivery') {
+      return `₹${config.baseFare} + Fuel`;
+    }
+    if (service.value === 'towing' && config.perKmRate > 0) {
+      return `₹${config.baseFare} + ₹${config.perKmRate}/km`;
+    }
+    return `₹${config.baseFare}`;
+  };
 
   const renderServiceIcon = (service, isSelected) => {
     const color = isSelected ? '#E8192C' : '#4B5563';
@@ -345,265 +482,7 @@ export default function RequestScreen({ navigation, route }) {
     }
   };
 
-  const renderVehicleRateList = () => {
-    if (vehicleType === 'car') {
-      return (
-        <View style={styles.rateCard}>
-          <View style={styles.rateHeaderRow}>
-            <Text style={styles.rateHeaderTitle}>Recommended Car Rates</Text>
-            <MaterialCommunityIcons name="information-outline" size={16} color="#E8192C" />
-          </View>
-
-          {/* Table Header */}
-          <View style={[styles.rateRow, styles.rateTableHeader]}>
-            <Text style={[styles.rateCol, styles.rateColHeader, { flex: 2 }]}>Service</Text>
-            <Text style={[styles.rateCol, styles.rateColHeader, styles.textRight, { flex: 1 }]}>Base Price (₹)</Text>
-          </View>
-
-          {/* Table Rows */}
-          <View style={styles.rateRow}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Flat / Puncture Repair</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹299 - ₹499</Text>
-          </View>
-          <View style={[styles.rateRow, styles.alternateRow]}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Towing (Up to 10 km)</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹999 - ₹1,499</Text>
-          </View>
-          <View style={styles.rateRow}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Fuel Delivery</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹499 + Fuel Cost</Text>
-          </View>
-          <View style={[styles.rateRow, styles.alternateRow]}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Engine Repair / Inspection</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹699 - ₹1,499</Text>
-          </View>
-          <View style={styles.rateRow}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Battery Jump Start</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹399 - ₹699</Text>
-          </View>
-          <View style={[styles.rateRow, styles.alternateRow]}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Lockout Assistance</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹499 - ₹999</Text>
-          </View>
-          <View style={styles.rateRow}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Other Emergency Assistance</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹499 - ₹1,999</Text>
-          </View>
-
-          {/* Footnotes */}
-          <View style={styles.rateFooter}>
-            <Text style={styles.rateFooterText}>• Additional Towing Distance: ₹25 - ₹50 per km</Text>
-            <Text style={styles.rateFooterText}>• Emergency Night Charges (10 PM - 6 AM): +20% to +30%</Text>
-          </View>
-        </View>
-      );
-    }
-
-    if (vehicleType === 'bike') {
-      return (
-        <View style={styles.rateCard}>
-          <View style={styles.rateHeaderRow}>
-            <Text style={styles.rateHeaderTitle}>Recommended Bike Rates</Text>
-            <MaterialCommunityIcons name="information-outline" size={16} color="#E8192C" />
-          </View>
-
-          {/* Table Header */}
-          <View style={[styles.rateRow, styles.rateTableHeader]}>
-            <Text style={[styles.rateCol, styles.rateColHeader, { flex: 2 }]}>Service</Text>
-            <Text style={[styles.rateCol, styles.rateColHeader, styles.textRight, { flex: 1 }]}>Price (₹)</Text>
-          </View>
-
-          {/* Table Rows */}
-          <View style={styles.rateRow}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Flat / Puncture Repair</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹149 - ₹299</Text>
-          </View>
-          <View style={[styles.rateRow, styles.alternateRow]}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Bike Towing (Up to 10 km)</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹499 - ₹999</Text>
-          </View>
-          <View style={styles.rateRow}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Fuel Delivery</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹199 - ₹399 + Fuel</Text>
-          </View>
-          <View style={[styles.rateRow, styles.alternateRow]}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Engine Inspection / Minor Repair</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹299 - ₹799</Text>
-          </View>
-          <View style={styles.rateRow}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Battery Jump Start</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹199 - ₹399</Text>
-          </View>
-          <View style={[styles.rateRow, styles.alternateRow]}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Key Lockout Assistance</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹299 - ₹599</Text>
-          </View>
-          <View style={styles.rateRow}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Chain Repair / Adjustment</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹199 - ₹399</Text>
-          </View>
-          <View style={[styles.rateRow, styles.alternateRow]}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Clutch / Brake Cable Repair</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹299 - ₹599</Text>
-          </View>
-          <View style={styles.rateRow}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Other Emergency Assistance</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹299 - ₹999</Text>
-          </View>
-
-          {/* Footnotes */}
-          <View style={styles.rateFooter}>
-            <Text style={styles.rateFooterText}>• Additional Towing Distance: ₹15 - ₹30 per km</Text>
-            <Text style={styles.rateFooterText}>• Night Charges (10 PM - 6 AM): +20% to +30%</Text>
-          </View>
-        </View>
-      );
-    }
-
-    if (vehicleType === 'e-vehicle') {
-      return (
-        <View style={styles.rateCard}>
-          <View style={styles.rateHeaderRow}>
-            <Text style={styles.rateHeaderTitle}>Recommended EV Rates</Text>
-            <MaterialCommunityIcons name="information-outline" size={16} color="#E8192C" />
-          </View>
-
-          {/* Subsection 1: Electric Car */}
-          <Text style={styles.rateSubtitle}>Electric Car</Text>
-          <View style={[styles.rateRow, styles.rateTableHeader]}>
-            <Text style={[styles.rateCol, styles.rateColHeader, { flex: 2 }]}>Service</Text>
-            <Text style={[styles.rateCol, styles.rateColHeader, styles.textRight, { flex: 1 }]}>Price (₹)</Text>
-          </View>
-          <View style={styles.rateRow}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Flat / Puncture Repair</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹399 - ₹699</Text>
-          </View>
-          <View style={[styles.rateRow, styles.alternateRow]}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Emergency Charging</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹799 - ₹1,999</Text>
-          </View>
-          <View style={styles.rateRow}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Portable Charging Service</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹999 - ₹2,499</Text>
-          </View>
-          <View style={[styles.rateRow, styles.alternateRow]}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>EV Towing (Up to 10 km)</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹1,499 - ₹2,999</Text>
-          </View>
-          <View style={styles.rateRow}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Battery Diagnostics</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹799 - ₹1,999</Text>
-          </View>
-          <View style={[styles.rateRow, styles.alternateRow]}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Motor/Controller Inspection</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹999 - ₹2,499</Text>
-          </View>
-          <View style={styles.rateRow}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Lockout Assistance</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹699 - ₹1,199</Text>
-          </View>
-          <View style={[styles.rateRow, styles.alternateRow]}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Other Assistance</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹799 - ₹2,999</Text>
-          </View>
-
-          {/* Subsection 2: EV Bike/Scooter */}
-          <Text style={styles.rateSubtitle}>EV Bike / Scooter</Text>
-          <View style={[styles.rateRow, styles.rateTableHeader]}>
-            <Text style={[styles.rateCol, styles.rateColHeader, { flex: 2 }]}>Service</Text>
-            <Text style={[styles.rateCol, styles.rateColHeader, styles.textRight, { flex: 1 }]}>Price (₹)</Text>
-          </View>
-          <View style={styles.rateRow}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Puncture Repair</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹249</Text>
-          </View>
-          <View style={[styles.rateRow, styles.alternateRow]}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Towing (10 km)</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹899</Text>
-          </View>
-          <View style={styles.rateRow}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Battery Diagnostics</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹299 - ₹499</Text>
-          </View>
-          <View style={[styles.rateRow, styles.alternateRow]}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Motor/Controller Inspection</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹499 - ₹999</Text>
-          </View>
-          <View style={styles.rateRow}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Lockout / Key Assistance</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹299 - ₹499</Text>
-          </View>
-
-          {/* Footnotes */}
-          <View style={styles.rateFooter}>
-            <Text style={styles.rateFooterText}>• Night Charges (10 PM - 6 AM): +20% to +30%</Text>
-          </View>
-        </View>
-      );
-    }
-
-    if (vehicleType === 'auto') {
-      return (
-        <View style={styles.rateCard}>
-          <View style={styles.rateHeaderRow}>
-            <Text style={styles.rateHeaderTitle}>Recommended Auto-Rickshaw Rates</Text>
-            <MaterialCommunityIcons name="information-outline" size={16} color="#E8192C" />
-          </View>
-
-          {/* Table Header */}
-          <View style={[styles.rateRow, styles.rateTableHeader]}>
-            <Text style={[styles.rateCol, styles.rateColHeader, { flex: 2 }]}>Service</Text>
-            <Text style={[styles.rateCol, styles.rateColHeader, styles.textRight, { flex: 1 }]}>Price (₹)</Text>
-          </View>
-
-          {/* Table Rows */}
-          <View style={styles.rateRow}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Flat / Puncture Repair</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹199 - ₹399</Text>
-          </View>
-          <View style={[styles.rateRow, styles.alternateRow]}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Fuel Delivery</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹299 + Fuel Cost</Text>
-          </View>
-          <View style={styles.rateRow}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Battery Jump Start</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹299 - ₹599</Text>
-          </View>
-          <View style={[styles.rateRow, styles.alternateRow]}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Auto Towing (Up to 10 km)</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹999 - ₹1,799</Text>
-          </View>
-          <View style={styles.rateRow}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Engine Inspection</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹499 - ₹999</Text>
-          </View>
-          <View style={[styles.rateRow, styles.alternateRow]}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Clutch / Brake Repair</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹399 - ₹899</Text>
-          </View>
-          <View style={styles.rateRow}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Electrical Wiring Check</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹399 - ₹899</Text>
-          </View>
-          <View style={[styles.rateRow, styles.alternateRow]}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Lockout Assistance</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹299 - ₹599</Text>
-          </View>
-          <View style={styles.rateRow}>
-            <Text style={[styles.rateCol, { flex: 2 }]}>Other Emergency Assistance</Text>
-            <Text style={[styles.rateCol, styles.textRight, { flex: 1 }]}>₹399 - ₹1,199</Text>
-          </View>
-
-          {/* Footnotes */}
-          <View style={styles.rateFooter}>
-            <Text style={styles.rateFooterText}>• Night Charges (10 PM - 6 AM): +20% to +30%</Text>
-          </View>
-        </View>
-      );
-    }
-
-    return null;
-  };
+  const renderVehicleRateList = () => null;
 
   const handleRequest = async () => {
     if (!vehicleNumber.trim()) {
@@ -749,29 +628,52 @@ export default function RequestScreen({ navigation, route }) {
           <Text style={styles.changeText}>Change</Text>
         </TouchableOpacity>
 
-        {/* Services Grid Section */}
+        {/* Services Section - Rounded Rectangle Cards with Inline Price Tags */}
         <Text style={styles.label}>Select Service Type</Text>
         <View style={styles.servicesGrid}>
           {services.map(service => {
             const isSelected = serviceType === service.value;
+            const priceTag = getServicePriceTag(service);
             const isOther = service.value === 'other';
+
             return (
               <TouchableOpacity
                 key={service.value}
                 style={[
-                  styles.serviceCard,
-                  isSelected && styles.selectedServiceCard,
-                  isOther && styles.fullWidthServiceCard
+                  styles.serviceCardRow,
+                  isSelected && styles.selectedServiceCardRow
                 ]}
                 onPress={() => setServiceType(service.value)}
                 activeOpacity={0.8}
               >
-                <View style={[styles.serviceIconContainer, isSelected && styles.selectedServiceIconContainer]}>
-                  {renderServiceIcon(service, isSelected)}
+                {/* Left Side: Icon + Service Name */}
+                <View style={styles.serviceLeftCol}>
+                  <View style={[styles.serviceIconContainerRow, isSelected && styles.selectedServiceIconContainerRow]}>
+                    {renderServiceIcon(service, isSelected)}
+                  </View>
+                  <Text style={[styles.serviceCardTitle, isSelected && styles.selectedServiceCardTitle]}>
+                    {service.label}
+                  </Text>
                 </View>
-                <Text style={[styles.serviceCardText, isSelected && styles.selectedServiceCardText]}>
-                  {service.label}
-                </Text>
+
+                {/* Right Side: Price Tag Badge */}
+                <View style={[
+                  styles.priceBadge,
+                  isSelected && styles.selectedPriceBadge,
+                  isOther && styles.otherPriceBadge
+                ]}>
+                  {fetchingPricing && pricingConfigs.length === 0 && !isOther ? (
+                    <ActivityIndicator size="small" color={isSelected ? "#FFF" : "#E8192C"} />
+                  ) : (
+                    <Text style={[
+                      styles.priceBadgeText,
+                      isSelected && styles.selectedPriceBadgeText,
+                      isOther && styles.otherPriceBadgeText
+                    ]}>
+                      {priceTag}
+                    </Text>
+                  )}
+                </View>
               </TouchableOpacity>
             );
           })}
@@ -808,8 +710,6 @@ export default function RequestScreen({ navigation, route }) {
           multiline
           numberOfLines={4}
         />
-
-        {renderVehicleRateList()}
 
         {/* Price Breakdown Card */}
         {fareEstimate && (
@@ -961,51 +861,87 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   servicesGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
     marginVertical: 4,
     gap: 10,
   },
-  serviceCard: {
-    width: '48.5%',
-    backgroundColor: '#FFF',
-    borderRadius: 12,
+  serviceCardRow: {
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
     borderWidth: 1.5,
     borderColor: '#E5E7EB',
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 100,
+    justifyContent: 'space-between',
+    shadowColor: '#000',
+    shadowOpacity: 0.03,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1.5,
   },
-  selectedServiceCard: {
+  selectedServiceCardRow: {
     borderColor: '#E8192C',
-    backgroundColor: '#FFF5F5',
+    backgroundColor: '#FFF8F8',
   },
-  fullWidthServiceCard: {
-    width: '100%',
+  serviceLeftCol: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
   },
-  serviceIconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+  serviceIconContainerRow: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: '#F3F4F6',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 8,
   },
-  selectedServiceIconContainer: {
-    backgroundColor: '#FFF0F0',
+  selectedServiceIconContainerRow: {
+    backgroundColor: '#FFEBEB',
   },
-  serviceCardText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#4B5563',
-    textAlign: 'center',
+  serviceCardTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1F2937',
+    flex: 1,
   },
-  selectedServiceCardText: {
+  selectedServiceCardTitle: {
     color: '#E8192C',
-    fontWeight: 'bold',
+    fontWeight: '800',
+  },
+  priceBadge: {
+    backgroundColor: '#FFF0F0',
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 20,
+    minWidth: 70,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectedPriceBadge: {
+    backgroundColor: '#E8192C',
+    borderColor: '#E8192C',
+  },
+  otherPriceBadge: {
+    backgroundColor: '#F3F4F6',
+    borderColor: '#D1D5DB',
+  },
+  priceBadgeText: {
+    color: '#E8192C',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  selectedPriceBadgeText: {
+    color: '#FFFFFF',
+  },
+  otherPriceBadgeText: {
+    color: '#6B7280',
+    fontWeight: '600',
   },
   input: {
     borderWidth: 1.5,

@@ -18,7 +18,8 @@ const DRAWER_WIDTH = width * 0.75; // Drawer takes up 75% of screen width
 
 export default function DrawerMenu({ visible, onClose, mechanic, logout }) {
   const navigation = useNavigation();
-  const { t } = useTranslation();
+  const translationRes = useTranslation();
+  const t = translationRes?.t || ((key) => key);
   const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
 
   useEffect(() => {

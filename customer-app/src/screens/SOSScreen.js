@@ -20,6 +20,35 @@ export default function SOSScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
   const mapRef = useRef(null);
 
+  // Helper: reverse-geocode a position and update address + map
+  const resolveAndApplyLocation = async (loc) => {
+    if (!loc || !loc.coords) return;
+    const { latitude: lat, longitude: lng } = loc.coords;
+    setLatitude(lat || 28.6139);
+    setLongitude(lng || 77.2090);
+
+    if (mapRef.current) {
+      mapRef.current.animateToRegion({
+        latitude: lat || 28.6139,
+        longitude: lng || 77.2090,
+        latitudeDelta: 0.005,
+        longitudeDelta: 0.005,
+      }, 1000);
+    }
+
+    const geo = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng }).catch(err => {
+      console.log('[SOSScreen] reverseGeocodeAsync error:', err);
+      return [];
+    });
+    if (geo && geo.length > 0) {
+      const place = geo[0];
+      const displayAddress = `${place.name || place.street || ''}, ${place.city || place.district || ''}`;
+      setAddress(displayAddress.trim() || 'HSR Layout, Bengaluru');
+    } else {
+      setAddress('HSR Layout, Bengaluru');
+    }
+  };
+
   // Fetch current address/location on mount
   useEffect(() => {
     (async () => {
@@ -28,49 +57,38 @@ export default function SOSScreen({ navigation }) {
           console.log('[SOSScreen] requestForegroundPermissionsAsync error:', err);
           return { status: 'denied' };
         });
-        if (status === 'granted') {
-          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).catch(err => {
-            console.log('[SOSScreen] getCurrentPositionAsync error:', err);
-            return null;
-          });
-          
-          if (loc && loc.coords) {
-            setLatitude(loc.coords.latitude || 28.6139);
-            setLongitude(loc.coords.longitude || 77.2090);
-            
-            const geo = await Location.reverseGeocodeAsync({
-              latitude: loc.coords.latitude,
-              longitude: loc.coords.longitude
-            }).catch(err => {
-              console.log('[SOSScreen] reverseGeocodeAsync error:', err);
-              return [];
-            });
-            
-            if (geo && geo.length > 0) {
-              const place = geo[0];
-              const displayAddress = `${place.name || place.street || ''}, ${place.city || place.district || ''}`;
-              setAddress(displayAddress.trim() || 'HSR Layout, Bengaluru');
-            } else {
-              setAddress('HSR Layout, Bengaluru');
-            }
+        if (status !== 'granted') {
+          setAddress(t('request.locationDenied', 'Unable to fetch location. Please share manually.'));
+          return;
+        }
 
-            // Center map on user location
-            if (mapRef.current) {
-              mapRef.current.animateToRegion({
-                latitude: loc.coords.latitude || 28.6139,
-                longitude: loc.coords.longitude || 77.2090,
-                latitudeDelta: 0.005,
-                longitudeDelta: 0.005,
-              }, 1000);
-            }
-          } else {
+        let locationResolved = false;
+
+        // 1. Use cached last-known position instantly
+        const lastKnown = await Location.getLastKnownPositionAsync({ maxAge: 60000 }).catch(() => null);
+        if (lastKnown) {
+          locationResolved = true;
+          await resolveAndApplyLocation(lastKnown);
+        }
+
+        // 2. Fetch fresh location in background, raced with 8s timeout
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Location timeout')), 8000)
+        );
+        try {
+          const fresh = await Promise.race([
+            Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+            timeoutPromise
+          ]);
+          if (fresh) await resolveAndApplyLocation(fresh);
+        } catch (raceErr) {
+          console.log('[SOSScreen] Fresh location timed out or failed:', raceErr.message);
+          if (!locationResolved) {
             setAddress(t('request.locationDenied', 'Unable to fetch location. Please share manually.'));
           }
-        } else {
-          setAddress(t('request.locationDenied', 'Unable to fetch location. Please share manually.'));
         }
       } catch (err) {
-        console.log('Error fetching current address:', err);
+        console.log('[SOSScreen] Error fetching current address:', err);
         setAddress('HSR Layout, Bengaluru');
       }
     })();
@@ -78,25 +96,48 @@ export default function SOSScreen({ navigation }) {
 
   const handleLocateMe = async () => {
     try {
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).catch(err => {
-        console.log('[SOSScreen] getCurrentPositionAsync locateMe error:', err);
-        return null;
-      });
-      if (loc && loc.coords) {
-        setLatitude(loc.coords.latitude || 28.6139);
-        setLongitude(loc.coords.longitude || 77.2090);
-        
+      // 1. Apply cached location instantly to re-center map
+      const lastKnown = await Location.getLastKnownPositionAsync({ maxAge: 60000 }).catch(() => null);
+      if (lastKnown && lastKnown.coords) {
+        const { latitude: lat, longitude: lng } = lastKnown.coords;
+        setLatitude(lat || 28.6139);
+        setLongitude(lng || 77.2090);
         if (mapRef.current) {
           mapRef.current.animateToRegion({
-            latitude: loc.coords.latitude || 28.6139,
-            longitude: loc.coords.longitude || 77.2090,
+            latitude: lat || 28.6139,
+            longitude: lng || 77.2090,
+            latitudeDelta: 0.005,
+            longitudeDelta: 0.005,
+          }, 800);
+        }
+      }
+
+      // 2. Refine with fresh location in background (8s timeout)
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Locate me timeout')), 8000)
+      );
+      const fresh = await Promise.race([
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+        timeoutPromise
+      ]).catch(err => {
+        console.log('[SOSScreen] handleLocateMe fresh fetch failed:', err.message);
+        return null;
+      });
+      if (fresh && fresh.coords) {
+        const { latitude: lat, longitude: lng } = fresh.coords;
+        setLatitude(lat || 28.6139);
+        setLongitude(lng || 77.2090);
+        if (mapRef.current) {
+          mapRef.current.animateToRegion({
+            latitude: lat || 28.6139,
+            longitude: lng || 77.2090,
             latitudeDelta: 0.005,
             longitudeDelta: 0.005,
           }, 800);
         }
       }
     } catch (err) {
-      console.log('Locate me failed:', err);
+      console.log('[SOSScreen] Locate me failed:', err);
     }
   };
 

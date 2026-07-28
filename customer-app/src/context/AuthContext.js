@@ -5,7 +5,8 @@ import { registerForPushNotifications, savePushToken } from '../services/notific
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState, Alert } from 'react-native';
 
-export const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://roadside-assistance-production-ddaf.up.railway.app';
+import API_URL_CENTRAL from '../config/api';
+export const API_URL = API_URL_CENTRAL;
 
 export const AuthContext = createContext({
   user: null,

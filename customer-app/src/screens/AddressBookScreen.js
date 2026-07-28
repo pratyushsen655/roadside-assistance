@@ -52,23 +52,51 @@ export default function AddressBookScreen({ navigation }) {
         setEmptyStateAddress('Please enable location permissions to see your current area.');
         return;
       }
-      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      setEmptyStateLat(position.coords.latitude);
-      setEmptyStateLng(position.coords.longitude);
 
-      const geocode = await Location.reverseGeocodeAsync({
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude
-      });
-      if (geocode && geocode.length > 0) {
-        const place = geocode[0];
-        const areaName = place.subregion || place.district || place.city || 'Current Location';
-        const addrString = `${place.name || ''}, ${place.street || ''}, ${place.district || ''}, ${place.city || ''}, ${place.region || ''} - ${place.postalCode || ''}`.replace(/,\s*,/g, ',').replace(/^,\s*/, '').trim();
-        setEmptyStateName(areaName);
-        setEmptyStateAddress(addrString);
-      } else {
-        setEmptyStateName('Current Location');
-        setEmptyStateAddress('Unable to fetch detailed address');
+      const applyEmptyStateLocation = async (position) => {
+        if (!position || !position.coords) return;
+        setEmptyStateLat(position.coords.latitude);
+        setEmptyStateLng(position.coords.longitude);
+        const geocode = await Location.reverseGeocodeAsync({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude
+        }).catch(() => []);
+        if (geocode && geocode.length > 0) {
+          const place = geocode[0];
+          const areaName = place.subregion || place.district || place.city || 'Current Location';
+          const addrString = `${place.name || ''}, ${place.street || ''}, ${place.district || ''}, ${place.city || ''}, ${place.region || ''} - ${place.postalCode || ''}`.replace(/,\s*,/g, ',').replace(/^,\s*/, '').trim();
+          setEmptyStateName(areaName);
+          setEmptyStateAddress(addrString);
+        } else {
+          setEmptyStateName('Current Location');
+          setEmptyStateAddress('Unable to fetch detailed address');
+        }
+      };
+
+      // 1. Use cached last-known position immediately
+      let locationResolved = false;
+      const lastKnown = await Location.getLastKnownPositionAsync({ maxAge: 60000 }).catch(() => null);
+      if (lastKnown) {
+        locationResolved = true;
+        await applyEmptyStateLocation(lastKnown);
+      }
+
+      // 2. Refine with fresh location in background, raced with 8s timeout
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Location timeout')), 8000)
+      );
+      try {
+        const fresh = await Promise.race([
+          Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+          timeoutPromise
+        ]);
+        if (fresh) await applyEmptyStateLocation(fresh);
+      } catch (raceErr) {
+        console.log('[AddressBook] Empty state location timed out or failed:', raceErr.message);
+        if (!locationResolved) {
+          setEmptyStateName('Location Error');
+          setEmptyStateAddress('Could not determine your location.');
+        }
       }
     } catch (e) {
       setEmptyStateName('Location Error');
@@ -101,20 +129,44 @@ export default function AddressBookScreen({ navigation }) {
         setLocationLoading(false);
         return;
       }
-      
-      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      setLat(position.coords.latitude);
-      setLng(position.coords.longitude);
 
-      const geocode = await Location.reverseGeocodeAsync({
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude
-      });
-      
-      if (geocode && geocode.length > 0) {
-        const place = geocode[0];
-        const addrString = `${place.name || ''}, ${place.street || ''}, ${place.district || ''}, ${place.city || ''}, ${place.region || ''} - ${place.postalCode || ''}`.replace(/,\s*,/g, ',').replace(/^,\s*/, '').trim();
-        setAddressText(addrString);
+      const applyPosition = async (position) => {
+        if (!position || !position.coords) return;
+        setLat(position.coords.latitude);
+        setLng(position.coords.longitude);
+        const geocode = await Location.reverseGeocodeAsync({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude
+        }).catch(() => []);
+        if (geocode && geocode.length > 0) {
+          const place = geocode[0];
+          const addrString = `${place.name || ''}, ${place.street || ''}, ${place.district || ''}, ${place.city || ''}, ${place.region || ''} - ${place.postalCode || ''}`.replace(/,\s*,/g, ',').replace(/^,\s*/, '').trim();
+          setAddressText(addrString);
+        }
+      };
+
+      // 1. Use cached last-known position instantly to populate form
+      const lastKnown = await Location.getLastKnownPositionAsync({ maxAge: 60000 }).catch(() => null);
+      if (lastKnown) {
+        await applyPosition(lastKnown);
+        setLocationLoading(false);
+      }
+
+      // 2. Refine in background with Balanced accuracy and 8s timeout
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Location timeout')), 8000)
+      );
+      try {
+        const fresh = await Promise.race([
+          Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+          timeoutPromise
+        ]);
+        if (fresh) await applyPosition(fresh);
+      } catch (raceErr) {
+        console.log('[AddressBook] GPS fetch timed out or failed:', raceErr.message);
+        if (!lastKnown) {
+          Alert.alert('Error', 'Failed to fetch GPS location.');
+        }
       }
     } catch (e) {
       console.log('Error fetching GPS', e);
