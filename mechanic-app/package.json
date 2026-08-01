@@ -10,6 +10,7 @@
     "@react-navigation/native": "^7.3.1",
     "@react-navigation/stack": "^7.10.3",
     "expo": "~56.0.12",
+    "expo-av": "~16.0.0",
     "expo-constants": "~56.0.18",
     "expo-device": "~56.0.4",
     "expo-file-system": "~56.0.8",
@@ -39,6 +40,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
+    "logcat": "powershell -ExecutionPolicy Bypass -File ./scripts/logcat.ps1",
     "eas-build-pre-install": "npm config set legacy-peer-deps true"
   },
   "private": true,
