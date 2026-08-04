@@ -8,9 +8,12 @@ import {
 import * as ExpoClipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ? `${process.env.EXPO_PUBLIC_API_URL}/api` : 'https://roadside-assistance-production-ddaf.up.railway.app/api';
 
 export default function ReferralScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
+  const topInset = Math.max(insets.top, 24);
   const [data, setData] = useState({
     referralCode: '',
     referredBy: null,
@@ -77,7 +80,7 @@ export default function ReferralScreen({ navigation }) {
   };
 
   const appLink = `https://play.google.com/store/apps/details?id=com.praty.roadsideassist&referral=${data.referralCode}`;
-  const shareMessage = `🚗 Stranded on the road? Get instant mechanic help!\n\n📲 Download RoadMitra app:\n${appLink}\n\n🎁 Use my referral code *${data.referralCode}* at signup to get ₹30 off your first service!\n\n🔧 Fast • Reliable • 24/7 Roadside Assistance`;
+  const shareMessage = `🚗 Stranded on the road? Get instant mechanic help!\n\n📲 Download RideRescue app:\n${appLink}\n\n🎁 Use my referral code *${data.referralCode}* at signup to get ₹0 off your first service!\n\n🔧 Fast • Reliable • 24/7 Roadside Assistance`;
 
   const shareOnWhatsApp = async () => {
     const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(shareMessage)}`;
@@ -94,7 +97,7 @@ export default function ReferralScreen({ navigation }) {
       await Share.share({
         message: shareMessage,
         url: appLink,
-        title: 'Download RoadMitra - Roadside Assistance',
+        title: 'Download RideRescue - Roadside Assistance',
       });
     } catch (error) {
       Alert.alert('Error', 'Could not open share menu');
@@ -161,7 +164,7 @@ export default function ReferralScreen({ navigation }) {
   return (
     <View style={styles.container}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: topInset + 10 }]}>
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>
@@ -188,9 +191,9 @@ export default function ReferralScreen({ navigation }) {
 
             {/* Headline and Copy */}
             <View style={styles.promoSection}>
-              <Text style={styles.promoTitle}>Earn ₹ 1000 for every Friend you Refer</Text>
+              <Text style={styles.promoTitle}>Earn ₹ 0 for every Friend you Refer</Text>
               <Text style={styles.promoSubtitle}>
-                Get a friend to start using GoMechanic & earn ₹ 1000 when they complete their first order.
+                Get a friend to start using RideRescue & earn ₹ 0 when they complete their first order.
               </Text>
             </View>
 
@@ -215,7 +218,7 @@ export default function ReferralScreen({ navigation }) {
                   <View style={styles.stepCircle}>
                     <Text style={styles.stepNumber}>2</Text>
                   </View>
-                  <Text style={styles.stepText}>Your Friend gets ₹ 1000 GoApp Money post installing the app.</Text>
+                  <Text style={styles.stepText}>Your Friend gets ₹ 0 post installing the app.</Text>
                 </View>
 
                 {/* Step 3 */}
@@ -223,7 +226,7 @@ export default function ReferralScreen({ navigation }) {
                   <View style={styles.stepCircle}>
                     <Text style={styles.stepNumber}>3</Text>
                   </View>
-                  <Text style={styles.stepText}>You get ₹ 1000 GoApp Money after their first order.</Text>
+                  <Text style={styles.stepText}>You get ₹ 0 after their first order.</Text>
                 </View>
               </View>
             </View>
@@ -353,7 +356,7 @@ export default function ReferralScreen({ navigation }) {
                   onPress={() => toggleFaq('q1')}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.faqQuestion}>Why should I choose GoMechanic Miles?</Text>
+                  <Text style={styles.faqQuestion}>Why should I choose RideRescue Miles?</Text>
                   <Ionicons 
                     name={faqExpanded.q1 ? "chevron-up" : "chevron-down"} 
                     size={20} 
@@ -363,7 +366,7 @@ export default function ReferralScreen({ navigation }) {
                 {faqExpanded.q1 && (
                   <View style={styles.faqBody}>
                     <Text style={styles.faqAnswer}>
-                      GoMechanic Miles membership gives you access to premium benefits including free vehicle towing, unlimited battery jumpstarts, zero service charges on basic tyre punctures, and exclusive discounts on labor and spare parts.
+                      RideRescue Miles membership gives you access to premium benefits including free vehicle towing, unlimited battery jumpstarts, zero service charges on basic tyre punctures, and exclusive discounts on labor and spare parts.
                     </Text>
                   </View>
                 )}
@@ -377,7 +380,7 @@ export default function ReferralScreen({ navigation }) {
                   activeOpacity={0.7}
                 >
                   <Text style={styles.faqQuestion}>
-                    How many times can I avail a particular service under GoMechanic Miles?
+                    How many times can I avail a particular service under RideRescue Miles?
                   </Text>
                   <Ionicons 
                     name={faqExpanded.q2 ? "chevron-up" : "chevron-down"} 

@@ -73,6 +73,16 @@ export default function ServiceHistoryScreen({ navigation }) {
     }
   };
 
+  const handleCardPress = (item) => {
+    if (!item || !item.id) return;
+    const status = item.status;
+    if (['pending', 'searching'].includes(status)) {
+      navigation.navigate('Searching', { jobId: item.id });
+    } else if (['accepted', 'en_route', 'arrived', 'in_progress', 'work_in_progress'].includes(status)) {
+      navigation.navigate('Tracking', { jobId: item.id });
+    }
+  };
+
   const renderJobItem = ({ item }) => {
     const badge = getStatusBadgeStyle(item.status);
     const dateStr = new Date(item.createdAt).toLocaleDateString('en-IN', {
@@ -85,9 +95,15 @@ export default function ServiceHistoryScreen({ navigation }) {
 
     const isPaid = item.paymentStatus === 'paid';
     const isCompleted = item.status === 'completed';
+    const isActive = ['pending', 'searching', 'accepted', 'en_route', 'arrived', 'in_progress', 'work_in_progress'].includes(item.status);
 
     return (
-      <View style={styles.jobCard}>
+      <TouchableOpacity
+        style={styles.jobCard}
+        disabled={!isActive}
+        activeOpacity={isActive ? 0.7 : 1}
+        onPress={() => handleCardPress(item)}
+      >
         <View style={styles.cardHeader}>
           <Text style={styles.serviceName}>{String(item.serviceType || 'Breakdown Assist').replace(/_/g, ' ').toUpperCase()}</Text>
           <View style={[styles.statusBadge, { backgroundColor: badge.bg }]}>
@@ -104,35 +120,47 @@ export default function ServiceHistoryScreen({ navigation }) {
           <Text style={styles.amountText}>₹{item.amount}</Text>
         </View>
 
-        <View style={styles.actionButtonsContainer}>
-          {isCompleted && isPaid && (
-            <TouchableOpacity
-              style={[styles.actionBtn, styles.invoiceBtn]}
-              onPress={() => downloadInvoice(item.id, token)}
-            >
-              <Text style={styles.invoiceBtnText}>📄 Download Invoice</Text>
-            </TouchableOpacity>
-          )}
+        {isActive ? (
+          <View style={styles.resumePromptRow}>
+            <Text style={styles.resumePromptText}>Tap to View Live Tracking ➔</Text>
+          </View>
+        ) : (
+          <View style={styles.actionButtonsContainer}>
+            {isCompleted && isPaid && (
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.invoiceBtn]}
+                onPress={(e) => {
+                  e?.stopPropagation?.();
+                  downloadInvoice(item.id, token);
+                }}
+              >
+                <Text style={styles.invoiceBtnText}>📄 Download Invoice</Text>
+              </TouchableOpacity>
+            )}
 
-          {isCompleted && !item.isRated && (
-            <TouchableOpacity
-              style={[styles.actionBtn, styles.rateBtn]}
-              onPress={() => navigation.navigate('RateJob', {
-                jobId: item.id,
-                mechanicName: item.mechanicName
-              })}
-            >
-              <Text style={styles.rateBtnText}>⭐ Rate Service</Text>
-            </TouchableOpacity>
-          )}
+            {isCompleted && !item.isRated && (
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.rateBtn]}
+                onPress={(e) => {
+                  e?.stopPropagation?.();
+                  navigation.navigate('RateJob', {
+                    jobId: item.id,
+                    mechanicName: item.mechanicName
+                  });
+                }}
+              >
+                <Text style={styles.rateBtnText}>⭐ Rate Service</Text>
+              </TouchableOpacity>
+            )}
 
-          {isCompleted && item.isRated && (
-            <View style={styles.ratedBadge}>
-              <Text style={styles.ratedBadgeText}>⭐ Rated</Text>
-            </View>
-          )}
-        </View>
-      </View>
+            {isCompleted && item.isRated && (
+              <View style={styles.ratedBadge}>
+                <Text style={styles.ratedBadgeText}>⭐ Rated</Text>
+              </View>
+            )}
+          </View>
+        )}
+      </TouchableOpacity>
     );
   };
 
@@ -355,6 +383,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3F4F6',
     borderWidth: 1,
     borderColor: '#E5E7EB',
+  },
+  resumePromptRow: {
+    marginTop: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#FFF3E0',
+    borderRadius: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#FFE0B2',
+  },
+  resumePromptText: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#B34700',
   },
   ratedBadgeText: {
     color: '#9CA3AF',

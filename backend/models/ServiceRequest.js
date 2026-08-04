@@ -9,7 +9,8 @@ const ServiceRequestSchema = new mongoose.Schema({
   issueDescription: { type: String, required: true },
   customerLocation: { type: { type: String, enum: ['Point'], default: 'Point' }, coordinates: { type: [Number], required: true } },
   customerAddress: { type: String, default: '' },
-  status: { type: String, enum: ['pending', 'assigned', 'accepted', 'on_the_way', 'arrived', 'work_in_progress', 'completed', 'cancelled', 'unfulfilled'], default: 'pending' },
+  status: { type: String, enum: ['pending', 'assigned', 'accepted', 'on_the_way', 'arrived', 'work_in_progress', 'completed', 'cancelled', 'unfulfilled', 'expired'], default: 'pending' },
+  expiresAt: { type: Date, default: null },
   pricing: { baseFare: { type: Number, default: 0 }, totalAmount: { type: Number, default: 0 } },
   amount: { type: Number, default: 0 },
   paymentStatus: { type: String, enum: ['pending', 'paid', 'failed'], default: 'pending' },
@@ -24,6 +25,7 @@ const ServiceRequestSchema = new mongoose.Schema({
   otpVerified: { type: Boolean, default: false },
   otpAttempts: { type: Number, default: 0 },
   completedAt: { type: Date, default: null },
+  isRated: { type: Boolean, default: false },
   bookingType: { type: String, enum: ['instant', 'scheduled'], default: 'instant' },
   scheduledTime: { type: Date, default: null },
   cancelledBy: { type: String, default: '' },
@@ -64,6 +66,7 @@ const ServiceRequestSchema = new mongoose.Schema({
   currentCandidateMechanic: { type: mongoose.Schema.Types.ObjectId, ref: 'Mechanic', default: null }
 }, { timestamps: true });
 ServiceRequestSchema.index({ customerLocation: '2dsphere' });
+ServiceRequestSchema.index({ status: 1, expiresAt: 1 });
 
 
 

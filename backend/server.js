@@ -8,15 +8,17 @@ const connectDB = require('./config/db');
 const socketHandler = require('./sockets/socketHandler');
 const errorHandler = require('./middleware/errorMiddleware');
 const securityHeaders = require('./middleware/securityHeaders');
-const rateLimiter = require('./middleware/rateLimiter');
+const { rateLimiter } = require('./middleware/rateLimiter');
 const apiKeyRotation = require('./middleware/apiKeyRotation');
 const mongoSanitize = require('express-mongo-sanitize');
 const xssClean = require('xss-clean');
 
 // Load configurations (already called above; removed duplicate dotenv.config() call)
 
-// Connect to MongoDB Database
-connectDB();
+// Connect to MongoDB Database and seed default admin account
+connectDB().then(() => {
+  seedAdminAccount();
+});
 
 const app = express();
 app.set('trust proxy', 1); // trust first proxy
@@ -35,17 +37,37 @@ const io = new SocketServer(server, {
 // Initialize Socket.io Connection Handlers
 socketHandler.initSocketServer(io);
 
+// Import Admin Seeder
+const seedAdminAccount = async () => {
+  try {
+    const seed = require('./utils/seedAdmin');
+    await seed();
+  } catch (err) {
+    console.error('[Admin Seed Error]:', err.message);
+  }
+};
+
 // Global Middleware
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:3000',
+  'http://localhost:19006',
+  'http://localhost:8081',
 ];
 app.use(cors({
   origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin) || origin.includes('vercel.app') || origin.includes('railway.app')) {
+    // Allow non-browser requests (e.g. mobile apps, Postman) with no origin header
+    if (!origin) return callback(null, true);
+
+    const isAllowed = allowedOrigins.includes(origin) ||
+                      origin.endsWith('.vercel.app') ||
+                      origin.endsWith('.railway.app') ||
+                      origin.endsWith('.up.railway.app');
+
+    if (isAllowed || process.env.NODE_ENV !== 'production') {
       callback(null, true);
     } else {
-      callback(null, true);
+      callback(new Error('CORS Policy: Request from origin not allowed.'));
     }
   },
   credentials: true
@@ -66,6 +88,10 @@ app.use((req, res, next) => {
 // Body parsers with size limit
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+// Serve static uploads directory
+const path = require('path');
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Log incoming REST requests in development only
 if (process.env.NODE_ENV === 'development') {

@@ -8,29 +8,82 @@ const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret_change_in_env';
 
 // Admin JWT protection middleware
 const adminMiddleware = require('../middleware/adminMiddleware');
+const { authRateLimiter } = require('../middleware/rateLimiter');
+const validate = require('../middleware/validationMiddleware');
+const { adminLoginValidation } = require('../middleware/validationRules');
+
+// ── KYC Document URL Validity Check ──────────────────────────────────────────
+// Returns { valid: true } or { valid: false, reason: string }
+const PLACEHOLDER_PATTERNS = ['placehold.co', 'placeholder.com', 'via.placeholder', 'picsum.photos', 'dummyimage.com'];
+function validateKycDocUrl(url) {
+  if (!url || typeof url !== 'string' || !url.trim()) {
+    return { valid: false, reason: 'No document URL is stored for this mechanic. They must re-upload their identity document.' };
+  }
+  if (url.startsWith('file://')) {
+    return { valid: false, reason: 'Document URL is a local device file:// path (inaccessible externally). Mechanic must re-upload from the app.' };
+  }
+  if (url.startsWith('data:')) {
+    return { valid: false, reason: 'Document URL is a raw base64 data URI. Mechanic must re-upload from the app.' };
+  }
+  for (const p of PLACEHOLDER_PATTERNS) {
+    if (url.includes(p)) {
+      return { valid: false, reason: `Document URL is a placeholder/demo image (${p}). No real document has been uploaded.` };
+    }
+  }
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    return { valid: false, reason: `Document URL is not a valid HTTP URL: "${url.slice(0, 60)}"` };
+  }
+  return { valid: true, reason: null };
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 // POST /api/admin/login
-router.post('/login', async (req, res) => {
+router.post('/login', authRateLimiter, adminLoginValidation, validate, async (req, res) => {
   try {
     const { email, password } = req.body;
+    const User = require('../models/User');
 
-    if (email === 'admin@roadside.com' && password === 'admin123') {
-      const token = jwt.sign(
-        { id: 'admin', role: 'admin', email },
-        JWT_SECRET,
-        { expiresIn: '7d' }
-      );
-      return res.status(200).json({
-        success: true,
-        message: 'Admin login successful',
-        token
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email and password are required'
       });
-    } else {
+    }
+
+    const adminUser = await User.findOne({ email, role: 'admin' }).select('+password');
+
+    if (!adminUser || !adminUser.password) {
       return res.status(401).json({
         success: false,
         message: 'Invalid admin credentials'
       });
     }
+
+    const isMatch = await /** @type {any} */ (adminUser).matchPassword(password);
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid admin credentials'
+      });
+    }
+
+    const token = jwt.sign(
+      { id: adminUser._id.toString(), role: 'admin', email: adminUser.email },
+      JWT_SECRET,
+      { expiresIn: /** @type {import('jsonwebtoken').SignOptions['expiresIn']} */ (process.env.JWT_EXPIRY || '7d') }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: 'Admin login successful',
+      token,
+      user: {
+        id: adminUser._id,
+        name: adminUser.name,
+        email: adminUser.email,
+        role: adminUser.role
+      }
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -305,6 +358,18 @@ router.put('/mechanics/:id/verify', async (req, res) => {
     if (!mechanic) {
       return res.status(404).json({ success: false, message: 'Mechanic not found' });
     }
+    // Block verification if there is no valid KYC document on file
+    const effectiveDocUrl = mechanic.kyc?.docUrl ||
+      mechanic.documents?.identityProof ||
+      mechanic.documents?.licenseImage ||
+      (mechanic.documents?.certificationImages?.[0]) || '';
+    const urlCheck = validateKycDocUrl(effectiveDocUrl);
+    if (!urlCheck.valid) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot verify mechanic: ${urlCheck.reason}`,
+      });
+    }
     mechanic.isVerified = true;
     if (mechanic.kyc) {
       mechanic.kyc.status = 'approved';
@@ -345,16 +410,28 @@ router.put('/mechanics/:id/kyc', async (req, res) => {
     }
 
     if (!mechanic.kyc) {
-      mechanic.kyc = {};
+      mechanic.kyc = { status: 'unsubmitted', docType: '', docUrl: '', rejectionReason: '' };
     }
 
     if (docUrl || action === 'attach') {
-      mechanic.kyc.docUrl = docUrl || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=800&q=80';
+      mechanic.kyc.docUrl = docUrl || '';
       mechanic.kyc.docType = docType || 'Aadhaar Card';
       mechanic.kyc.status = status || 'pending';
       mechanic.kyc.rejectionReason = '';
       if (status === 'approved' || action === 'approve') mechanic.isVerified = true;
     } else if (action === 'approve') {
+      // Block approval if the stored document URL is invalid, broken, or a placeholder
+      const effectiveDocUrl = mechanic.kyc?.docUrl ||
+        mechanic.documents?.identityProof ||
+        mechanic.documents?.licenseImage ||
+        (mechanic.documents?.certificationImages?.[0]) || '';
+      const urlCheck = validateKycDocUrl(effectiveDocUrl);
+      if (!urlCheck.valid) {
+        return res.status(400).json({
+          success: false,
+          message: `Cannot approve KYC: ${urlCheck.reason}`,
+        });
+      }
       mechanic.kyc.status = 'approved';
       mechanic.kyc.rejectionReason = '';
       mechanic.isVerified = true;          // approving KYC also verifies the mechanic
@@ -370,6 +447,22 @@ router.put('/mechanics/:id/kyc', async (req, res) => {
     }
 
     await mechanic.save();
+
+    // Persist KYC Notification for mechanic
+    try {
+      const { createMechanicNotification } = require('../services/notificationService');
+      const finalKycStatus = mechanic.kyc.status;
+      createMechanicNotification({
+        mechanicId: mechanic._id,
+        type: 'kyc_update',
+        title: finalKycStatus === 'approved' ? 'KYC Approved ✅' : 'KYC Document Update 🛡️',
+        message: finalKycStatus === 'approved' 
+          ? 'Your KYC documents have been verified and approved!' 
+          : `KYC update: ${mechanic.kyc.rejectionReason || 'Please review your document submissions.'}`
+      });
+    } catch (notifErr) {
+      console.error('[KYC Notification Error]:', notifErr.message);
+    }
 
     res.status(200).json({
       success: true,

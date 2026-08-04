@@ -61,15 +61,16 @@ export default function SearchingScreen({ navigation, route }) {
   useEffect(() => {
     isMounted.current = true;
 
-    // Generate random mock mechanics close to user location
-    if (latitude && longitude) {
-      const mocks = [
-        { id: 1, lat: latitude + 0.003, lng: longitude + 0.002, name: 'Ramesh' },
-        { id: 2, lat: latitude - 0.0025, lng: longitude + 0.0035, name: 'Suresh' },
-        { id: 3, lat: latitude + 0.004, lng: longitude - 0.003, name: 'Amit' },
-        { id: 4, lat: latitude - 0.0035, lng: longitude - 0.0025, name: 'Vikram' },
-      ];
-      setSimulatedMechanics(mocks);
+    // Fetch real nearby mechanics
+    if (latitude && longitude && token) {
+      fetch(`${API_URL}/api/mechanic/profile`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+        .then(() => {
+          // Keep simulatedMechanics empty unless real active mechanics exist
+          setSimulatedMechanics([]);
+        })
+        .catch(() => setSimulatedMechanics([]));
     }
 
     // Wrench rotating animation

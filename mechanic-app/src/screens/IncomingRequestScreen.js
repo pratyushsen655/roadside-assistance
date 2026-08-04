@@ -4,12 +4,15 @@ import { AuthContext } from '../context/AuthContext';
 import { getSocket } from '../config/socket';
 import API_URL from '../config/api';
 import { Ionicons } from '@expo/vector-icons';
+import { playIncomingRequestSound, stopIncomingRequestSound } from '../services/soundService';
+import { useTheme } from '../context/ThemeContext';
 
 console.log('[BUILD CHECK] IncomingRequestScreen fix v2 loaded | Timestamp:', new Date().toISOString());
 
 const { RingingModule } = NativeModules;
 
 const IncomingRequestScreen = ({ route, navigation }) => {
+  const { theme, isDark } = useTheme();
   const { mechanicToken, mechanic, pendingRequests, removePendingRequest } = useContext(AuthContext);
   const requestData = route.params?.requestData || (pendingRequests && pendingRequests.length > 0 ? pendingRequests[0] : null);
 
@@ -25,18 +28,23 @@ const IncomingRequestScreen = ({ route, navigation }) => {
   const effectiveService = requestData?.serviceType || requestData?.issueType || requestData?.issueDescription || 'Breakdown Assistance';
   const effectiveVehicle = requestData?.vehicleModel || requestData?.vehicleType || 'Vehicle';
   const effectiveNotes = requestData?.specialInstructions || requestData?.issueDescription || requestData?.description || 'Roadside breakdown assistance needed.';
-  const effectivePrice = requestData?.price || requestData?.estimatedFare || requestData?.pricing?.totalAmount || requestData?.current_price || 350;
+  const effectivePrice = requestData?.current_price || requestData?.totalPrice || requestData?.amount || requestData?.pricing?.totalAmount || requestData?.price || requestData?.estimatedFare || 350;
 
   const formattedService = effectiveService ? String(effectiveService).replace(/_/g, ' ') : 'Flat/Puncture Repair';
   const formattedCustomer = effectiveCustomerName;
-  const formattedPhone = effectiveCustomerPhone || '+91 98765 43210';
+  const formattedPhone = effectiveCustomerPhone || '';
   const formattedVehicle = effectiveVehicle;
   const formattedNotes = effectiveNotes;
   const formattedPrice = effectivePrice;
   const formattedAddress = effectiveAddress;
   const formattedDistance = effectiveDistance !== null ? `${parseFloat(effectiveDistance).toFixed(1)} km away` : 'Nearby';
 
-  console.log(`[TRACE IncomingRequestScreen Mount] effectiveRequestId: "${effectiveRequestId}" | pendingRequests count: ${pendingRequests?.length || 0} | route params:`, route.params);
+  console.log('[DIAG Mechanic IncomingRequestScreen]', JSON.stringify({
+    jobId: effectiveRequestId,
+    customerName: effectiveCustomerName,
+    price: effectivePrice,
+    customerLocation: requestData?.customerLocation
+  }));
 
   useEffect(() => {
     if (!mechanicToken || !effectiveRequestId) {
@@ -54,7 +62,8 @@ const IncomingRequestScreen = ({ route, navigation }) => {
           console.log(`[TRACE Socket Event: timeout] eventReqId: "${eventReqId}", localReqId: "${localReqId}"`);
           if (eventReqId && localReqId && eventReqId === localReqId) {
             console.log('[TRACE Socket Event: timeout] Match found! Resetting to Tabs...');
-            if (Platform.OS === 'android' && RingingModule) {
+            stopIncomingRequestSound();
+            if (Platform.OS === 'android' && RingingModule && typeof RingingModule.stopRinging === 'function') {
               RingingModule.stopRinging();
             } else {
               Vibration.cancel();
@@ -69,7 +78,8 @@ const IncomingRequestScreen = ({ route, navigation }) => {
           console.log(`[TRACE Socket Event: cancelled] eventReqId: "${eventReqId}", localReqId: "${localReqId}"`);
           if (eventReqId && localReqId && eventReqId === localReqId) {
             console.log('[TRACE Socket Event: cancelled] Match found! Resetting to Tabs...');
-            if (Platform.OS === 'android' && RingingModule) {
+            stopIncomingRequestSound();
+            if (Platform.OS === 'android' && RingingModule && typeof RingingModule.stopRinging === 'function') {
               RingingModule.stopRinging();
             } else {
               Vibration.cancel();
@@ -80,10 +90,12 @@ const IncomingRequestScreen = ({ route, navigation }) => {
 
         socket.on('incoming_request_timeout', handleRequestTimeout);
         socket.on('request_cancelled', handleRequestCancelled);
+        socket.on('request:expired', handleRequestTimeout);
 
         return () => {
           socket.off('incoming_request_timeout', handleRequestTimeout);
           socket.off('request_cancelled', handleRequestCancelled);
+          socket.off('request:expired', handleRequestTimeout);
         };
       }
     } catch (err) {
@@ -92,7 +104,32 @@ const IncomingRequestScreen = ({ route, navigation }) => {
   }, [mechanicToken, effectiveRequestId]);
 
   useEffect(() => {
-    if (Platform.OS === 'android' && RingingModule) {
+    const isAutoAccept = route.params?.autoAccept === 'true' || route.params?.autoAccept === true || requestData?.autoAccept === 'true' || requestData?.autoAccept === true;
+    if (isAutoAccept) {
+      console.log('[IncomingRequestScreen] autoAccept flag detected from notification action button! Auto accepting...');
+      handleAccept();
+      return;
+    }
+
+    let initialSecs = 20;
+    if (requestData?.expiresAt) {
+      const expTime = new Date(requestData.expiresAt).getTime();
+      if (!isNaN(expTime)) {
+        initialSecs = Math.max(1, Math.min(300, Math.floor((expTime - Date.now()) / 1000)));
+      }
+    } else if (requestData?.createdAt) {
+      const createdTime = new Date(requestData.createdAt).getTime();
+      if (!isNaN(createdTime)) {
+        const elapsedSecs = Math.floor((Date.now() - createdTime) / 1000);
+        initialSecs = Math.max(1, Math.min(300, 300 - elapsedSecs));
+      }
+    }
+    setTimeLeft(initialSecs);
+
+    // Play request alert sound on screen mount
+    playIncomingRequestSound();
+
+    if (Platform.OS === 'android' && RingingModule && typeof RingingModule.startRinging === 'function') {
       RingingModule.startRinging();
     } else {
       Vibration.vibrate([1000, 1000], true);
@@ -111,7 +148,8 @@ const IncomingRequestScreen = ({ route, navigation }) => {
 
     return () => {
       clearInterval(timerRef.current);
-      if (Platform.OS === 'android' && RingingModule) {
+      stopIncomingRequestSound();
+      if (Platform.OS === 'android' && RingingModule && typeof RingingModule.stopRinging === 'function') {
         RingingModule.stopRinging();
       } else {
         Vibration.cancel();
@@ -127,6 +165,7 @@ const IncomingRequestScreen = ({ route, navigation }) => {
   };
 
   const handleDecline = () => {
+    console.log('[DECLINE] Button pressed');
     console.log(`[TRACE IncomingRequestScreen handleDecline] User pressed Decline for effectiveRequestId: "${effectiveRequestId}"`);
     if (actionTakenRef.current) return;
     actionTakenRef.current = true;
@@ -134,8 +173,9 @@ const IncomingRequestScreen = ({ route, navigation }) => {
   };
 
   const declineRequest = async (reason = 'unknown') => {
-    console.log(`[TRACE IncomingRequestScreen declineRequest] Triggered! Reason: "${reason}" | effectiveRequestId: "${effectiveRequestId}" | pendingRequests count: ${pendingRequests?.length || 0}`);
-    if (Platform.OS === 'android' && RingingModule) {
+    console.log(`[DECLINE] Triggered declineRequest! Reason: "${reason}" | effectiveRequestId: "${effectiveRequestId}" | pendingRequests count: ${pendingRequests?.length || 0}`);
+    stopIncomingRequestSound();
+    if (Platform.OS === 'android' && RingingModule && typeof RingingModule.stopRinging === 'function') {
       RingingModule.stopRinging();
     } else {
       Vibration.cancel();
@@ -144,15 +184,22 @@ const IncomingRequestScreen = ({ route, navigation }) => {
     try {
       if (effectiveRequestId) {
         removePendingRequest(effectiveRequestId);
-        await fetch(`${API_URL}/api/mechanic/requests/${effectiveRequestId}/reject`, {
+        console.log(`[DECLINE] Sending PUT ${API_URL}/api/mechanic/requests/${effectiveRequestId}/reject`);
+        const res = await fetch(`${API_URL}/api/mechanic/requests/${effectiveRequestId}/reject`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${mechanicToken}`
           }
         });
+        const resText = await res.text();
+        console.log(`[DECLINE] Response HTTP ${res.status}:`, resText);
+      } else {
+        console.warn('[DECLINE] effectiveRequestId is missing or undefined!');
       }
-    } catch (err) {}
+    } catch (err) {
+      console.error('[DECLINE] Fetch error in declineRequest:', err);
+    }
 
     navigation.reset({ index: 0, routes: [{ name: 'Tabs' }] });
   };
@@ -161,7 +208,8 @@ const IncomingRequestScreen = ({ route, navigation }) => {
     if (actionTakenRef.current) return;
     actionTakenRef.current = true;
 
-    if (Platform.OS === 'android' && RingingModule) {
+    stopIncomingRequestSound();
+    if (Platform.OS === 'android' && RingingModule && typeof RingingModule.stopRinging === 'function') {
       RingingModule.stopRinging();
     } else {
       Vibration.cancel();
@@ -202,20 +250,26 @@ const IncomingRequestScreen = ({ route, navigation }) => {
       }
     } catch (error) {}
 
+    if (!effectiveRequestId) {
+      Alert.alert('Error', 'Invalid request ID.');
+      navigation.navigate('Tabs');
+      return;
+    }
+
     navigation.reset({
       index: 0,
       routes: [
         { name: 'Tabs' },
-        { name: 'OnTheWay', params: { requestId: effectiveRequestId || 'demo_active_id' } }
+        { name: 'OnTheWay', params: { requestId: effectiveRequestId } }
       ],
     });
   };
 
   try {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: theme.background }]}>
         {/* 1. DEEP INDIGO HEADER */}
-        <View style={styles.header}>
+        <View style={[styles.header, { backgroundColor: theme.headerBg }]}>
           <TouchableOpacity style={styles.backBtn} onPress={handleDecline}>
             <Ionicons name="arrow-back" size={22} color="#FFFFFF" />
           </TouchableOpacity>

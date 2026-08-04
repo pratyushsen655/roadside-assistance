@@ -11,15 +11,13 @@ import MapView, { Marker, Circle } from 'react-native-maps';
 // Helper to fetch address components from Google Geocoding API using lat,lng
 const fetchComponentsFromLatLng = async (latitude, longitude) => {
   try {
-    const key = process.env.GOOGLE_MAPS_API_KEY || process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+    const key = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
+    if (!key || key === 'undefined' || key === 'YOUR_GOOGLE_MAPS_API_KEY') {
+      return [];
+    }
     const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${key}`;
-    console.log('[fetchComponentsFromLatLng DEBUG] Fetching URL:', url);
-    console.log('[fetchComponentsFromLatLng DEBUG] GOOGLE_MAPS_API_KEY is:', process.env.GOOGLE_MAPS_API_KEY);
-    console.log('[fetchComponentsFromLatLng DEBUG] EXPO_PUBLIC_GOOGLE_MAPS_API_KEY is:', process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY);
     const res = await fetch(url);
     const data = await res.json();
-    console.log('[fetchComponentsFromLatLng DEBUG] Response status:', data.status);
-    console.log('[fetchComponentsFromLatLng DEBUG] Full Response:', JSON.stringify(data).substring(0, 300));
     if (data.results && data.results.length > 0) {
       return data.results[0].address_components || [];
     }
@@ -32,7 +30,11 @@ const fetchComponentsFromLatLng = async (latitude, longitude) => {
 // Helper to fetch address components from an address string
 const fetchComponentsFromAddress = async (address) => {
   try {
-    const res = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${process.env.GOOGLE_MAPS_API_KEY}`);
+    const key = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
+    if (!key || key === 'undefined' || key === 'YOUR_GOOGLE_MAPS_API_KEY') {
+      return [];
+    }
+    const res = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${key}`);
     const data = await res.json();
     if (data.results && data.results.length > 0) {
       return data.results[0].address_components || [];
@@ -83,8 +85,10 @@ export default function RequestScreen({ navigation, route }) {
 
   const pulseAnim = useRef(new Animated.Value(0)).current;
 
-  const [latitude, setLatitude] = useState(28.6139);
-  const [longitude, setLongitude] = useState(77.2090);
+  const [latitude, setLatitude] = useState(null);
+  const [longitude, setLongitude] = useState(null);
+  const [locationError, setLocationError] = useState(null);
+  const [locationFetching, setLocationFetching] = useState(false);
 
   const [savedAddresses, setSavedAddresses] = useState([]);
   const [addressModalVisible, setAddressModalVisible] = useState(false);
@@ -207,120 +211,147 @@ export default function RequestScreen({ navigation, route }) {
     setCustomerAddress(addr);
     if (item.location?.lat) setLatitude(item.location.lat);
     if (item.location?.lng) setLongitude(item.location.lng);
+    setLocationError(null);
     // Fetch components for saved address if lat/lng available
     const comps = await fetchComponentsFromLatLng(item.location?.lat, item.location?.lng);
     setLocationInfo(parseLocationAddress(comps, addr));
     setAddressModalVisible(false);
   };
 
-  // Fetch current address/location on mount
-  useEffect(() => {
-    (async () => {
-      let hasDefault = false;
-      try {
-        if (!route.params?.selectedAddress) {
-          const res = await fetch(`${API_URL}/api/address`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-          const data = await res.json();
-          if (data.success && data.addresses && data.addresses.length > 0) {
-            const defaultAddress = data.addresses.find(a => a.isDefault);
-            if (defaultAddress) {
-              setCustomerAddress(defaultAddress.address);
-              if (defaultAddress.location?.lat) setLatitude(defaultAddress.location.lat);
-              if (defaultAddress.location?.lng) setLongitude(defaultAddress.location.lng);
-              hasDefault = true;
-            }
+  const fetchLocationAndAddress = async () => {
+    let hasDefault = false;
+    try {
+      if (!route.params?.selectedAddress) {
+        const res = await fetch(`${API_URL}/api/address`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (data.success && data.addresses && data.addresses.length > 0) {
+          const defaultAddress = data.addresses.find(a => a.isDefault);
+          if (defaultAddress && defaultAddress.location?.lat && defaultAddress.location?.lng) {
+            setCustomerAddress(defaultAddress.address);
+            setLatitude(defaultAddress.location.lat);
+            setLongitude(defaultAddress.location.lng);
+            setLocationError(null);
+            hasDefault = true;
           }
-        }
-      } catch (e) { console.log('Error fetching default address', e); }
-
-      if (!hasDefault && !route.params?.selectedAddress) {
-        try {
-          const { status } = await Location.requestForegroundPermissionsAsync();
-          if (status === 'granted') {
-            console.log('[Geocoding DEBUG] Location permission granted');
-            setCustomerAddress('Fetching address...');
-
-            let locationResolved = false;
-
-            const handleLocationResolved = async (loc) => {
-              if (!loc || !loc.coords) return;
-              console.log('[Geocoding DEBUG] Location resolved (cached or fresh):', loc.coords);
-              setLatitude(loc.coords.latitude);
-              setLongitude(loc.coords.longitude);
-              
-              console.log('[Geocoding DEBUG] Calling Location.reverseGeocodeAsync...');
-              const geoResults = await Location.reverseGeocodeAsync({
-                latitude: loc.coords.latitude,
-                longitude: loc.coords.longitude
-              }).catch(err => {
-                console.log('[RequestScreen] reverseGeocodeAsync error:', err);
-                return [];
-              });
-
-              const geo = geoResults && geoResults.length > 0 ? geoResults[0] : null;
-              console.log('[Geocoding DEBUG] reverseGeocodeAsync resolved:', geo);
-              if (geo) {
-                const displayAddress = `${geo.name || geo.street || ''}, ${geo.city || geo.district || ''}`;
-                // Fetch detailed components from Google API
-                const components = await fetchComponentsFromLatLng(loc.coords.latitude, loc.coords.longitude);
-                const parsed = parseLocationAddress(components, displayAddress);
-                setLocationInfo(parsed);
-                setCustomerAddress(displayAddress || 'HSR Layout, Bengaluru');
-              } else {
-                const fallbackAddress = 'HSR Layout, Bengaluru';
-                const components = await fetchComponentsFromLatLng(loc.coords.latitude, loc.coords.longitude);
-                setCustomerAddress(fallbackAddress);
-                setLocationInfo(parseLocationAddress(components, fallbackAddress));
-              }
-            };
-
-            // 1. Try to get cached location (getLastKnownPositionAsync)
-            try {
-              const lastKnown = await Location.getLastKnownPositionAsync({ maxAge: 60000 });
-              if (lastKnown) {
-                locationResolved = true;
-                await handleLocationResolved(lastKnown);
-              }
-            } catch (err) {
-              console.log('Error getting last known position in RequestScreen:', err);
-            }
-
-            // 2. Fetch fresh location in background with Balanced accuracy, raced with 8s timeout
-            const fetchFreshLocation = async () => {
-              return await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-            };
-
-            const timeoutPromise = new Promise((_, reject) =>
-              setTimeout(() => reject(new Error('Location fetch timeout')), 8000)
-            );
-
-            try {
-              const freshLocation = await Promise.race([
-                fetchFreshLocation(),
-                timeoutPromise
-              ]);
-              if (freshLocation) {
-                await handleLocationResolved(freshLocation);
-              }
-            } catch (raceErr) {
-              console.log('Fresh location fetch timed out or failed in RequestScreen:', raceErr.message);
-              if (!locationResolved) {
-                setCustomerAddress('HSR Layout, Bengaluru');
-                setLocationInfo(parseLocationAddress([], 'HSR Layout, Bengaluru'));
-              }
-            }
-          } else {
-            Alert.alert('Permission Denied', 'Please enable location permissions to locate you automatically.');
-          }
-        } catch (err) {
-          console.log('Error fetching current address:', err);
-          setCustomerAddress('HSR Layout, Bengaluru');
-          setLocationInfo(parseLocationAddress([], 'HSR Layout, Bengaluru'));
         }
       }
-    })();
+    } catch (e) { console.log('Error fetching default address', e); }
+
+    if (!hasDefault && !route.params?.selectedAddress) {
+      setLocationFetching(true);
+      setLocationError(null);
+      setCustomerAddress('Fetching location...');
+
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          console.log('[Geocoding DEBUG] Location permission granted');
+
+          let locationResolved = false;
+
+          const handleLocationResolved = async (loc) => {
+            if (!loc || !loc.coords) return;
+            const lat = loc.coords.latitude;
+            const lng = loc.coords.longitude;
+            console.log('[Geocoding DEBUG] GPS Location resolved:', lat, lng);
+
+            // ALWAYS update raw GPS coordinates first!
+            setLatitude(lat);
+            setLongitude(lng);
+            setLocationError(null);
+
+            let displayAddress = '';
+            try {
+              console.log('[Geocoding DEBUG] Calling Location.reverseGeocodeAsync...');
+              const geoResults = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
+              const geo = geoResults && geoResults.length > 0 ? geoResults[0] : null;
+              if (geo) {
+                const streetOrName = geo.name || geo.street || geo.subregion || geo.district || '';
+                const cityOrRegion = geo.city || geo.region || '';
+                displayAddress = (streetOrName && cityOrRegion && streetOrName !== cityOrRegion)
+                  ? `${streetOrName}, ${cityOrRegion}`
+                  : (streetOrName || cityOrRegion || geo.formattedAddress || '');
+              }
+            } catch (err) {
+              console.log('[RequestScreen] reverseGeocodeAsync error:', err.message);
+            }
+
+            if (!displayAddress) {
+              displayAddress = `Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+            }
+
+            // Attempt detailed Google components if key is configured, fallback safely
+            const components = await fetchComponentsFromLatLng(lat, lng);
+            const parsed = parseLocationAddress(components, displayAddress);
+            setLocationInfo(parsed);
+            setCustomerAddress(displayAddress);
+          };
+
+          // 1. Try cached position (fastest, maxAge 5 mins)
+          try {
+            const lastKnown = await Location.getLastKnownPositionAsync({ maxAge: 300000 });
+            if (lastKnown && lastKnown.coords) {
+              locationResolved = true;
+              await handleLocationResolved(lastKnown);
+            }
+          } catch (err) {
+            console.log('[RequestScreen] getLastKnownPositionAsync error:', err.message);
+          }
+
+          // Helper for promise timeout race
+          const fetchPosWithTimeout = (accuracy, timeoutMs) => {
+            return Promise.race([
+              Location.getCurrentPositionAsync({ accuracy }),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('Location fetch timeout')), timeoutMs))
+            ]);
+          };
+
+          // 2. Try fresh location with Balanced accuracy (10s timeout)
+          try {
+            const freshLocation = await fetchPosWithTimeout(Location.Accuracy.Balanced, 10000);
+            if (freshLocation && freshLocation.coords) {
+              locationResolved = true;
+              await handleLocationResolved(freshLocation);
+            }
+          } catch (raceErr1) {
+            console.log('[RequestScreen] Balanced location fetch failed/timed out, retrying with Low accuracy...', raceErr1.message);
+            // 3. Retry with Low accuracy (12s timeout)
+            try {
+              const retryLocation = await fetchPosWithTimeout(Location.Accuracy.Low, 12000);
+              if (retryLocation && retryLocation.coords) {
+                locationResolved = true;
+                await handleLocationResolved(retryLocation);
+              }
+            } catch (raceErr2) {
+              console.log('[RequestScreen] Low accuracy retry also failed/timed out:', raceErr2.message);
+            }
+          }
+
+          if (!locationResolved && (!latitude || !longitude)) {
+            setCustomerAddress('Location unavailable');
+            setLocationInfo({ areaName: 'Location Unavailable', fullAddress: 'Please enable location services and retry' });
+            setLocationError('Unable to get your location — please enable location services and try again.');
+          }
+        } else {
+          setCustomerAddress('Location permission denied');
+          setLocationError('Location permission denied. Please allow location permissions in device settings.');
+          Alert.alert('Permission Denied', 'Please enable location permissions to locate you automatically.');
+        }
+      } catch (err) {
+        console.log('Error fetching current address:', err);
+        setCustomerAddress('Location unavailable');
+        setLocationError('Unable to fetch location: ' + err.message);
+      } finally {
+        setLocationFetching(false);
+      }
+    }
+  };
+
+  // Fetch current address/location on mount
+  useEffect(() => {
+    fetchLocationAndAddress();
   }, [token, route.params?.selectedAddress]);
 
   // Update address & geocode if a saved address is selected
@@ -485,6 +516,17 @@ export default function RequestScreen({ navigation, route }) {
   const renderVehicleRateList = () => null;
 
   const handleRequest = async () => {
+    if (!latitude || !longitude) {
+      Alert.alert(
+        'Location Required',
+        'Unable to get your location — please enable location services and try again.',
+        [
+          { text: 'Retry GPS', onPress: () => fetchLocationAndAddress() },
+          { text: 'OK' }
+        ]
+      );
+      return;
+    }
     if (!vehicleNumber.trim()) {
       Alert.alert('Error', 'Please enter your vehicle number');
       return;
@@ -617,16 +659,32 @@ export default function RequestScreen({ navigation, route }) {
           onPress={() => navigation.navigate('AddressBook')}
           activeOpacity={0.7}
         >
-          <Ionicons name="location-sharp" size={20} color="#E8192C" style={{ marginRight: 8 }} />
+          <Ionicons name="location-sharp" size={20} color={locationError ? "#DC2626" : "#E8192C"} style={{ marginRight: 8 }} />
           <View style={{ flex: 1 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <Text style={styles.areaName}>{locationInfo.areaName}</Text>
+              <Text style={[styles.areaName, locationError && { color: '#DC2626' }]}>{locationInfo.areaName || 'Location'}</Text>
               <Ionicons name="chevron-down" size={14} color="#D32F2F" style={{ marginLeft: 4 }} />
             </View>
-            <Text style={styles.fullAddress} numberOfLines={1} ellipsizeMode="tail">{locationInfo.fullAddress}</Text>
+            <Text style={styles.fullAddress} numberOfLines={1} ellipsizeMode="tail">{customerAddress}</Text>
           </View>
-          <Text style={styles.changeText}>Change</Text>
+          {locationFetching ? (
+            <ActivityIndicator size="small" color="#E8192C" />
+          ) : (
+            <Text style={styles.changeText}>Change</Text>
+          )}
         </TouchableOpacity>
+
+        {locationError ? (
+          <View style={{ backgroundColor: '#FEF2F2', padding: 12, borderRadius: 10, marginTop: 8, marginBottom: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: '#FCA5A5' }}>
+            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', marginRight: 8 }}>
+              <Ionicons name="alert-circle" size={20} color="#DC2626" style={{ marginRight: 8 }} />
+              <Text style={{ color: '#991B1B', fontSize: 12, flex: 1, fontWeight: '500' }}>{locationError}</Text>
+            </View>
+            <TouchableOpacity onPress={fetchLocationAndAddress} style={{ backgroundColor: '#DC2626', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }}>
+              <Text style={{ color: '#FFF', fontSize: 12, fontWeight: 'bold' }}>Retry GPS</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
 
         {/* Services Section - Rounded Rectangle Cards with Inline Price Tags */}
         <Text style={styles.label}>Select Service Type</Text>

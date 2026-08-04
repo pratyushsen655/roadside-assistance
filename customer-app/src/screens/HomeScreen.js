@@ -15,6 +15,7 @@ import Skeleton from '../components/Skeleton';
 import { theme } from '../constants/theme';
 import GlobalBottomNav from '../components/GlobalBottomNav';
 import LocationSelectorBar from '../components/LocationSelectorBar';
+import { useTheme } from '../context/ThemeContext';
 
 const { width } = Dimensions.get('window');
 
@@ -22,6 +23,7 @@ const NAV_BAR_HEIGHT = 60;
 
 export default function HomeScreen({ navigation }) {
   const { t } = useTranslation();
+  const { theme, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -29,6 +31,7 @@ export default function HomeScreen({ navigation }) {
   const [greeting, setGreeting] = useState('');
   const [currentLocation, setCurrentLocation] = useState('Fetching location...');
   const [coordinates, setCoordinates] = useState(null);
+  const [activeRequest, setActiveRequest] = useState(null);
 
   // Compute greeting based on current hour
   const computeGreeting = () => {
@@ -39,10 +42,34 @@ export default function HomeScreen({ navigation }) {
     return t('home.goodNight', 'Good Night');
   };
 
-  // Update greeting whenever the screen gains focus
+  const fetchActiveRequest = async () => {
+    try {
+      const token = await AsyncStorage.getItem('userToken');
+      if (!token) return;
+      const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://roadside-assistance-production-ddaf.up.railway.app';
+      const response = await fetch(`${API_URL}/api/requests/active`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.data) {
+          setActiveRequest(data.data);
+        } else {
+          setActiveRequest(null);
+        }
+      } else {
+        setActiveRequest(null);
+      }
+    } catch (err) {
+      console.log('[HomeScreen] Error fetching active request:', err.message);
+    }
+  };
+
+  // Update greeting and check active request whenever the screen gains focus
   useFocusEffect(
     React.useCallback(() => {
       setGreeting(computeGreeting());
+      fetchActiveRequest();
     }, [t])
   );
 
@@ -240,6 +267,33 @@ export default function HomeScreen({ navigation }) {
     }
   };
 
+  const handleResumeActiveRequest = () => {
+    if (!activeRequest || !activeRequest._id) return;
+    const status = activeRequest.status;
+    const reqId = activeRequest._id;
+    if (['pending', 'searching'].includes(status)) {
+      navigation.navigate('Searching', {
+        jobId: reqId,
+        serviceType: activeRequest.serviceType,
+        vehicleType: activeRequest.vehicleType,
+        vehicleModel: activeRequest.vehicleModel,
+        customerAddress: activeRequest.customerAddress,
+        latitude: activeRequest.customerLocation?.coordinates?.[1],
+        longitude: activeRequest.customerLocation?.coordinates?.[0],
+        initialPrice: activeRequest.pricing?.totalAmount || activeRequest.amount || 350
+      });
+    } else if (['accepted', 'en_route', 'arrived', 'in_progress', 'work_in_progress'].includes(status)) {
+      navigation.navigate('Tracking', {
+        jobId: reqId,
+        mechanicId: activeRequest.mechanic?._id || activeRequest.mechanic,
+        mechanicName: activeRequest.mechanic?.name || 'Mechanic',
+        mechanicPhone: activeRequest.mechanic?.phone || '',
+        customerLat: activeRequest.customerLocation?.coordinates?.[1],
+        customerLng: activeRequest.customerLocation?.coordinates?.[0]
+      });
+    }
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -264,7 +318,7 @@ export default function HomeScreen({ navigation }) {
   }
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={[styles.container, { paddingTop: insets.top, backgroundColor: theme.background }]}>
       <LocationSelectorBar currentLocation={currentLocation} />
       <ScrollView
         ref={scrollRef}
@@ -274,25 +328,58 @@ export default function HomeScreen({ navigation }) {
         {/* 1. Header (Greeting and Subtitle) */}
         <View style={styles.headerRow}>
           <View style={styles.headerLeft}>
-            <Text style={styles.greetingText}>{greeting} 👋</Text>
-            <Text style={styles.subtitleText}>{t('home.subtitle', 'How can we help with\nyour vehicle today?')}</Text>
+            <Text style={[styles.greetingText, { color: theme.text }]}>{greeting} 👋</Text>
+            <Text style={[styles.subtitleText, { color: theme.textSecondary }]}>{t('home.subtitle', 'How can we help with\nyour vehicle today?')}</Text>
           </View>
         </View>
 
         {/* 2. Search Bar */}
-        <Animated.View entering={FadeInUp.delay(100).duration(400)} style={styles.searchBarContainer}>
-          <Ionicons name="search" size={20} color="#9CA3AF" style={styles.searchIcon} />
+        <Animated.View entering={FadeInUp.delay(100).duration(400)} style={[styles.searchBarContainer, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <Ionicons name="search" size={20} color={theme.textSecondary} style={styles.searchIcon} />
           <TextInput
-            style={styles.searchInput}
+            style={[styles.searchInput, { color: theme.text }]}
             placeholder={t('home.searchPlaceholder', 'Search services, repairs, items...')}
-            placeholderTextColor="#9CA3AF"
+            placeholderTextColor={theme.textSecondary}
             value={searchQuery}
             onChangeText={setSearchQuery}
           />
           <TouchableOpacity style={styles.filterIconBtn}>
-            <Ionicons name="options-outline" size={20} color="#6B7280" />
+            <Ionicons name="options-outline" size={20} color={theme.textSecondary} />
           </TouchableOpacity>
         </Animated.View>
+
+        {/* 3. Active Request Banner */}
+        {activeRequest && (
+          <Animated.View entering={FadeInDown.duration(400)}>
+            <TouchableOpacity
+              style={styles.activeRequestBanner}
+              onPress={handleResumeActiveRequest}
+              activeOpacity={0.85}
+            >
+              <View style={styles.activeBannerLeft}>
+                <View style={styles.activeBannerIconBadge}>
+                  <Text style={{ fontSize: 22 }}>🚨</Text>
+                </View>
+                <View style={styles.activeBannerTextContainer}>
+                  <View style={styles.activeBannerHeaderRow}>
+                    <Text style={styles.activeBannerTitle}>Active Service Request</Text>
+                    <View style={styles.activeStatusPill}>
+                      <Text style={styles.activeStatusPillText}>
+                        {String(activeRequest.status || 'in_progress').replace(/_/g, ' ').toUpperCase()}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={styles.activeBannerSub} numberOfLines={1}>
+                    {String(activeRequest.serviceType || 'Breakdown Assist').replace(/_/g, ' ')} • {activeRequest.customerAddress || 'Current Location'}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.activeBannerResumeBtn}>
+                <Text style={styles.activeBannerResumeText}>Resume ➔</Text>
+              </View>
+            </TouchableOpacity>
+          </Animated.View>
+        )}
 
 
 
@@ -300,72 +387,72 @@ export default function HomeScreen({ navigation }) {
         <View style={styles.categoriesGrid}>
           {/* Card 1: Car */}
           <TouchableOpacity
-            style={styles.categoryCard}
+            style={[styles.categoryCard, { backgroundColor: theme.card, borderColor: theme.border }]}
             onPress={() => navigation.navigate('Request', { vehicleType: 'car' })}
             activeOpacity={0.8}
           >
             <View style={styles.cardHeader}>
               <Text style={{ fontSize: 48, marginRight: 12 }}>🚗</Text>
               <View style={styles.cardTextContainer}>
-                <Text style={styles.categoryCardText}>{t('vehicle.car', 'Car')}</Text>
-                <Text style={styles.categorySubText}>{t('vehicle.repairServices', 'Repair & Services')}</Text>
+                <Text style={[styles.categoryCardText, { color: theme.text }]}>{t('vehicle.car', 'Car')}</Text>
+                <Text style={[styles.categorySubText, { color: theme.textSecondary }]}>{t('vehicle.repairServices', 'Repair & Services')}</Text>
               </View>
             </View>
-            <View style={styles.chevronWrapper}>
+            <View style={[styles.chevronWrapper, { backgroundColor: isDark ? '#371B26' : '#FEF2F2' }]}>
               <Ionicons name="chevron-forward" size={16} color="#E8192C" />
             </View>
           </TouchableOpacity>
 
           {/* Card 2: Bike */}
           <TouchableOpacity
-            style={styles.categoryCard}
+            style={[styles.categoryCard, { backgroundColor: theme.card, borderColor: theme.border }]}
             onPress={() => navigation.navigate('Request', { vehicleType: 'bike' })}
             activeOpacity={0.8}
           >
             <View style={styles.cardHeader}>
               <Text style={{ fontSize: 48, marginRight: 12 }}>🏍️</Text>
               <View style={styles.cardTextContainer}>
-                <Text style={styles.categoryCardText}>{t('vehicle.bike', 'Bike')}</Text>
-                <Text style={styles.categorySubText}>{t('vehicle.repairServices', 'Repair & Services')}</Text>
+                <Text style={[styles.categoryCardText, { color: theme.text }]}>{t('vehicle.bike', 'Bike')}</Text>
+                <Text style={[styles.categorySubText, { color: theme.textSecondary }]}>{t('vehicle.repairServices', 'Repair & Services')}</Text>
               </View>
             </View>
-            <View style={styles.chevronWrapper}>
+            <View style={[styles.chevronWrapper, { backgroundColor: isDark ? '#371B26' : '#FEF2F2' }]}>
               <Ionicons name="chevron-forward" size={16} color="#E8192C" />
             </View>
           </TouchableOpacity>
 
           {/* Card 3: Auto */}
           <TouchableOpacity
-            style={styles.categoryCard}
+            style={[styles.categoryCard, { backgroundColor: theme.card, borderColor: theme.border }]}
             onPress={() => navigation.navigate('Request', { vehicleType: 'auto' })}
             activeOpacity={0.8}
           >
             <View style={styles.cardHeader}>
               <Text style={{ fontSize: 48, marginRight: 12 }}>🛺</Text>
               <View style={styles.cardTextContainer}>
-                <Text style={styles.categoryCardText}>{t('vehicle.auto', 'Auto')}</Text>
-                <Text style={styles.categorySubText}>{t('vehicle.repairServices', 'Repair & Services')}</Text>
+                <Text style={[styles.categoryCardText, { color: theme.text }]}>{t('vehicle.auto', 'Auto')}</Text>
+                <Text style={[styles.categorySubText, { color: theme.textSecondary }]}>{t('vehicle.repairServices', 'Repair & Services')}</Text>
               </View>
             </View>
-            <View style={styles.chevronWrapper}>
+            <View style={[styles.chevronWrapper, { backgroundColor: isDark ? '#371B26' : '#FEF2F2' }]}>
               <Ionicons name="chevron-forward" size={16} color="#E8192C" />
             </View>
           </TouchableOpacity>
 
           {/* Card 4: E-Vehicle */}
           <TouchableOpacity
-            style={styles.categoryCard}
+            style={[styles.categoryCard, { backgroundColor: theme.card, borderColor: theme.border }]}
             onPress={() => navigation.navigate('Request', { vehicleType: 'e-vehicle' })}
             activeOpacity={0.8}
           >
             <View style={styles.cardHeader}>
               <Text style={{ fontSize: 48, marginRight: 12 }}>⚡</Text>
               <View style={styles.cardTextContainer}>
-                <Text style={styles.categoryCardText}>{t('vehicle.eVehicle', 'E-Vehicle')}</Text>
-                <Text style={styles.categorySubText}>{t('vehicle.repairServices', 'Repair & Services')}</Text>
+                <Text style={[styles.categoryCardText, { color: theme.text }]}>{t('vehicle.eVehicle', 'E-Vehicle')}</Text>
+                <Text style={[styles.categorySubText, { color: theme.textSecondary }]}>{t('vehicle.repairServices', 'Repair & Services')}</Text>
               </View>
             </View>
-            <View style={styles.chevronWrapper}>
+            <View style={[styles.chevronWrapper, { backgroundColor: isDark ? '#14382B' : '#ECFDF5' }]}>
               <Ionicons name="chevron-forward" size={16} color="#10B981" />
             </View>
           </TouchableOpacity>
@@ -373,19 +460,19 @@ export default function HomeScreen({ navigation }) {
 
         {/* 5. Other Card */}
         <TouchableOpacity
-          style={styles.otherCard}
+          style={[styles.otherCard, { backgroundColor: theme.card, borderColor: theme.border }]}
           onPress={() => navigation.navigate('MoreVehicles')}
           activeOpacity={0.8}
         >
           <View style={styles.otherCardContent}>
             <Text style={{ fontSize: 48, marginRight: 12 }}>🔧</Text>
             <View style={styles.otherCardTextContainer}>
-              <Text style={styles.otherCardTitle}>{t('vehicle.other', 'Other')}</Text>
-              <Text style={styles.otherCardSub}>{t('vehicle.exploreMore', 'Explore more services')}</Text>
+              <Text style={[styles.otherCardTitle, { color: theme.text }]}>{t('vehicle.other', 'Other')}</Text>
+              <Text style={[styles.otherCardSub, { color: theme.textSecondary }]}>{t('vehicle.exploreMore', 'Explore more services')}</Text>
             </View>
           </View>
-          <View style={[styles.chevronWrapper, { backgroundColor: '#F3F4F6' }]}>
-            <Ionicons name="chevron-forward" size={16} color="#374151" />
+          <View style={[styles.chevronWrapper, { backgroundColor: isDark ? '#27354A' : '#F3F4F6' }]}>
+            <Ionicons name="chevron-forward" size={16} color={theme.text} />
           </View>
         </TouchableOpacity>
       </ScrollView>
@@ -414,6 +501,78 @@ const styles = StyleSheet.create({
   searchIcon: { marginRight: 10 },
   searchInput: { flex: 1, fontSize: 14, color: '#1F2937' },
   filterIconBtn: { padding: 4 },
+  activeRequestBanner: {
+    backgroundColor: '#FFF3E0',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1.5,
+    borderColor: '#FFB74D',
+    elevation: 3,
+    shadowColor: '#B34700',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  activeBannerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    paddingRight: 10,
+  },
+  activeBannerIconBadge: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FFE0B2',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  activeBannerTextContainer: {
+    flex: 1,
+  },
+  activeBannerHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+    marginBottom: 2,
+  },
+  activeBannerTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#B34700',
+  },
+  activeStatusPill: {
+    backgroundColor: '#B34700',
+    paddingVertical: 2,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+  },
+  activeStatusPillText: {
+    color: '#FFF',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  activeBannerSub: {
+    fontSize: 12,
+    color: '#4B5563',
+  },
+  activeBannerResumeBtn: {
+    backgroundColor: '#B34700',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+  },
+  activeBannerResumeText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
   bannerContainer: { backgroundColor: '#FEF2F2', borderRadius: 16, padding: 20, flexDirection: 'row', alignItems: 'center', marginBottom: 24 },
   bannerTextContent: { flex: 1 },
   bannerTitle: { fontSize: 15, color: '#1F2937', fontWeight: '700' },

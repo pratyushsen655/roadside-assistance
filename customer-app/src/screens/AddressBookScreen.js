@@ -9,6 +9,7 @@ import { AuthContext } from '../context/AuthContext';
 import * as Location from 'expo-location';
 import MapView from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Enable LayoutAnimation on Android Old Architecture only
 // (New Architecture handles this natively — calling the experimental
@@ -21,6 +22,8 @@ if (Platform.OS === 'android' && isOldArchitecture && UIManager.setLayoutAnimati
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://roadside-assistance-production-ddaf.up.railway.app';
 
 export default function AddressBookScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
+  const topInset = Math.max(insets.top, 24);
   const { token } = useContext(AuthContext);
   const [addresses, setAddresses] = useState([]);
   const [modalVisible, setModalVisible] = useState(false);
@@ -329,7 +332,7 @@ export default function AddressBookScreen({ navigation }) {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: topInset + 10 }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Text style={styles.backText}>{'< Back'}</Text>
         </TouchableOpacity>

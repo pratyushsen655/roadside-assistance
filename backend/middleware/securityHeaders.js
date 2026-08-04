@@ -10,6 +10,11 @@ const securityHeaders = helmet({
   },
   crossOriginResourcePolicy: { policy: 'cross-origin' },
   frameguard: { action: 'deny' },
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true,
+  },
   noSniff: true,
   xssFilter: true,
 });

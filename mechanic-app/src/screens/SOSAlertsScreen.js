@@ -6,10 +6,13 @@ import { AuthContext } from '../context/AuthContext';
 import API_URL from '../config/api';
 import { getSocket } from '../config/socket';
 import { useBottomNavSafeArea } from '../hooks/useBottomNavSafeArea';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function SOSAlertsScreen() {
   const { mechanicToken } = useContext(AuthContext);
   const { paddingBottom } = useBottomNavSafeArea();
+  const insets = useSafeAreaInsets();
+  const topInset = Math.max(insets.top, 24);
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [acceptingId, setAcceptingId] = useState(null);
@@ -155,7 +158,7 @@ export default function SOSAlertsScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { marginTop: topInset + 10 }]}>
         <Text style={styles.headerTitle}>Active SOS Dispatches</Text>
         <Text style={styles.headerSubtitle}>Real-time emergency broadcast scanner</Text>
       </View>

@@ -7,11 +7,23 @@ import { getSocket } from '../config/socket';
 import { Ionicons } from '@expo/vector-icons';
 import MapView, { Marker, Circle } from 'react-native-maps';
 
+// Helper to check valid coordinate
+const isValidCoordinate = (coord) => {
+  return coord && 
+         typeof coord.latitude === 'number' && !isNaN(coord.latitude) &&
+         typeof coord.longitude === 'number' && !isNaN(coord.longitude);
+};
+
 export default function SOSConfirmationScreen({ route, navigation }) {
   const { sosId, lat, lng } = route.params || {};
   const [status, setStatus] = useState('pending'); // pending, accepted
   const [mechanic, setMechanic] = useState(null);
   const [searchRadius, setSearchRadius] = useState(5);
+
+  const customerCoords = (lat && lng) ? {
+    latitude: Number(lat),
+    longitude: Number(lng)
+  } : null;
 
   const isMounted = useRef(true);
   useEffect(() => {
@@ -155,47 +167,51 @@ export default function SOSConfirmationScreen({ route, navigation }) {
 
       <View style={styles.content}>
         {status === 'pending' ? (
-          <View style={StyleSheet.absoluteFillObject}>
+          <View style={styles.mapContainer}>
             <MapView
               style={StyleSheet.absoluteFillObject}
-              initialRegion={{
-                latitude: lat || 28.6139,
-                longitude: lng || 77.2090,
-                latitudeDelta: 0.25,
-                longitudeDelta: 0.25,
-              }}
+              initialRegion={isValidCoordinate(customerCoords) ? {
+                latitude: customerCoords.latitude,
+                longitude: customerCoords.longitude,
+                latitudeDelta: 0.05,
+                longitudeDelta: 0.05,
+              } : undefined}
             >
-              <Marker coordinate={{ latitude: lat || 28.6139, longitude: lng || 77.2090 }}>
-                <View style={styles.customerMarkerPin}>
-                  <Ionicons name="location-sharp" size={36} color="#E8192C" />
-                </View>
-              </Marker>
-              <Circle
-                center={{ latitude: lat || 28.6139, longitude: lng || 77.2090 }}
-                radius={searchRadius * 1000}
-                strokeWidth={2}
-                strokeColor="#E8192C"
-                fillColor="rgba(232, 25, 44, 0.08)"
-                lineDashPattern={[6, 6]}
-              />
+              {isValidCoordinate(customerCoords) ? (
+                <>
+                  <Marker coordinate={customerCoords}>
+                    <View style={styles.customerMarkerPin}>
+                      <Ionicons name="location-sharp" size={36} color="#E8192C" />
+                    </View>
+                  </Marker>
+                  <Circle
+                    center={customerCoords}
+                    radius={searchRadius * 1000}
+                    strokeWidth={2}
+                    strokeColor="#E8192C"
+                    fillColor="rgba(232, 25, 44, 0.08)"
+                    lineDashPattern={[6, 6]}
+                  />
+                </>
+              ) : null}
             </MapView>
 
             {/* Top Status Panel */}
             <View style={styles.topStatusPanel}>
               <Text style={styles.topStatusTitle}>Searching nearby mechanics...</Text>
               <Text style={styles.topStatusSubtitle}>Radius: {searchRadius} km</Text>
-              <ActivityIndicator size="small" color="#E8192C" style={{ marginTop: 8 }} />
+              <ActivityIndicator size="small" color="#E8192C" style={{ marginTop: 6 }} />
             </View>
 
             {/* Bottom Actions */}
             <View style={styles.bottomOverlayContainer}>
-              <TouchableOpacity style={styles.cancelOverlayBtn} onPress={handleCancelSOS}>
+              <TouchableOpacity style={styles.cancelOverlayBtn} onPress={handleCancelSOS} activeOpacity={0.85}>
                 <Text style={styles.cancelOverlayBtnText}>Cancel Emergency SOS</Text>
               </TouchableOpacity>
             </View>
           </View>
         ) : (
-          <>
+          <View style={styles.acceptedContent}>
             <Text style={styles.successSubtitle}>
               Emergency Accepted! A mechanic has been dispatched and is heading your way.
             </Text>
@@ -228,7 +244,7 @@ export default function SOSConfirmationScreen({ route, navigation }) {
             <TouchableOpacity style={styles.homeBtn} onPress={() => navigation.navigate('Home')}>
               <Text style={styles.homeBtnText}>Go to Home</Text>
             </TouchableOpacity>
-          </>
+          </View>
         )}
       </View>
     </View>
@@ -241,12 +257,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 20, paddingTop: 56, paddingBottom: 16,
     borderBottomWidth: 1, borderBottomColor: '#F3F4F6',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FFFFFF', zIndex: 10,
   },
   backBtn: { width: 40, height: 40, justifyContent: 'center' },
   backIcon: { fontSize: 22, color: '#1F2937' },
   headerTitle: { fontSize: 18, fontWeight: '700', color: '#E8192C', textAlign: 'center', flex: 1 },
-  content: { flex: 1, alignItems: 'center', paddingHorizontal: 24, paddingTop: 24, backgroundColor: '#FFFFFF' },
+  content: { flex: 1, backgroundColor: '#FFFFFF', position: 'relative' },
+  mapContainer: { flex: 1, position: 'relative', width: '100%', height: '100%' },
+  acceptedContent: { flex: 1, alignItems: 'center', paddingHorizontal: 24, paddingTop: 24, backgroundColor: '#FFFFFF' },
   successSubtitle: { fontSize: 16, color: '#4CAF50', fontWeight: 'bold', textAlign: 'center', lineHeight: 24, marginBottom: 30 },
   tipsCard: {
     width: '100%', backgroundColor: '#F5F5F5',
@@ -276,7 +294,7 @@ const styles = StyleSheet.create({
   },
   callBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
   homeBtn: {
-    width: '100%', backgroundColor: '#E5E7EB', borderRadius: 12,
+    width: '100%', backgroundColor: '#E5E5EB', borderRadius: 12,
     paddingVertical: 15, alignItems: 'center',
   },
   homeBtnText: { color: '#1F2937', fontWeight: '700', fontSize: 15 },
@@ -288,18 +306,19 @@ const styles = StyleSheet.create({
   },
   topStatusPanel: {
     position: 'absolute',
-    top: 20,
-    left: 0,
-    right: 0,
-    backgroundColor: '#fff',
+    top: 16,
+    left: 16,
+    right: 16,
+    backgroundColor: '#FFFFFF',
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 16,
     alignItems: 'center',
     elevation: 6,
     shadowColor: '#000',
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.15,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
+    zIndex: 5,
   },
   topStatusTitle: {
     fontSize: 16,
@@ -314,10 +333,11 @@ const styles = StyleSheet.create({
   },
   bottomOverlayContainer: {
     position: 'absolute',
-    bottom: 20,
-    left: 0,
-    right: 0,
+    bottom: 30,
+    left: 20,
+    right: 20,
     alignItems: 'center',
+    zIndex: 5,
   },
   cancelOverlayBtn: {
     backgroundColor: '#E8192C',

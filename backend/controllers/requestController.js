@@ -95,6 +95,7 @@ exports.createRequest = async (req, res, next) => {
     const startOTP = generateStartOTP();
 
     // 2. Create the Request document
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes TTL
     const serviceRequest = new ServiceRequest({
       customer: req.user.id,
       vehicleType,
@@ -108,6 +109,7 @@ exports.createRequest = async (req, res, next) => {
       customerAddress: customerAddress || '',
       pricing: fareEstimate,
       startOTP,
+      expiresAt,
       bookingType: bookingType || 'instant',
       scheduledTime: scheduledTime ? new Date(scheduledTime) : null
     });
@@ -133,7 +135,9 @@ exports.createRequest = async (req, res, next) => {
         estimatedFare: serviceRequest.pricing ? serviceRequest.pricing.totalAmount : 150,
         customerAddress: serviceRequest.customerAddress,
         location: serviceRequest.customerAddress || 'Customer Location',
-        customerLocation: { latitude, longitude }
+        customerLocation: { latitude, longitude },
+        createdAt: serviceRequest.createdAt,
+        expiresAt: serviceRequest.expiresAt
       };
 
       console.log(`[TRACE Step 1] [Request Created] Request ID: ${serviceRequest._id} | Vehicle: ${vehicleType} | Customer Coords: [Long: ${longitude}, Lat: ${latitude}]`);
@@ -209,10 +213,11 @@ exports.getActiveRequest = async (req, res, next) => {
 
   try {
     let query = {};
+    const inactiveStatuses = ['completed', 'cancelled', 'expired', 'unfulfilled'];
     if (role === 'mechanic') {
-      query = { mechanic: userId, status: { $nin: ['completed', 'cancelled'] } };
+      query = { mechanic: userId, status: { $nin: inactiveStatuses } };
     } else {
-      query = { customer: userId, status: { $nin: ['completed', 'cancelled'] } };
+      query = { customer: userId, status: { $nin: inactiveStatuses } };
     }
 
     const request = await ServiceRequest.findOne(query)
@@ -245,9 +250,16 @@ exports.getNearbyRequests = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Mechanic not found.' });
     }
 
+    const now = new Date();
+    const fiveMinsAgo = new Date(now.getTime() - 5 * 60 * 1000);
+
     const query = {
       status: 'pending',
-      rejectedBy: { $ne: mechanic._id }
+      rejectedBy: { $ne: mechanic._id },
+      $or: [
+        { expiresAt: { $gt: now } },
+        { expiresAt: null, createdAt: { $gt: fiveMinsAgo } }
+      ]
     };
 
     const hasValidCoords = mechanic.location?.coordinates && 
@@ -396,22 +408,57 @@ exports.acceptRequest = async (req, res, next) => {
 // @access  Private (Mechanic)
 exports.rejectRequest = async (req, res, next) => {
   const requestId = req.params.id;
-  const mechanicId = req.user.id;
+  const userId = req.user.id;
 
   try {
+    const Mechanic = require('../models/Mechanic');
+    const dispatchService = require('../services/dispatchService');
+
+    const mechanic = await Mechanic.findOne({ $or: [{ _id: userId }, { userId }] });
+    const mechanicId = mechanic ? mechanic._id : userId;
+
     const request = await ServiceRequest.findById(requestId);
     if (!request) {
       return res.status(404).json({ success: false, message: 'Request not found.' });
     }
 
-    // Append mechanic to reject list so it's not shown again
+    console.log(`[DECLINE BACKEND] Mechanic ${mechanicId} rejected request ${requestId}`);
+
+    // Append mechanic to rejectedBy array
     if (!request.rejectedBy.includes(mechanicId)) {
       request.rejectedBy.push(mechanicId);
-      await request.save();
     }
 
-    res.status(200).json({ success: true, message: 'Request rejected from your feed.' });
+    // Update status in dispatchedMechanics array
+    const dmIndex = request.dispatchedMechanics.findIndex(dm => dm.mechanicId.toString() === mechanicId.toString());
+    if (dmIndex > -1) {
+      request.dispatchedMechanics[dmIndex].status = 'rejected';
+    } else {
+      request.dispatchedMechanics.push({
+        mechanicId: mechanicId,
+        dispatchedAt: new Date(),
+        status: 'rejected'
+      });
+    }
+
+    // If this mechanic was the current candidate, clear it
+    if (request.currentCandidateMechanic && request.currentCandidateMechanic.toString() === mechanicId.toString()) {
+      request.currentCandidateMechanic = null;
+    }
+
+    await request.save();
+
+    // Clear dispatch timer for this request
+    dispatchService.cleanActiveTimer(requestId);
+
+    // Immediately trigger next dispatch step
+    dispatchService.dispatchNext(requestId, req.io).catch(err => {
+      console.error(`[Dispatch Error after Reject] Request ${requestId}:`, err.message);
+    });
+
+    res.status(200).json({ success: true, message: 'Request rejected successfully.' });
   } catch (error) {
+    console.error(`[DECLINE BACKEND ERROR] Request ${requestId}:`, error.message);
     next(error);
   }
 };

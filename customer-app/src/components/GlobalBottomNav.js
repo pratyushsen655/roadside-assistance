@@ -5,6 +5,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import { useNavigation, useNavigationState } from '@react-navigation/native';
+import { useTheme } from '../context/ThemeContext';
 
 const { width } = Dimensions.get('window');
 
@@ -12,6 +13,7 @@ export default function GlobalBottomNav({ state: propState, navigation: propNavi
   const insets = useSafeAreaInsets();
   const safeBottom = Platform.OS === 'android' ? Math.max(insets.bottom, 28) : Math.max(insets.bottom, 16);
   const { t } = useTranslation();
+  const { theme, isDark } = useTheme();
 
   // Try to use navigation from props first, then from hooks
   let navigation;
@@ -50,7 +52,7 @@ export default function GlobalBottomNav({ state: propState, navigation: propNavi
   };
 
   return (
-    <View style={[styles.bottomNavBar, { bottom: safeBottom }]}>
+    <View style={[styles.bottomNavBar, { bottom: safeBottom, backgroundColor: theme.card, borderColor: theme.border }]}>
       {/* Home Tab */}
       <TouchableOpacity 
         style={styles.navTab} 

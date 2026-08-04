@@ -209,7 +209,17 @@ const socketHandler = {
       });
 
       socket.on('disconnect', () => {
-        console.log(`[Socket] User disconnected: ${socket.id}`);
+        console.log(`[Socket] User/Mechanic disconnected: ${socket.id} (Note: isOnline status in DB is preserved)`);
+      });
+
+      socket.on('mechanic:reconnect', async (data) => {
+        const mechanicId = typeof data === 'string' ? data : (data?.mechanicId || data?.id);
+        if (mechanicId) {
+          socket.mechanicId = mechanicId;
+          socket.join(`mechanic:${mechanicId}`);
+          socket.join('mechanics');
+          console.log(`[Socket Reconnect] Mechanic ${mechanicId} re-joined rooms on socket ${socket.id}`);
+        }
       });
     });
 
@@ -292,6 +302,14 @@ const socketHandler = {
         console.error('[Socket matching loop error]', err.message);
       }
     }, 10000);
+
+    // Initialize 5-minute request TTL sweeper
+    try {
+      const { initExpirySweeper } = require('../services/expiryService');
+      initExpirySweeper(io);
+    } catch (expErr) {
+      console.error('[Socket init expiry error]', expErr.message);
+    }
   },
 };
 

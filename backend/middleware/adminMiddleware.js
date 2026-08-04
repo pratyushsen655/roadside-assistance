@@ -1,13 +1,20 @@
 const jwt = require('jsonwebtoken');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret_change_in_env';
+const getJwtSecret = () => {
+  const secret = process.env.JWT_SECRET;
+  if (!secret && process.env.NODE_ENV === 'production') {
+    throw new Error('FATAL: JWT_SECRET environment variable is missing in production!');
+  }
+  return secret || 'fallback_secret_change_in_env';
+};
 
 /**
  * Middleware to verify JWT token and check if the user has an admin role.
  */
 const adminMiddleware = (req, res, next) => {
   try {
-    const token = req.headers.authorization?.split(' ')[1];
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
 
     if (!token) {
       return res.status(401).json({
@@ -16,9 +23,11 @@ const adminMiddleware = (req, res, next) => {
       });
     }
 
+    const JWT_SECRET = getJwtSecret();
     const decoded = jwt.verify(token, JWT_SECRET);
     const payload = /** @type {any} */ (decoded);
-    if (payload.role !== 'admin') {
+
+    if (!payload || payload.role !== 'admin') {
       return res.status(403).json({
         success: false,
         message: 'Access denied. Admin role required.',

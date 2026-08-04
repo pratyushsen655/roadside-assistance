@@ -6,7 +6,9 @@ if (admin.apps.length === 0) {
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
   const privateKey = process.env.FIREBASE_PRIVATE_KEY;
 
-  if (projectId && clientEmail && privateKey) {
+  const isKeyValid = privateKey && !privateKey.includes('PASTE_YOUR_REAL_PRIVATE_KEY_HERE');
+
+  if (projectId && clientEmail && isKeyValid) {
     try {
       const formattedPrivateKey = privateKey.replace(/\\n/g, '\n');
       admin.initializeApp({
@@ -16,12 +18,12 @@ if (admin.apps.length === 0) {
           privateKey: formattedPrivateKey,
         }),
       });
-      console.log('[FCM Service] Firebase Admin SDK initialized successfully.');
+      console.log('[FCM Service] Firebase Admin SDK initialized successfully for project:', projectId);
     } catch (error) {
       console.error('[FCM Service] Firebase init error:', error.message);
     }
   } else {
-    console.log('[FCM Service] Firebase credentials missing — running in mock mode.');
+    console.log('[FCM Service] Firebase real private key missing in .env — FCM running in mock mode. (To enable live FCM, replace FIREBASE_PRIVATE_KEY in backend/.env with your service account private key).');
   }
 }
 
@@ -126,7 +128,10 @@ const sendRingingRequestNotification = async (token, payload) => {
 
   // Convert payload values to strings
   /** @type {Record<string, string>} */
-  const stringifiedData = {};
+  const stringifiedData = {
+    isRingingAction: 'true',
+    type: 'incoming_request',
+  };
   Object.keys(payload).forEach(key => {
     stringifiedData[key] = String(payload[key]);
   });
@@ -136,6 +141,7 @@ const sendRingingRequestNotification = async (token, payload) => {
     data: stringifiedData,
     android: {
       priority: 'high',
+      ttl: 30000, // 30 seconds TTL for fast delivery or drop if expired
     },
     apns: {
       headers: {

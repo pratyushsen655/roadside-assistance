@@ -1,6 +1,21 @@
 import React, { useEffect, useState } from 'react';
 import api from '../config/api';
 
+// ── KYC Document URL validity helpers ─────────────────────────────────────────
+const PLACEHOLDER_PATTERNS = ['placehold.co', 'placeholder.com', 'via.placeholder', 'picsum.photos', 'dummyimage.com'];
+
+function getDocUrlProblem(url) {
+  if (!url || !url.trim()) return { problem: true, kind: 'empty', label: 'No document uploaded', detail: 'No document URL is stored for this mechanic.' };
+  if (url.startsWith('file://')) return { problem: true, kind: 'local', label: 'Local device path (file://)', detail: 'This file:// URI is a path on the mechanic\'s phone. It cannot be loaded by a browser or verified remotely.' };
+  if (url.startsWith('data:')) return { problem: true, kind: 'base64', label: 'Raw base64 data URI', detail: 'The document was stored as raw image data instead of being uploaded to server storage.' };
+  for (const p of PLACEHOLDER_PATTERNS) {
+    if (url.includes(p)) return { problem: true, kind: 'placeholder', label: 'Placeholder / Demo image', detail: `This is a generic placeholder image (${p}), not a real identity document.` };
+  }
+  if (!url.startsWith('http://') && !url.startsWith('https://')) return { problem: true, kind: 'invalid', label: 'Invalid URL format', detail: `The stored value is not a valid HTTP URL.` };
+  return { problem: false, kind: 'ok', label: '', detail: '' };
+}
+// ──────────────────────────────────────────────────────────────────────────────
+
 // ── KYC status badge helper ────────────────────────────────────────────────────
 function KycBadge({ status }) {
   const map = {
@@ -37,6 +52,13 @@ function KycPanel({ mech, onUpdate }) {
   const docType = kyc.docType || (docs.identityProof ? 'Identity Proof' : docs.licenseImage ? 'Driving License' : legacyDoc ? 'Registration Document' : '');
   const kycStatus = kyc.status || (docUrl ? 'pending' : 'unsubmitted');
 
+  // Detect problems with the stored document URL
+  const docProblem = getDocUrlProblem(docUrl);
+  const isLocalFileUri = docUrl && docUrl.startsWith('file://');
+  const isPlaceholder = docProblem.kind === 'placeholder';
+  // An admin cannot approve if the document URL is problematic OR the image failed to load
+  const canApprove = !docProblem.problem && !imgError;
+
   // Build full list of all uploaded documents (from KYC upload or registration)
   const documentList = [];
   if (kyc.docUrl) {
@@ -58,9 +80,13 @@ function KycPanel({ mech, onUpdate }) {
 
   // Guess if the URL looks like an image or PDF
   const isPdf = docUrl && /\.pdf(\?|$)/i.test(docUrl);
-  const isImage = docUrl && (!isPdf || /\.(jpe?g|png|gif|webp|bmp|svg)(\?|$)/i.test(docUrl) || docUrl.startsWith('data:image/') || docUrl.includes('kyc-documents') || docUrl.includes('storage.googleapis.com'));
+  const isImage = docUrl && !docProblem.problem && (!isPdf || /\.(jpe?g|png|gif|webp|bmp|svg)(\?|$)/i.test(docUrl) || docUrl.startsWith('data:image/') || docUrl.includes('kyc-documents') || docUrl.includes('storage.googleapis.com'));
 
   const handleApprove = async () => {
+    if (!canApprove) {
+      alert('Cannot approve KYC: The document URL is invalid, broken, or a placeholder. The mechanic must re-upload a valid document from the mobile app.');
+      return;
+    }
     setActionLoading('approve');
     try {
       const res = await api.put(`/api/admin/mechanics/${mech._id}/kyc`, { action: 'approve' });
@@ -106,7 +132,7 @@ function KycPanel({ mech, onUpdate }) {
   const handleAttachSample = async () => {
     setActionLoading('attach');
     try {
-      const sampleUrl = 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=800&q=80';
+      const sampleUrl = 'https://placehold.co/800x500/1565c0/ffffff.png?text=Sample+Aadhaar+KYC+Document';
       const res = await api.put(`/api/admin/mechanics/${mech._id}/kyc`, {
         action: 'approve',
         docUrl: sampleUrl,
@@ -135,7 +161,6 @@ function KycPanel({ mech, onUpdate }) {
     }
   };
 
-
   // No KYC or registration documents submitted at all
   if (!docUrl && documentList.length === 0) {
     return (
@@ -158,8 +183,6 @@ function KycPanel({ mech, onUpdate }) {
     );
   }
 
-
-
   return (
     <div className="space-y-5">
       {/* ── Status row ─────────────────────────────────────── */}
@@ -176,6 +199,40 @@ function KycPanel({ mech, onUpdate }) {
         )}
       </div>
 
+      {/* ── Placeholder / Demo image warning ──────────────────── */}
+      {isPlaceholder && (
+        <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-4 space-y-1">
+          <div className="flex items-center gap-2 font-bold text-yellow-800">
+            <span className="text-base">🎭</span>
+            <span>Demo / Placeholder Image — Not a Real Document</span>
+          </div>
+          <p className="text-xs text-yellow-700">
+            This image is a generic placeholder, not an actual identity document submitted by the mechanic.
+            This record cannot be approved until a real document is uploaded.
+          </p>
+          <p className="font-mono text-[11px] text-yellow-600 break-all bg-yellow-100/70 px-2 py-1 rounded">{docUrl}</p>
+        </div>
+      )}
+
+      {/* ── Local file:// Warning Alert ────────────────────────── */}
+      {isLocalFileUri && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-1 text-xs text-amber-800">
+          <div className="flex items-center gap-2 font-bold text-amber-900">
+            <span className="text-base">⚠️</span>
+            <span>Invalid Local Device Path (file://)</span>
+          </div>
+          <p className="break-all font-mono text-[11px] text-amber-700 py-1 bg-amber-100/60 px-2 rounded">
+            {docUrl}
+          </p>
+          <p>
+            This document path is a local file URI on the mechanic's mobile device. Mobile device file paths cannot be loaded over the internet by external browsers.
+          </p>
+          <p className="font-semibold text-amber-900 pt-1">
+            Resolution: The mechanic needs to submit their document via the app's KYC upload screen so it uploads to server storage.
+          </p>
+        </div>
+      )}
+
       {/* ── Rejection reason display (if rejected) ──────────── */}
       {kycStatus === 'rejected' && kyc.rejectionReason && (
         <div className="bg-red-50 border border-red-200 rounded-xl px-5 py-3">
@@ -188,18 +245,42 @@ function KycPanel({ mech, onUpdate }) {
       <div>
         <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-2">Submitted Document</p>
 
-        {isImage ? (
+        {docProblem.problem && docProblem.kind !== 'local' ? (
+          /* Non-local but still invalid URL (placeholder, base64, empty, bad format) */
+          <div className="flex flex-col items-center justify-center p-8 bg-red-50 border border-red-200 border-dashed rounded-2xl text-center space-y-3">
+            <span className="text-4xl">🚫</span>
+            <p className="text-sm font-bold text-red-700">{docProblem.label}</p>
+            <p className="text-xs text-red-600 max-w-md">{docProblem.detail}</p>
+            {docUrl && (
+              <p className="text-[11px] font-mono text-red-500 break-all bg-red-100/60 px-3 py-1.5 rounded max-w-full">{docUrl}</p>
+            )}
+            <p className="text-xs font-semibold text-red-800 pt-1">This mechanic cannot be approved until a valid document is re-uploaded.</p>
+          </div>
+        ) : isLocalFileUri ? (
+          <div className="flex flex-col items-center justify-center p-8 bg-gray-50 border border-dashed border-gray-300 rounded-2xl text-center space-y-2">
+            <span className="text-3xl">📱</span>
+            <p className="text-sm font-semibold text-gray-700">Document File Inaccessible</p>
+            <p className="text-xs text-gray-500 max-w-md">
+              The file is stored on the mechanic's phone and was not uploaded to server storage.
+            </p>
+          </div>
+        ) : isImage ? (
           <div className="relative border border-gray-200 rounded-2xl overflow-hidden bg-gray-50">
             {!imgLoaded && !imgError && (
               <div className="flex items-center justify-center h-48 text-gray-400 text-sm">Loading document…</div>
             )}
             {imgError ? (
-              <div className="flex flex-col items-center justify-center h-48 text-gray-400 text-sm gap-2">
-                <span className="text-3xl">🖼️</span>
-                <span>Unable to preview. </span>
+              <div className="flex flex-col items-center justify-center bg-red-50 border border-red-200 rounded-2xl p-6 text-center space-y-3">
+                <span className="text-4xl">❌</span>
+                <p className="text-base font-bold text-red-700">Document Failed to Load</p>
+                <p className="text-xs text-red-600 max-w-md">
+                  The browser could not load this document. The URL may be broken, expired, or inaccessible.
+                  This mechanic <strong>cannot be approved</strong> until a working document is available.
+                </p>
+                <p className="text-[11px] font-mono text-red-500 break-all bg-red-100/70 px-3 py-1.5 rounded max-w-full">{docUrl}</p>
                 <a href={docUrl} target="_blank" rel="noreferrer"
-                  className="text-accent text-xs font-semibold underline underline-offset-2">
-                  Open document in new tab →
+                  className="text-red-700 text-xs font-semibold underline underline-offset-2 mt-1 hover:text-red-900">
+                  Try opening link in new tab →
                 </a>
               </div>
             ) : (
@@ -260,12 +341,31 @@ function KycPanel({ mech, onUpdate }) {
       {/* ── Action buttons (only when pending or re-reviewing) ── */}
       {(kycStatus === 'pending' || kycStatus === 'rejected') && (
         <div className="space-y-3 pt-1">
+          {/* Warning banner shown when Approve is blocked */}
+          {!canApprove && (
+            <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-start gap-3">
+              <span className="text-red-500 text-lg shrink-0 mt-0.5">🚫</span>
+              <div>
+                <p className="text-xs font-bold text-red-700">Approval Blocked</p>
+                <p className="text-xs text-red-600 mt-0.5">
+                  {imgError
+                    ? 'The document image failed to load. Please verify the URL is accessible before approving.'
+                    : docProblem.detail || 'The stored document URL is invalid. The mechanic must re-upload from the mobile app.'}
+                </p>
+              </div>
+            </div>
+          )}
           {!showRejectBox ? (
             <div className="flex gap-3">
               <button
                 onClick={handleApprove}
-                disabled={actionLoading !== ''}
-                className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white text-sm font-semibold py-2.5 rounded-xl transition-all"
+                disabled={actionLoading !== '' || !canApprove}
+                title={!canApprove ? 'Cannot approve: document is invalid or failed to load' : ''}
+                className={`flex-1 text-white text-sm font-semibold py-2.5 rounded-xl transition-all ${
+                  canApprove
+                    ? 'bg-green-600 hover:bg-green-700 disabled:opacity-60'
+                    : 'bg-gray-300 cursor-not-allowed opacity-60'
+                }`}
               >
                 {actionLoading === 'approve' ? 'Approving…' : '✓ Approve KYC'}
               </button>

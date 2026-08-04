@@ -110,7 +110,7 @@ const LoginScreen = ({ navigation }) => {
     <View style={styles.container}>
       <Text style={styles.title}>{t('login_title') || 'Welcome Back'}</Text>
       <Text style={{color:'#00BFA5', fontSize:11, marginBottom: 10}}>API: {API_URL}</Text>
-      <Text style={styles.subtitle}>{t('login_subtitle') || 'Login to RoadMitra Mechanic'}</Text>
+      <Text style={styles.subtitle}>{t('login_subtitle') || 'Login to RideRescue Mechanic'}</Text>
 
       {step === 1 ? (
         <View style={styles.inputContainer}>

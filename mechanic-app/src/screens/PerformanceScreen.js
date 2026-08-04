@@ -3,26 +3,53 @@ import React, { useContext, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AuthContext } from '../context/AuthContext';
 import API_URL from '../config/api';
 
 export default function PerformanceScreen() {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
+  const topInset = Math.max(insets.top, 24);
   const { mechanicToken } = useContext(AuthContext);
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState({ completionRate: 98, customerRating: 4.9, activeHours: 42 });
+  const [stats, setStats] = useState({ completionRate: 100, customerRating: 5.0, totalJobs: 0 });
 
   useEffect(() => {
-    // Fetch mock/real stats
-    const timer = setTimeout(() => {
-      setLoading(false);
-    }, 500);
-    return () => clearTimeout(timer);
-  }, []);
+    let isMounted = true;
+    const fetchPerformance = async () => {
+      try {
+        if (!mechanicToken) {
+          if (isMounted) setLoading(false);
+          return;
+        }
+        const res = await fetch(`${API_URL}/api/mechanic/profile`, {
+          headers: { Authorization: `Bearer ${mechanicToken}` }
+        });
+        const data = await res.json();
+        if (data.success && data.mechanic && isMounted) {
+          const m = data.mechanic;
+          const rating = Number(m.rating) || 5.0;
+          const totalJobs = Number(m.totalJobs) || 0;
+          setStats({
+            completionRate: totalJobs > 0 ? 100 : 0,
+            customerRating: Math.round(rating * 10) / 10,
+            totalJobs
+          });
+        }
+      } catch (err) {
+        console.log('[PerformanceScreen] Fetch error:', err.message);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+    fetchPerformance();
+    return () => { isMounted = false; };
+  }, [mechanicToken]);
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: topInset + 10 }]}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={24} color="#1F2937" />
         </TouchableOpacity>
@@ -38,8 +65,8 @@ export default function PerformanceScreen() {
         <ScrollView contentContainerStyle={styles.scrollContent}>
           <View style={styles.banner}>
             <MaterialCommunityIcons name="trophy" size={48} color="#F1C40F" />
-            <Text style={styles.bannerTitle}>Excellent Performance!</Text>
-            <Text style={styles.bannerSubtitle}>You are in the top 5% of mechanics in your area.</Text>
+            <Text style={styles.bannerTitle}>Account Performance</Text>
+            <Text style={styles.bannerSubtitle}>Live performance and rating data from your service requests.</Text>
           </View>
 
           <View style={styles.statsGrid}>
@@ -52,8 +79,8 @@ export default function PerformanceScreen() {
               <Text style={styles.statValue}>{stats.customerRating} ★</Text>
             </View>
             <View style={styles.statBox}>
-              <Text style={styles.statLabel}>Active Hours</Text>
-              <Text style={styles.statValue}>{stats.activeHours} hrs</Text>
+              <Text style={styles.statLabel}>Total Jobs</Text>
+              <Text style={styles.statValue}>{stats.totalJobs}</Text>
             </View>
           </View>
 

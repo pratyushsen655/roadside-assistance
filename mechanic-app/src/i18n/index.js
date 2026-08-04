@@ -26,6 +26,7 @@ i18n.use(initReactI18next).init({
   lng: 'en', // default; will be updated by LanguageProvider
   fallbackLng: 'en',
   interpolation: { escapeValue: false },
+  compatibilityJSON: 'v3',
 });
 
 export default i18n;

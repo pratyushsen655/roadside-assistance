@@ -41,6 +41,20 @@ const findNearbyMechanics = async (customerLocation, radiusInMeters, excludeIds 
     _id: { $nin: excludeIds }
   };
 
+  // Filter by vehicleType if specified — match mechanics who have the type in their specializations,
+  // or mechanics with an empty/unset specializations list (they service all vehicle types)
+  if (vehicleType) {
+    const normalizedType = vehicleType.toLowerCase().replace(/[\s\/]/g, '_');
+    query.$and = query.$and || [];
+    query.$and.push({
+      $or: [
+        { vehicleSpecializations: { $size: 0 } },
+        { vehicleSpecializations: { $exists: false } },
+        { vehicleSpecializations: normalizedType },
+      ]
+    });
+  }
+
   if (coordinates && Array.isArray(coordinates) && coordinates.length >= 2 && (coordinates[0] !== 0 || coordinates[1] !== 0)) {
     query.location = {
       $near: {
@@ -119,6 +133,18 @@ const dispatchNext = async (serviceRequestId, io = null) => {
       return;
     }
 
+    // Stop if request has expired
+    const now = new Date();
+    const isExpired = (request.expiresAt && request.expiresAt <= now) || (!request.expiresAt && request.createdAt && (now.getTime() - new Date(request.createdAt).getTime()) >= 300000);
+    if (isExpired || String(request.status) === 'expired') {
+      console.log(`[Dispatch] Request ${serviceRequestId} has expired. Stopping dispatch loop.`);
+      request.status = 'expired';
+      request.dispatchStatus = 'unfulfilled';
+      request.currentCandidateMechanic = null;
+      await request.save();
+      return;
+    }
+
     // Stop if request is no longer pending/searching
     if (request.status !== 'pending' || request.dispatchStatus !== 'searching') {
       console.log(`[Dispatch] Request ${serviceRequestId} status is ${request.status} / ${request.dispatchStatus}. Stopping dispatch loop.`);
@@ -178,17 +204,31 @@ const dispatchNext = async (serviceRequestId, io = null) => {
     const customerUser = await User.findById(request.customer);
     const customerName = customerUser?.name || 'Customer';
 
+    const storedPrice = request.totalPrice || request.current_price || request.amount || (request.pricing ? request.pricing.totalAmount : 350);
+    const customerPhone = customerUser?.phone || '';
+
     // Construct Socket/FCM payloads
     const socketPayload = {
+      _id: request._id.toString(),
       requestId: request._id.toString(),
       customerLocation: {
+        type: 'Point',
+        coordinates: request.customerLocation.coordinates,
         latitude: request.customerLocation.coordinates[1],
         longitude: request.customerLocation.coordinates[0],
       },
       customerName,
+      customerPhone,
+      customer: customerUser ? { _id: customerUser._id, name: customerUser.name, phone: customerUser.phone } : null,
       customerAddress: request.customerAddress || 'Nearby Coordinates',
       vehicleType: request.vehicleType || 'car',
+      vehicleModel: request.vehicleModel || '',
+      vehicleNumber: request.vehicleNumber || '',
       issueDescription: request.issueDescription || 'No description',
+      serviceType: request.serviceType || request.vehicleType || 'breakdown',
+      price: storedPrice,
+      estimatedFare: storedPrice,
+      pricing: request.pricing || { baseFare: request.baseRate || 150, totalAmount: storedPrice },
       distanceKm: route.distanceKm,
       durationMins: route.durationMins,
       timestamp: new Date(),
@@ -212,7 +252,14 @@ const dispatchNext = async (serviceRequestId, io = null) => {
 
     // Emit Socket.io events (emit both hyphenated and underscore naming conventions)
     if (ioInstance) {
-      console.log(`[STEP 3: SOCKET EMITTED] Emitting incoming-request & incoming_request for request ${request._id} to room mechanic:${candidate._id.toString()} and user:${candidate.userId || 'N/A'}`);
+      const roomName = `mechanic:${candidate._id.toString()}`;
+      const roomSockets = ioInstance.sockets?.adapter?.rooms?.get(roomName);
+      const activeSocketsCount = roomSockets ? roomSockets.size : 0;
+      if (activeSocketsCount === 0) {
+        console.log(`[Dispatch Fallback] Mechanic ${candidate._id} is online in DB but NOT socket connected (app backgrounded/closed). Relying on FCM push notification.`);
+      }
+
+      console.log(`[STEP 3: SOCKET EMITTED] Emitting incoming-request & incoming_request for request ${request._id} to room mechanic:${candidate._id.toString()} (${activeSocketsCount} sockets active) and user:${candidate.userId || 'N/A'}`);
       ioInstance.to(`mechanic:${candidate._id.toString()}`).emit('incoming-request', socketPayload);
       ioInstance.to(`mechanic:${candidate._id.toString()}`).emit('incoming_request', socketPayload);
       if (candidate.userId) {
@@ -225,12 +272,28 @@ const dispatchNext = async (serviceRequestId, io = null) => {
       ioInstance.to('mechanics').emit('new:job:request', socketPayload);
     }
 
-    // Send high-priority FCM Push Notification
+    // Send high-priority FCM Push Notification (always attempt, ensures background wake-up)
     const token = candidate.fcmToken || candidate.pushToken;
     if (token) {
+      console.log(`[Dispatch Push] Sending high-priority FCM ringing alert to mechanic ${candidate._id}...`);
       await sendRingingRequestNotification(token, fcmPayload);
     } else {
       console.warn(`[Dispatch Warning] Candidate mechanic ${candidate._id} has no FCM token saved.`);
+    }
+
+    // Persist Notification document to MongoDB
+    try {
+      const { createMechanicNotification } = require('./notificationService');
+      await createMechanicNotification({
+        mechanicId: candidate._id,
+        type: 'new_request',
+        title: 'New Service Request Nearby',
+        message: `New ${request.serviceType || request.vehicleType || 'breakdown'} request from ${customerName || 'Customer'} (₹${storedPrice})`,
+        relatedId: request._id,
+        data: { price: storedPrice, serviceType: request.serviceType }
+      });
+    } catch (notifErr) {
+      console.error('[Dispatch Notification Error]:', notifErr.message);
     }
 
     // Schedule 15-second timeout for next dispatch step

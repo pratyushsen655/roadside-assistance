@@ -223,6 +223,32 @@ Open the admin dashboard, click **Launch Admin Dashboard** to simulate login, th
 
 ---
 
+## Local Development / Debugging
+
+### Android ADB & Logcat Setup
+
+To run ADB and logcat commands without PATH errors in PowerShell, helper scripts are provided:
+
+- **Run via npm**:
+  ```powershell
+  npm run logcat
+  ```
+  *(Works from both project root and `mechanic-app/` directory)*
+
+- **Helper Script Details (`scripts/logcat.ps1`)**:
+  - Automatically locates `adb.exe` in `$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe` or `$env:ANDROID_HOME\platform-tools\adb.exe`.
+  - Temporarily adds `platform-tools` to `$env:Path` for the active PowerShell session.
+  - Filters logcat output to `*:S ReactNative:V ReactNativeJS:V` by default (accepts custom filter arguments).
+
+- **Permanent System PATH Fix (Run Once in PowerShell)**:
+  To make `adb` accessible globally across all PowerShell windows without script wrappers:
+  ```powershell
+  [Environment]::SetEnvironmentVariable("Path", $env:Path + ";$env:LOCALAPPDATA\Android\Sdk\platform-tools", "User")
+  ```
+  *(Requires restarting PowerShell / terminal windows to take effect).*
+
+---
+
 ## Deployment Guide
 1. **Backend** – Deploy to Railway (or another Node‑compatible platform). Create a Railway project, connect this repository, and let Railway detect the Node app. The `Procfile` (`web: npm run start`) tells Railway how to run the server.
 2. **MongoDB** – Provision a free MongoDB Atlas cluster, whitelist the Railway internal IPs, and copy the connection URI.

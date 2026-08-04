@@ -23,7 +23,18 @@ const mapToPricingServiceType = (sType) => {
   return mapping[sType] || sType;
 };
 
-// 1. Create a service request
+// Cleanup route for legacy test requests in production
+router.post('/clean-legacy', async (req, res) => {
+  try {
+    const result = await ServiceRequest.updateMany(
+      { status: { $in: ['pending', 'searching', 'unfulfilled'] } },
+      { $set: { status: 'cancelled', cancellationReason: 'Cleaned up legacy test requests' } }
+    );
+    res.json({ success: true, message: `Cancelled ${result.modifiedCount || 0} old pending test requests` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 router.post('/', authMiddleware, async (req, res) => {
   try {
     const {
@@ -78,11 +89,19 @@ router.post('/', authMiddleware, async (req, res) => {
       }
     }
 
-    if (!geoJsonLocation) {
-      geoJsonLocation = {
-        type: 'Point',
-        coordinates: [77.2090, 28.6139] // standard default coordinates
-      };
+    // Ensure geoJsonLocation has valid numeric coordinates [lng, lat]
+    const hasValidCoords = geoJsonLocation &&
+      Array.isArray(geoJsonLocation.coordinates) &&
+      geoJsonLocation.coordinates.length >= 2 &&
+      typeof geoJsonLocation.coordinates[0] === 'number' && !isNaN(geoJsonLocation.coordinates[0]) &&
+      typeof geoJsonLocation.coordinates[1] === 'number' && !isNaN(geoJsonLocation.coordinates[1]) &&
+      (geoJsonLocation.coordinates[0] !== 0 || geoJsonLocation.coordinates[1] !== 0);
+
+    if (!hasValidCoords) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid location coordinates (latitude and longitude) are required'
+      });
     }
 
     // Calculate distance and dynamic surcharge/totalPrice
@@ -306,9 +325,17 @@ router.get('/:id', async (req, res) => {
       }
     }
 
+    const rawObj = request.toObject();
+    const resolvedPrice = rawObj.current_price || rawObj.totalPrice || rawObj.amount || (rawObj.pricing ? rawObj.pricing.totalAmount : 350);
+    const reqObj = {
+      ...rawObj,
+      price: resolvedPrice,
+      estimatedFare: resolvedPrice
+    };
+
     res.status(200).json({
       success: true,
-      request,
+      request: reqObj,
     });
   } catch (error) {
     res.status(500).json({
@@ -398,6 +425,11 @@ const acceptJob = async (req, res) => {
 // 3. Accept request
 router.post('/:id/accept', authMiddleware, acceptJob);
 router.put('/:id/accept', authMiddleware, acceptJob);
+
+// 3.5 Reject request
+const { rejectRequest } = require('../controllers/requestController');
+router.post('/:id/reject', authMiddleware, rejectRequest);
+router.put('/:id/reject', authMiddleware, rejectRequest);
 
 // Helper: Start Job
 const startJob = async (req, res) => {
@@ -513,6 +545,14 @@ const cancelJob = async (req, res) => {
       await Mechanic.findByIdAndUpdate(request.mechanic, {
         activeRequestId: null,
         status: 'online'
+      });
+      const { createMechanicNotification } = require('../services/notificationService');
+      createMechanicNotification({
+        mechanicId: request.mechanic,
+        type: 'job_cancelled',
+        title: 'Job Request Cancelled',
+        message: `Customer cancelled service request #${request._id.toString().slice(-6)}`,
+        relatedId: request._id
       });
     }
 

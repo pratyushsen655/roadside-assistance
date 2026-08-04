@@ -2,7 +2,8 @@
 import React, { useContext, useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, Switch, ScrollView, TouchableOpacity, Alert,
-  ActivityIndicator, Animated, Image, Modal, Dimensions, StatusBar
+  ActivityIndicator, Animated, Image, Modal, Dimensions, StatusBar,
+  Platform, NativeModules
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,6 +15,7 @@ import * as Location from 'expo-location';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import { useBottomNavSafeArea } from '../hooks/useBottomNavSafeArea';
 import DrawerMenu from '../components/DrawerMenu';
+import { useTheme } from '../context/ThemeContext';
 
 const { width } = Dimensions.get('window');
 
@@ -109,6 +111,7 @@ const RadarScanner = () => {
 
 export default function HomeScreen() {
   const navigation = useNavigation();
+  const { theme, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const topInset = Math.max(insets.top, StatusBar.currentHeight || 24);
   const { paddingBottom } = useBottomNavSafeArea();
@@ -159,7 +162,7 @@ export default function HomeScreen() {
     {
       id: 'n3',
       title: 'System Update 🛠️',
-      body: 'Welcome to RoadMitra Mechanic! Check specialization info.',
+      body: 'Welcome to RideRescue Mechanic! Check specialization info.',
       time: '1 day ago',
       read: false,
     },
@@ -281,19 +284,34 @@ export default function HomeScreen() {
         });
 
         socket.on('incoming_request_timeout', (data) => {
-          if (data && data.requestId) {
-            console.log('[Socket] Request timed out, removing from list:', data.requestId);
+          if (data && (data.requestId || data._id)) {
+            const reqId = (data.requestId || data._id).toString();
+            console.log('[Socket] Request timed out, removing from list:', reqId);
             if (isMounted.current) {
-              setRequests(prev => prev.filter(r => r._id !== data.requestId));
+              setRequests(prev => prev.filter(r => (r._id || r.requestId)?.toString() !== reqId));
+              removePendingRequest(reqId);
+            }
+          }
+        });
+
+        socket.on('request:expired', (data) => {
+          if (data && (data.requestId || data._id)) {
+            const reqId = (data.requestId || data._id).toString();
+            console.log('[Socket] Request expired, removing from list:', reqId);
+            if (isMounted.current) {
+              setRequests(prev => prev.filter(r => (r._id || r.requestId)?.toString() !== reqId));
+              removePendingRequest(reqId);
             }
           }
         });
 
         socket.on('request_cancelled', (data) => {
-          if (data && data.requestId) {
-            console.log('[Socket] Request cancelled, removing from list:', data.requestId);
+          if (data && (data.requestId || data._id)) {
+            const reqId = (data.requestId || data._id).toString();
+            console.log('[Socket] Request cancelled, removing from list:', reqId);
             if (isMounted.current) {
-              setRequests(prev => prev.filter(r => r._id !== data.requestId));
+              setRequests(prev => prev.filter(r => (r._id || r.requestId)?.toString() !== reqId));
+              removePendingRequest(reqId);
             }
           }
         });
@@ -301,7 +319,7 @@ export default function HomeScreen() {
 
       interval = setInterval(() => {
         fetchPendingRequests();
-      }, 5000);
+      }, 15000);
     } else {
       if (isMounted.current) {
         setRequests([]);
@@ -314,6 +332,7 @@ export default function HomeScreen() {
         socket.off('request:price_updated_global');
         socket.off('request_claimed');
         socket.off('incoming_request_timeout');
+        socket.off('request:expired');
         socket.off('request_cancelled');
       }
     }
@@ -327,6 +346,7 @@ export default function HomeScreen() {
         socket.off('request:price_updated_global');
         socket.off('request_claimed');
         socket.off('incoming_request_timeout');
+        socket.off('request:expired');
         socket.off('request_cancelled');
       }
     };
@@ -339,14 +359,46 @@ export default function HomeScreen() {
           'Authorization': `Bearer ${mechanicToken}`
         }
       });
+      if (!response.ok) return;
       const data = await response.json();
       if (data.success && data.mechanic) {
+        const onlineState = data.mechanic.isOnline || false;
         if (isMounted.current) {
-          setIsOnline(data.mechanic.isOnline || false);
+          setIsOnline(onlineState);
+        }
+        if (Platform.OS === 'android' && NativeModules.OnlineServiceModule) {
+          if (onlineState && typeof NativeModules.OnlineServiceModule.startService === 'function') {
+            NativeModules.OnlineServiceModule.startService();
+          } else if (!onlineState && typeof NativeModules.OnlineServiceModule.stopService === 'function') {
+            NativeModules.OnlineServiceModule.stopService();
+          }
         }
       }
     } catch (error) {
       console.log('Error fetching online status:', error);
+    }
+  };
+
+  const checkAndRequestFullScreenPermission = async () => {
+    if (Platform.OS === 'android' && NativeModules.RingingModule?.checkFullScreenIntentPermission) {
+      try {
+        const canUse = await NativeModules.RingingModule.checkFullScreenIntentPermission();
+        if (!canUse) {
+          Alert.alert(
+            'Full-Screen Alert Permission Required',
+            'To receive incoming breakdown requests over the lock screen like an incoming call, please grant Full-Screen Alert permission in settings.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Open Settings',
+                onPress: () => NativeModules.RingingModule.requestFullScreenIntentPermission()
+              }
+            ]
+          );
+        }
+      } catch (err) {
+        console.log('[HomeScreen Permission Check Error]', err.message);
+      }
     }
   };
 
@@ -360,6 +412,7 @@ export default function HomeScreen() {
           'Authorization': `Bearer ${mechanicToken}`
         }
       });
+      if (!response.ok) return;
       const data = await response.json();
       if (data.success) {
         if (isMounted.current) {
@@ -380,6 +433,20 @@ export default function HomeScreen() {
     }
   };
 
+  const isRequestExpired = (req) => {
+    if (!req) return true;
+    if (['expired', 'completed', 'cancelled'].includes(req.status)) return true;
+    const now = Date.now();
+    if (req.expiresAt) {
+      const expTime = new Date(req.expiresAt).getTime();
+      if (!isNaN(expTime) && now >= expTime) return true;
+    } else if (req.createdAt) {
+      const createdTime = new Date(req.createdAt).getTime();
+      if (!isNaN(createdTime) && now >= (createdTime + 300000)) return true;
+    }
+    return false;
+  };
+
   const fetchPendingRequests = async () => {
     if (isMounted.current) {
       setRequestsLoading(true);
@@ -390,21 +457,26 @@ export default function HomeScreen() {
           'Authorization': `Bearer ${mechanicToken}`
         }
       });
+      if (!response.ok) {
+        console.warn(`[HomeScreen fetchPendingRequests] Non-ok response status: ${response.status}. Skipping poll parsing.`);
+        return;
+      }
       const rawData = await response.json();
       const list = Array.isArray(rawData) ? rawData : (rawData?.data || rawData?.requests || []);
-      console.log(`[TRACE UI State Handler] [HomeScreen fetchPendingRequests] API returned ${list.length} pending requests.`);
+      const validList = list.filter(r => !isRequestExpired(r));
+      console.log(`[TRACE UI State Handler] [HomeScreen fetchPendingRequests] API returned ${list.length} pending requests (${validList.length} non-expired).`);
       if (isMounted.current) {
-        setRequests(list);
-        if (list.length > 0) {
+        setRequests(validList);
+        if (validList.length > 0) {
           setPendingRequests(prev => {
-            const merged = [...list];
+            const merged = [...validList];
             prev.forEach(p => {
               const pId = (p.requestId || p._id || p.id)?.toString();
-              if (!merged.some(m => (m.requestId || m._id || m.id)?.toString() === pId)) {
+              if (!merged.some(m => (m.requestId || m._id || m.id)?.toString() === pId) && !isRequestExpired(p)) {
                 merged.push(p);
               }
             });
-            return merged;
+            return merged.filter(m => !isRequestExpired(m));
           });
         }
       }
@@ -453,6 +525,14 @@ export default function HomeScreen() {
         console.log('[TRACE Step 1 Client Status Toggle Success] Mechanic status updated:', data);
         if (isMounted.current) {
           setIsOnline(data.isOnline);
+        }
+        if (Platform.OS === 'android' && NativeModules.OnlineServiceModule) {
+          if (data.isOnline && typeof NativeModules.OnlineServiceModule.startService === 'function') {
+            NativeModules.OnlineServiceModule.startService();
+            checkAndRequestFullScreenPermission();
+          } else if (!data.isOnline && typeof NativeModules.OnlineServiceModule.stopService === 'function') {
+            NativeModules.OnlineServiceModule.stopService();
+          }
         }
       } else {
         Alert.alert('Error', data.message || 'Failed to update status');
@@ -746,7 +826,8 @@ export default function HomeScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
+      <StatusBar style={isDark ? "light" : "dark"} />
       {/* 1. DEEP INDIGO HEADER WITH SAFE AREA TOP INSET */}
       <View style={[styles.header, { paddingTop: topInset + 10 }]}>
         <View style={styles.topRow}>
@@ -869,7 +950,7 @@ export default function HomeScreen() {
                     <Ionicons name="navigate-outline" size={15} color="#10B981" style={{ marginRight: 5 }} />
                     <Text style={styles.distanceText}>{formatDistance(req)}</Text>
                   </View>
-                  <Text style={styles.jobPrice}>₹{req.price || req.estimatedFare || req.pricing?.totalAmount || req.amount || 350}</Text>
+                  <Text style={styles.jobPrice}>₹{req.current_price || req.totalPrice || req.amount || req.pricing?.totalAmount || req.price || req.estimatedFare || 350}</Text>
                 </View>
 
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 }}>

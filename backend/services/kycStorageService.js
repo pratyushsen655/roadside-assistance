@@ -54,8 +54,18 @@ const uploadKycDocument = async (fileBuffer, mechanicId, originalName, mimetype)
 
   // Development/Mock fallback when Firebase credentials are missing or upload fails
   if (process.env.NODE_ENV !== 'production') {
-    console.log(`[MOCK KYC Storage] File saved in mock mode for mechanic ${mechanicId}: ${filename}`);
-    return `https://storage.googleapis.com/${bucketName}/${filename}`;
+    const fs = require('fs');
+    const path = require('path');
+    const uploadDir = path.join(__dirname, '../uploads/kyc', mechanicId.toString());
+    fs.mkdirSync(uploadDir, { recursive: true });
+    const localFileName = `${Date.now()}-${safeName}`;
+    const filePath = path.join(uploadDir, localFileName);
+    fs.writeFileSync(filePath, fileBuffer);
+
+    const serverUrl = process.env.SERVER_URL || 'http://localhost:5000';
+    const fileUrl = `${serverUrl}/uploads/kyc/${mechanicId}/${localFileName}`;
+    console.log(`[KYC Storage] Saved file locally for mechanic ${mechanicId}: ${fileUrl}`);
+    return fileUrl;
   }
 
   throw new Error('Firebase Storage is not configured properly');

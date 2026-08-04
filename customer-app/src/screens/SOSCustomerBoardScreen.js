@@ -41,8 +41,8 @@ export default function SOSCustomerBoardScreen({ route, navigation }) {
   }, []);
 
   const [customerCoords] = useState({
-    latitude: customerLat || 28.6139,
-    longitude: customerLng || 77.2090
+    latitude: customerLat || null,
+    longitude: customerLng || null
   });
 
   const [mechanicCoords, setMechanicCoords] = useState(null);
@@ -239,12 +239,12 @@ export default function SOSCustomerBoardScreen({ route, navigation }) {
         <MapView
           style={StyleSheet.absoluteFillObject}
           customMapStyle={darkMapStyle}
-          initialRegion={{
+          initialRegion={isValidCoordinate(customerCoords) ? {
             latitude: customerCoords.latitude,
             longitude: customerCoords.longitude,
             latitudeDelta: 0.05,
             longitudeDelta: 0.05
-          }}
+          } : undefined}
         >
           {/* Customer pin (orange/yellow) */}
           {isValidCoordinate(customerCoords) && (

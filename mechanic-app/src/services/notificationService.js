@@ -78,13 +78,15 @@ export const registerForPushNotifications = async () => {
         vibrationPattern: [0, 250, 250, 250],
         lightColor: '#00BFA5',
       });
-      // Also register channel for full screen intents
+      // Also register channel for full screen intents with loud custom ringtone alert sound
       Notifications.setNotificationChannelAsync('incoming_requests', {
         name: 'Incoming Service Requests',
         importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 1000, 500, 1000],
+        vibrationPattern: [0, 1000, 500, 1000, 500, 1000],
         lightColor: '#E8192C',
+        sound: 'incoming_request',
         bypassDnd: true,
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
       });
     }
 

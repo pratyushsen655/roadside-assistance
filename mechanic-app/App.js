@@ -53,8 +53,12 @@ if (InteractionManager) {
 
 LogBox.ignoreLogs([
   'InteractionManager has been deprecated',
+  'SafeAreaView has been deprecated',
+  '`new NativeEventEmitter()` was called with a non-null argument',
   'expo-notifications: Android Push notifications',
   'warnOfExpoGoPushUsage',
+  'No task registered for key',
+  'This method is deprecated',
 ]);
 
 export default function App() {
@@ -112,13 +116,15 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <ErrorBoundary>
-        <LanguageProvider>
-          <AuthProvider>
-            <StatusBar style="light" />
-            <AppNavigator navigationRef={navigationRef} />
-            <OfflineBanner />
-          </AuthProvider>
-        </LanguageProvider>
+        <ThemeProvider>
+          <LanguageProvider>
+            <AuthProvider>
+              <StatusBar style="auto" />
+              <AppNavigator navigationRef={navigationRef} />
+              <OfflineBanner />
+            </AuthProvider>
+          </LanguageProvider>
+        </ThemeProvider>
       </ErrorBoundary>
     </SafeAreaProvider>
   );

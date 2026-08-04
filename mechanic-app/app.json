@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "RoadMitra Mechanic",
+    "name": "RideRescue Mechanic",
     "slug": "mechanic-app",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -41,12 +41,24 @@
     },
     "plugins": [
       [
+        "expo-build-properties",
+        {
+          "android": {
+            "ndkVersion": "27.1.12297006"
+          }
+        }
+      ],
+      [
         "expo-image-picker",
         {
           "photosPermission": "The app accesses your photos to let you upload registration documents.",
           "cameraPermission": "The app accesses your camera to let you take photos for registration documents."
         }
-      ]
+      ],
+      "expo-sharing",
+      "expo-localization",
+      "expo-status-bar",
+      "expo-audio"
     ],
     "owner": "pratyushsen4321",
     "extra": {
@@ -54,9 +66,7 @@
         "projectId": "d1262eef-9840-4f09-97ff-bfc7b2fa26ec"
       }
     },
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
+    "runtimeVersion": "1.0.0",
     "updates": {
       "url": "https://u.expo.dev/d1262eef-9840-4f09-97ff-bfc7b2fa26ec"
     }

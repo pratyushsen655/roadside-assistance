@@ -7,7 +7,8 @@ import {
   ScrollView,
   SafeAreaView,
   Dimensions,
-  Alert
+  Alert,
+  Linking
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLanguage, SUPPORTED_LANGUAGES } from '../context/LanguageContext';
@@ -43,8 +44,12 @@ const LanguageSelectionScreen = ({ route, navigation }) => {
   const handleHelpPress = () => {
     Alert.alert(
       'Support Helpdesk',
-      'Need assistance with language selection or onboarding? Contact RoadMitra Support.',
-      [{ text: 'Close', style: 'cancel' }]
+      '📞 Helpline: +91 9140906912\n✉️ Email: riderescue@gmail.com',
+      [
+        { text: 'Close', style: 'cancel' },
+        { text: 'Send Email', onPress: () => Linking.openURL('mailto:riderescue@gmail.com') },
+        { text: 'Call Support', onPress: () => Linking.openURL('tel:9140906912') }
+      ]
     );
   };
 

@@ -7,6 +7,7 @@ import { NavigationContainer, createNavigationContainerRef } from '@react-naviga
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider } from './src/context/AuthContext';
 import { LanguageProvider } from './src/context/LanguageContext';
+import { ThemeProvider } from './src/context/ThemeContext';
 import RootNavigator from './src/navigation';
 import ErrorBoundary from './src/components/ErrorBoundary';
 import OfflineBanner from './src/components/OfflineBanner';
@@ -57,8 +58,12 @@ if (InteractionManager) {
 
 LogBox.ignoreLogs([
   'InteractionManager has been deprecated',
+  'SafeAreaView has been deprecated',
+  '`new NativeEventEmitter()` was called with a non-null argument',
   'expo-notifications: Android Push notifications',
   'warnOfExpoGoPushUsage',
+  'No task registered for key',
+  'This method is deprecated',
 ]);
 
 export default function App() {
@@ -113,14 +118,16 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <ErrorBoundary>
-        <LanguageProvider>
-          <AuthProvider>
-            <NavigationContainer ref={navigationRef}>
-              <RootNavigator />
-            </NavigationContainer>
-            <OfflineBanner />
-          </AuthProvider>
-        </LanguageProvider>
+        <ThemeProvider>
+          <LanguageProvider>
+            <AuthProvider>
+              <NavigationContainer ref={navigationRef}>
+                <RootNavigator />
+              </NavigationContainer>
+              <OfflineBanner />
+            </AuthProvider>
+          </LanguageProvider>
+        </ThemeProvider>
       </ErrorBoundary>
     </SafeAreaProvider>
   );

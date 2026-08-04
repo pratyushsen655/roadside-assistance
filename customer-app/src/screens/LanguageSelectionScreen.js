@@ -9,6 +9,7 @@ import {
   StatusBar,
   Alert,
   Animated,
+  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLanguage, SUPPORTED_LANGUAGES } from '../context/LanguageContext';
@@ -168,8 +169,12 @@ export default function LanguageSelectionScreen({ navigation, route }) {
   const handleHelp = () => {
     Alert.alert(
       'Need Help?',
-      'Call us 24/7 at +1-800-555-0199 or email support@rescueme.app',
-      [{ text: 'OK' }]
+      '📞 Helpline: +91 9140906912\n✉️ Email: riderescue@gmail.com',
+      [
+        { text: 'Close', style: 'cancel' },
+        { text: 'Send Email', onPress: () => Linking.openURL('mailto:riderescue@gmail.com') },
+        { text: 'Call Support', onPress: () => Linking.openURL('tel:9140906912') }
+      ]
     );
   };
 

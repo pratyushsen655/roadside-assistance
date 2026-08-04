@@ -48,8 +48,8 @@ export default function TrackingScreen({ route, navigation }) {
   }, []);
 
   const [customerCoords, setCustomerCoords] = useState({
-    latitude: customerLat || 28.6139,
-    longitude: customerLng || 77.2090
+    latitude: customerLat || null,
+    longitude: customerLng || null
   });
   const [mechanicCoords, setMechanicCoords] = useState(null);
   const [status, setStatus] = useState('accepted'); // accepted, en_route, arrived, in_progress, completed
@@ -71,6 +71,14 @@ export default function TrackingScreen({ route, navigation }) {
           if (isMounted.current) {
             setArrivalOtp(data.request.arrivalOtp || '');
             setStatus(data.request.status || 'accepted');
+            if (data.request.status === 'completed') {
+              navigation.replace('Payment', {
+                jobId,
+                mechanicName: mechanicName || data.request.mechanic?.name || 'Mechanic',
+                serviceType: data.request.serviceType,
+                amount: data.request.accepted_price || data.request.pricing?.totalAmount || data.request.amount || 350
+              });
+            }
           }
         }
       } catch (err) {
@@ -78,7 +86,7 @@ export default function TrackingScreen({ route, navigation }) {
       }
     };
     fetchRequestDetails();
-  }, [jobId, token]);
+  }, [jobId, token, mechanicName, navigation]);
 
   // Initialize Socket
   const socket = getSocket(token);
@@ -206,9 +214,10 @@ export default function TrackingScreen({ route, navigation }) {
           }
           if (data.status === 'completed') {
             if (isMounted.current && navigation) {
-              navigation.navigate('Payment', {
+              navigation.replace('Payment', {
                 jobId,
                 mechanicName,
+                serviceType: data.serviceType,
                 amount: data.amount || 350
               });
             }
@@ -355,12 +364,12 @@ export default function TrackingScreen({ route, navigation }) {
       ) : (
         <MapView
           style={styles.map}
-          initialRegion={{
+          initialRegion={isValidCoordinate(customerCoords) ? {
             latitude: customerCoords.latitude,
             longitude: customerCoords.longitude,
             latitudeDelta: 0.015,
             longitudeDelta: 0.015,
-          }}
+          } : undefined}
         >
           {/* Customer Location */}
           {isValidCoordinate(customerCoords) && (
@@ -418,7 +427,13 @@ export default function TrackingScreen({ route, navigation }) {
           <View style={styles.actionsContainer}>
             <TouchableOpacity
               style={styles.callBtn}
-              onPress={() => Linking.openURL(`tel:${mechanicPhone || '+919999999999'}`)}
+              onPress={() => {
+                if (mechanicPhone) {
+                  Linking.openURL(`tel:${mechanicPhone}`);
+                } else {
+                  Alert.alert('Phone Unavailable', 'Mechanic phone number is not available right now.');
+                }
+              }}
             >
               <Text style={styles.callBtnText}>📞 Call</Text>
             </TouchableOpacity>

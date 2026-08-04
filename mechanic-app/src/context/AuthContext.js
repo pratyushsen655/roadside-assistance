@@ -1,8 +1,41 @@
 import React, { createContext, useState, useEffect } from 'react';
+import { Platform, NativeModules } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { registerForPushNotifications, savePushToken } from '../services/notificationService';
 
 import API_URL from '../config/api';
+
+// Helper to decode JWT token payload in pure JS (Hermes safe without atob)
+const decodeJwtId = (token) => {
+  if (!token || typeof token !== 'string') return null;
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    let base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    while (base64.length % 4) {
+      base64 += '=';
+    }
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+    let str = '';
+    for (let i = 0; i < base64.length;) {
+      const enc1 = chars.indexOf(base64.charAt(i++));
+      const enc2 = chars.indexOf(base64.charAt(i++));
+      const enc3 = chars.indexOf(base64.charAt(i++));
+      const enc4 = chars.indexOf(base64.charAt(i++));
+      const chr1 = (enc1 << 2) | (enc2 >> 4);
+      const chr2 = ((enc2 & 15) << 4) | (enc3 >> 2);
+      const chr3 = ((enc3 & 3) << 6) | enc4;
+      str += String.fromCharCode(chr1);
+      if (enc3 !== 64 && chr2 !== 0) str += String.fromCharCode(chr2);
+      if (enc4 !== 64 && chr3 !== 0) str += String.fromCharCode(chr3);
+    }
+    const parsed = JSON.parse(str);
+    return parsed?.id || parsed?._id || parsed?.mechanicId || null;
+  } catch (e) {
+    console.log('[AuthContext JWT Decode Error]', e.message);
+    return null;
+  }
+};
 
 export const AuthContext = createContext();
 
@@ -20,33 +53,38 @@ export const AuthProvider = ({ children }) => {
         if (token) {
           setMechanicToken(token);
 
-          // Fetch real mechanic profile to populate mechanic._id
+          // 1. Immediately decode JWT token to extract mechanicId so mechanic._id is NEVER undefined at startup
+          const jwtMechanicId = decodeJwtId(token);
+          console.log('[AuthContext] Token loaded from storage. JWT Decoded Mechanic ID:', jwtMechanicId, typeof jwtMechanicId);
+
+          if (jwtMechanicId) {
+            setMechanic({ _id: jwtMechanicId, id: jwtMechanicId, mechanicId: jwtMechanicId });
+          }
+
+          // 2. Fetch full mechanic profile from /api/mechanic/profile to enrich profile
           try {
+            console.log('[AuthContext] Fetching profile from:', `${API_URL}/api/mechanic/profile`);
             const res = await fetch(`${API_URL}/api/mechanic/profile`, {
               headers: { 'Authorization': `Bearer ${token}` }
             });
             const data = await res.json();
+            console.log('[AuthContext Profile API Response Body]', JSON.stringify(data));
+
             if (data.success && data.mechanic) {
-              console.log('[AuthContext] Mechanic profile loaded from API:', data.mechanic._id);
-              setMechanic(data.mechanic);
+              const m = data.mechanic;
+              const realId = m._id || m.id || m.mechanicId || jwtMechanicId;
+              console.log('[AuthContext] Profile loaded successfully | mechanic._id:', realId, '| Keys in profile:', Object.keys(m));
+              setMechanic({ ...m, _id: realId, id: realId, mechanicId: realId });
             } else {
-              throw new Error('Profile response invalid');
+              console.warn('[AuthContext] Profile API returned unsuccessful response:', data);
             }
           } catch (profileErr) {
-            console.log('[AuthContext] Profile fetch error, attempting JWT decode fallback:', profileErr.message);
-            try {
-              const base64Url = token.split('.')[1];
-              const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-              const jsonPayload = decodeURIComponent(atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
-              const decoded = JSON.parse(jsonPayload);
-              if (decoded && decoded.id) {
-                setMechanic({ _id: decoded.id, id: decoded.id, name: 'Mechanic User', phone: decoded.phone || '+919999999999' });
-              } else {
-                setMechanic({ name: 'Mechanic User', phone: '+919999999999' });
-              }
-            } catch (_) {
-              setMechanic({ name: 'Mechanic User', phone: '+919999999999' });
-            }
+            console.log('[AuthContext] Profile API fetch error:', profileErr.message);
+          }
+
+          // Save auth token to native SharedPreferences for background notification actions
+          if (Platform.OS === 'android' && NativeModules.RingingModule && typeof NativeModules.RingingModule.saveAuthToken === 'function') {
+            NativeModules.RingingModule.saveAuthToken(token, API_URL);
           }
 
           // Sync push/FCM token on startup
@@ -75,7 +113,14 @@ export const AuthProvider = ({ children }) => {
     try {
       await AsyncStorage.setItem('mechanicToken', token);
       setMechanicToken(token);
-      setMechanic(data);
+      if (Platform.OS === 'android' && NativeModules.RingingModule && typeof NativeModules.RingingModule.saveAuthToken === 'function') {
+        NativeModules.RingingModule.saveAuthToken(token, API_URL);
+      }
+      const jwtMechanicId = decodeJwtId(token);
+      const mId = data?._id || data?.id || data?.mechanicId || jwtMechanicId;
+      const fullMechanic = data ? { ...data, _id: mId, id: mId, mechanicId: mId } : { _id: mId, id: mId, mechanicId: mId };
+      console.log('[AuthContext login] Logged in successfully | mechanicId:', mId, '| mechanic obj:', JSON.stringify(fullMechanic));
+      setMechanic(fullMechanic);
       const pushToken = await registerForPushNotifications();
       if (pushToken) await savePushToken(pushToken);
     } catch (error) {

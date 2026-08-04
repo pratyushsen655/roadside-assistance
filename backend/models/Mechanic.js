@@ -94,15 +94,40 @@ const mechanicSchema = new mongoose.Schema(
       default: 0,
     },
     bankDetails: {
-      accountHolder: String,
-      accountNumber: String,
-      ifscCode: String,
-      bankName: String,
+      accountHolderName: { type: String, default: '' },
+      accountHolder: { type: String, default: '' },
+      accountNumber: { type: String, default: '' },
+      ifscCode: { type: String, default: '' },
+      bankName: { type: String, default: '' },
+      branchName: { type: String, default: '' },
+      accountType: { type: String, enum: ['savings', 'current'], default: 'savings' },
+      isVerified: { type: Boolean, default: false }
     },
     documents: {
-      licenseImage: String,
-      certificationImages: [String],
-      identityProof: String,
+      licenseImage: {
+        url: { type: String, default: '' },
+        status: { type: String, enum: ['unsubmitted', 'pending', 'verified', 'rejected'], default: 'unsubmitted' },
+        expiryDate: { type: Date, default: null },
+      },
+      identityProof: {
+        url: { type: String, default: '' },
+        status: { type: String, enum: ['unsubmitted', 'pending', 'verified', 'rejected'], default: 'unsubmitted' },
+        expiryDate: { type: Date, default: null },
+      },
+      certificationImages: [
+        {
+          url: { type: String, default: '' },
+          status: { type: String, enum: ['unsubmitted', 'pending', 'verified', 'rejected'], default: 'unsubmitted' },
+          expiryDate: { type: Date, default: null },
+        }
+      ],
+    },
+    preferences: {
+      soundEnabled: { type: Boolean, default: true },
+      vibrationEnabled: { type: Boolean, default: true },
+      alertVolume: { type: String, enum: ['high', 'medium', 'low'], default: 'high' },
+      theme: { type: String, enum: ['light', 'dark', 'system'], default: 'dark' },
+      language: { type: String, default: 'en' },
     },
     kyc: {
       status: {

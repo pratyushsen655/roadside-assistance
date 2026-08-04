@@ -1,5 +1,6 @@
 const express = require('express');
 const authMiddleware = require('../middleware/authMiddleware');
+const { pollingRateLimiter } = require('../middleware/rateLimiter');
 
 const router = express.Router();
 
@@ -57,11 +58,17 @@ router.get('/requests/pending', authMiddleware, async (req, res) => {
     }
 
     const [mLng, mLat] = mechanic.location?.coordinates || [0, 0];
+    const now = new Date();
+    const fiveMinsAgo = new Date(now.getTime() - 5 * 60 * 1000);
 
-    // Retrieve active pending/searching requests not rejected by this mechanic
+    // Retrieve active non-expired pending/searching requests not rejected by this mechanic
     const rawRequests = await ServiceRequest.find({
-      status: { $in: ['pending', 'searching', 'unfulfilled'] },
-      rejectedBy: { $ne: mechanic._id }
+      status: { $in: ['pending', 'searching'] },
+      rejectedBy: { $ne: mechanic._id },
+      $or: [
+        { expiresAt: { $gt: now } },
+        { expiresAt: null, createdAt: { $gt: fiveMinsAgo } }
+      ]
     }).populate('customer', 'name phone').sort({ createdAt: -1 });
 
     const items = rawRequests.map(reqItem => {
@@ -482,6 +489,49 @@ router.get('/profile', authMiddleware, async (req, res) => {
         rejectionReason: mechanic.kyc?.rejectionReason || ''
       };
     }
+
+    // --- Document Expiry Notification Check ---
+    // Fire-and-forget: check each document's expiry and send a notification if within 30 days
+    try {
+      const { createMechanicNotification } = require('../services/notificationService');
+      const now = new Date();
+      const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+      const docsToCheck = [
+        { key: 'licenseImage', label: 'Driving License', doc: mechanic.documents?.licenseImage },
+        { key: 'identityProof', label: 'Identity Proof', doc: mechanic.documents?.identityProof },
+      ];
+
+      for (const { label, doc } of docsToCheck) {
+        if (!doc?.expiryDate) continue;
+        const expiry = new Date(doc.expiryDate);
+        const msUntilExpiry = expiry.getTime() - now.getTime();
+
+        if (msUntilExpiry <= 0) {
+          // Already expired
+          await createMechanicNotification({
+            mechanicId: mechanic._id,
+            type: 'kyc_update',
+            title: `${label} Expired`,
+            message: `Your ${label} has expired. Please renew and re-upload it as soon as possible.`,
+            relatedId: mechanic._id,
+          });
+        } else if (msUntilExpiry <= THIRTY_DAYS_MS) {
+          // Expiring within 30 days
+          const daysLeft = Math.ceil(msUntilExpiry / (24 * 60 * 60 * 1000));
+          await createMechanicNotification({
+            mechanicId: mechanic._id,
+            type: 'kyc_update',
+            title: `${label} Expiring Soon`,
+            message: `Your ${label} expires in ${daysLeft} day${daysLeft === 1 ? '' : 's'}. Please renew it promptly.`,
+            relatedId: mechanic._id,
+          });
+        }
+      }
+    } catch (expiryCheckErr) {
+      console.error('[Profile] Expiry check error:', expiryCheckErr.message);
+    }
+
     res.status(200).json({ success: true, mechanic });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -628,7 +678,7 @@ router.post('/kyc/upload', authMiddleware, (req, res) => {
 router.put('/profile', authMiddleware, async (req, res) => {
   try {
     const Mechanic = require('../models/Mechanic');
-    const { name, phone, bio, shopName, shopAddress, city, email, vehicleSpecializations, documents } = req.body;
+    const { name, phone, bio, shopName, shopAddress, city, email, vehicleSpecializations, documents, preferences } = req.body;
     const updateData = {};
     if (name !== undefined) updateData.name = name;
     if (phone !== undefined) updateData.phone = phone;
@@ -639,6 +689,7 @@ router.put('/profile', authMiddleware, async (req, res) => {
     if (email !== undefined) updateData.email = email;
     if (vehicleSpecializations !== undefined) updateData.vehicleSpecializations = vehicleSpecializations;
     if (documents !== undefined) updateData.documents = documents;
+    if (preferences !== undefined) updateData.preferences = preferences;
 
     const mechanic = await Mechanic.findOneAndUpdate(
       { $or: [{ _id: req.user.id }, { userId: req.user.id }] },
@@ -690,6 +741,111 @@ router.put('/location', authMiddleware, async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 });
+
+// Helper to mask account number (show only last 4 digits)
+const maskAccountNumber = (accNo) => {
+  if (!accNo || typeof accNo !== 'string') return '';
+  const clean = accNo.trim();
+  if (clean.length <= 4) return clean;
+  return 'X'.repeat(clean.length - 4) + clean.slice(-4);
+};
+
+// GET /api/mechanic/bank-details
+router.get('/bank-details', authMiddleware, async (req, res) => {
+  try {
+    const Mechanic = require('../models/Mechanic');
+    const mechanic = await Mechanic.findOne({ $or: [{ _id: req.user.id }, { userId: req.user.id }] });
+
+    if (!mechanic) {
+      return res.status(404).json({ success: false, message: 'Mechanic profile not found' });
+    }
+
+    const mechObj = mechanic.toObject ? mechanic.toObject() : mechanic;
+    const details = /** @type {any} */ (mechObj.bankDetails || {});
+    const shouldMask = req.query.edit !== 'true';
+
+    res.status(200).json({
+      success: true,
+      bankDetails: {
+        accountHolderName: details.accountHolderName || details.accountHolder || '',
+        accountNumber: shouldMask ? maskAccountNumber(details.accountNumber) : (details.accountNumber || ''),
+        rawAccountNumber: details.accountNumber || '',
+        ifscCode: details.ifscCode || '',
+        bankName: details.bankName || '',
+        branchName: details.branchName || '',
+        accountType: details.accountType || 'savings',
+        isVerified: details.isVerified || false
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// PATCH & PUT /api/mechanic/bank-details
+const updateBankDetails = async (req, res) => {
+  try {
+    const Mechanic = require('../models/Mechanic');
+    const { accountHolderName, accountNumber, ifscCode, bankName, branchName, accountType } = req.body;
+
+    const holderName = (accountHolderName || '').trim();
+    const accNo = (accountNumber || '').trim();
+    const ifsc = (ifscCode || '').trim().toUpperCase();
+    const bName = (bankName || '').trim();
+    const brName = (branchName || '').trim();
+    const accType = ['savings', 'current'].includes(accountType) ? accountType : 'savings';
+
+    // Validation
+    if (!holderName) {
+      return res.status(400).json({ success: false, message: 'Account Holder Name is required.' });
+    }
+    if (!accNo || !/^\d{9,18}$/.test(accNo)) {
+      return res.status(400).json({ success: false, message: 'Invalid Account Number. Must be between 9 and 18 digits.' });
+    }
+    const ifscRegex = /^[A-Z]{4}0[A-Z0-9]{6}$/;
+    if (!ifsc || !ifscRegex.test(ifsc)) {
+      return res.status(400).json({ success: false, message: 'Invalid IFSC Code format. Example format: SBIN0001234.' });
+    }
+
+    const mechanic = await Mechanic.findOne({ $or: [{ _id: req.user.id }, { userId: req.user.id }] });
+    if (!mechanic) {
+      return res.status(404).json({ success: false, message: 'Mechanic profile not found' });
+    }
+
+    mechanic.bankDetails = {
+      accountHolderName: holderName,
+      accountHolder: holderName,
+      accountNumber: accNo,
+      ifscCode: ifsc,
+      bankName: bName || 'Bank',
+      branchName: brName,
+      accountType: accType,
+      isVerified: true
+    };
+
+    await mechanic.save();
+    console.log(`[BANK DETAILS] Saved bank details for mechanic ${mechanic._id} | IFSC: ${ifsc}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Bank details saved successfully.',
+      bankDetails: {
+        accountHolderName: holderName,
+        accountNumber: maskAccountNumber(accNo),
+        ifscCode: ifsc,
+        bankName: bName,
+        branchName: brName,
+        accountType: accType,
+        isVerified: true
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+router.patch('/bank-details', authMiddleware, updateBankDetails);
+router.put('/bank-details', authMiddleware, updateBankDetails);
 
 // PUT /api/mechanic/jobs/:id/status
 router.put('/jobs/:id/status', authMiddleware, async (req, res) => {
@@ -796,6 +952,13 @@ router.put('/jobs/:id/status', authMiddleware, async (req, res) => {
   }
 });
 
+// POST/PUT /api/mechanic/requests/:id/reject & /api/mechanic/requests/:id/decline
+const { rejectRequest } = require('../controllers/requestController');
+router.put('/requests/:id/reject', authMiddleware, rejectRequest);
+router.post('/requests/:id/reject', authMiddleware, rejectRequest);
+router.put('/requests/:id/decline', authMiddleware, rejectRequest);
+router.post('/requests/:id/decline', authMiddleware, rejectRequest);
+
 // --- Original Wildcard/General Routes ---
 
 router.get('/', async (req, res) => {
@@ -874,7 +1037,97 @@ router.post('/push-token', authMiddleware, async (req, res) => {
       { $or: [{ _id: req.user.id }, { userId: req.user.id }] },
       { pushToken, fcmToken: pushToken }
     );
-    res.json({ success: true, message: 'Push token saved successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// --- Mechanic Notification History Endpoints ---
+
+// GET /api/mechanic/notifications
+router.get('/notifications', authMiddleware, async (req, res) => {
+  try {
+    const Notification = require('../models/Notification');
+    const Mechanic = require('../models/Mechanic');
+
+    const mechanic = await Mechanic.findOne({ $or: [{ _id: req.user.id }, { userId: req.user.id }] });
+    const mechanicId = mechanic ? mechanic._id : req.user.id;
+
+    const notifications = await Notification.find({
+      $or: [
+        { mechanicId: mechanicId },
+        { recipient: mechanicId }
+      ]
+    })
+    .sort({ createdAt: -1 })
+    .limit(100);
+
+    const unreadCount = await Notification.countDocuments({
+      $or: [
+        { mechanicId: mechanicId },
+        { recipient: mechanicId }
+      ],
+      isRead: false
+    });
+
+    res.status(200).json({
+      success: true,
+      notifications,
+      unreadCount
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// PATCH /api/mechanic/notifications/read-all
+router.patch('/notifications/read-all', authMiddleware, async (req, res) => {
+  try {
+    const Notification = require('../models/Notification');
+    const Mechanic = require('../models/Mechanic');
+
+    const mechanic = await Mechanic.findOne({ $or: [{ _id: req.user.id }, { userId: req.user.id }] });
+    const mechanicId = mechanic ? mechanic._id : req.user.id;
+
+    await Notification.updateMany(
+      {
+        $or: [
+          { mechanicId: mechanicId },
+          { recipient: mechanicId }
+        ],
+        isRead: false
+      },
+      { $set: { isRead: true } }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: 'All notifications marked as read'
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// PATCH /api/mechanic/notifications/:id/read
+router.patch('/notifications/:id/read', authMiddleware, async (req, res) => {
+  try {
+    const Notification = require('../models/Notification');
+    const notif = await Notification.findByIdAndUpdate(
+      req.params.id,
+      { $set: { isRead: true } },
+      { new: true }
+    );
+
+    if (!notif) {
+      return res.status(404).json({ success: false, message: 'Notification not found' });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Notification marked as read',
+      notification: notif
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

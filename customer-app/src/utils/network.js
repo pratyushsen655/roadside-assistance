@@ -68,9 +68,24 @@ global.fetch = async function (input, init = {}) {
     };
 
     if (__DEV__) {
+      let sanitizedHeaders = init.headers ? { ...init.headers } : {};
+      if (sanitizedHeaders.Authorization) sanitizedHeaders.Authorization = 'Bearer [REDACTED]';
+      if (sanitizedHeaders.authorization) sanitizedHeaders.authorization = 'Bearer [REDACTED]';
+
+      let sanitizedBody = init.body;
+      if (typeof init.body === 'string') {
+        try {
+          const parsed = JSON.parse(init.body);
+          if (parsed.password) parsed.password = '[REDACTED]';
+          if (parsed.otp) parsed.otp = '[REDACTED]';
+          if (parsed.accountNumber) parsed.accountNumber = '[REDACTED]';
+          sanitizedBody = JSON.stringify(parsed);
+        } catch (_) {}
+      }
+
       console.log(`[Network Request] ${init.method || 'GET'} [Attempt ${attempt}/${retries}] - ${url}`, {
-        headers: init.headers,
-        body: init.body
+        headers: sanitizedHeaders,
+        body: sanitizedBody
       });
     }
 
@@ -100,11 +115,8 @@ global.fetch = async function (input, init = {}) {
           continue;
         }
 
-        const errorMsg = getHTTPErrorMessage(response.status);
-        const error = new Error(errorMsg);
-        error.status = response.status;
-        error.responseBody = responseBody;
-        throw error;
+        // Return the response object (standard fetch behavior allows callers to inspect response.ok / response.status)
+        return response;
       }
 
       return response;

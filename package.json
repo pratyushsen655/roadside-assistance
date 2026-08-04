@@ -7,6 +7,9 @@
     "express-rate-limit": "^8.5.2",
     "xss-clean": "^0.1.4"
   },
+  "scripts": {
+    "logcat": "powershell -ExecutionPolicy Bypass -File ./scripts/logcat.ps1"
+  },
   "devDependencies": {
     "nodemon": "^3.1.14"
   }

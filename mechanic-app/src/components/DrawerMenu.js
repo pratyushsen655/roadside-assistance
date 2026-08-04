@@ -12,12 +12,15 @@ import {
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
 const DRAWER_WIDTH = width * 0.75; // Drawer takes up 75% of screen width
 
 export default function DrawerMenu({ visible, onClose, mechanic, logout }) {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
+  const topInset = Math.max(insets.top, 24);
   const translationRes = useTranslation();
   const t = translationRes?.t || ((key) => key);
   const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
@@ -69,7 +72,7 @@ export default function DrawerMenu({ visible, onClose, mechanic, logout }) {
         <Animated.View
           style={[
             styles.drawerPanel,
-            { transform: [{ translateX: slideAnim }] }
+            { paddingTop: topInset + 20, transform: [{ translateX: slideAnim }] }
           ]}
         >
           {/* Header section with mechanic details */}
@@ -78,10 +81,10 @@ export default function DrawerMenu({ visible, onClose, mechanic, logout }) {
               <MaterialCommunityIcons name="account-wrench" size={40} color="#00BFA5" />
             </View>
             <Text style={styles.mechanicName} numberOfLines={1}>
-              {mechanic?.name || 'Mechanic User'}
+              {mechanic?.name || 'Mechanic'}
             </Text>
             <Text style={styles.mechanicPhone} numberOfLines={1}>
-              {mechanic?.phone || '+919999999999'}
+              {mechanic?.phone || ''}
             </Text>
           </View>
 
@@ -132,7 +135,7 @@ export default function DrawerMenu({ visible, onClose, mechanic, logout }) {
 
           {/* Footer branding */}
           <View style={styles.drawerFooter}>
-            <Text style={styles.brandingText}>RoadMitra Mechanic</Text>
+            <Text style={styles.brandingText}>RideRescue Mechanic</Text>
             <Text style={styles.versionText}>v1.0.0</Text>
           </View>
         </Animated.View>

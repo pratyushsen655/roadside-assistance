@@ -151,6 +151,14 @@ export default function RequestAcceptedScreen() {
           if (data.request.mechanicLocation) {
             setMechanicLoc(data.request.mechanicLocation);
           }
+
+          const resolvedPrice = data.request.accepted_price || data.request.current_price || data.request.totalPrice || data.request.amount || data.request.pricing?.totalAmount || 350;
+          console.log('[DIAG Customer RequestAcceptedScreen]', JSON.stringify({
+            jobId: requestId,
+            customerName: data.request.customer?.name || 'Customer',
+            price: resolvedPrice,
+            customerLocation: data.request.customerLocation
+          }));
         }
       } else {
         Alert.alert('Error', data.message || 'Unable to load request');
@@ -410,6 +418,34 @@ export default function RequestAcceptedScreen() {
     return req.vehicleType.charAt(0).toUpperCase() + req.vehicleType.slice(1);
   };
 
+  const getStatusBannerTexts = () => {
+    switch (status) {
+      case 'arrived':
+        return {
+          main: '📍 Mechanic has arrived',
+          sub: 'Share the 4-digit OTP with your mechanic'
+        };
+      case 'work_in_progress':
+        return {
+          main: '🔧 Service work in progress',
+          sub: 'Mechanic is working on your vehicle'
+        };
+      case 'completed':
+        return {
+          main: '✅ Service completed',
+          sub: 'Please review billing & rating'
+        };
+      case 'on_the_way':
+      case 'accepted':
+      default:
+        return {
+          main: 'Mechanic is on the way',
+          sub: 'Estimated Arrival'
+        };
+    }
+  };
+  const bannerTexts = getStatusBannerTexts();
+
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -432,8 +468,8 @@ export default function RequestAcceptedScreen() {
               <Ionicons name="checkmark" size={20} color="#fff" />
             </View>
             <View style={styles.statusTexts}>
-              <Text style={styles.statusMain}>Mechanic is on the way</Text>
-              <Text style={styles.statusSub}>Estimated Arrival</Text>
+              <Text style={styles.statusMain}>{bannerTexts.main}</Text>
+              <Text style={styles.statusSub}>{bannerTexts.sub}</Text>
             </View>
           </View>
           <View style={styles.statusRight}>

@@ -168,6 +168,19 @@ exports.verifyPayment = async (req, res) => {
         });
       }
 
+      // Persist Notification for mechanic
+      if (request.mechanic) {
+        const { createMechanicNotification } = require('../services/notificationService');
+        createMechanicNotification({
+          mechanicId: request.mechanic,
+          type: 'payment_received',
+          title: 'Payment Received',
+          message: `Payment of ₹${finalAmount} received for job #${request._id.toString().slice(-6)}`,
+          relatedId: request._id,
+          data: { amount: finalAmount }
+        });
+      }
+
       return res.status(200).json({ success: true, message: 'Payment verified successfully', payment });
     } else {
       return res.status(400).json({ success: false, message: 'Payment verification failed' });
@@ -250,8 +263,8 @@ exports.createQrOrder = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid or missing pricing amount' });
     }
 
+    console.log('[QR BACKEND] Generating QR order for request:', requestId, 'Amount:', finalAmount);
     const amountInPaise = Math.round(Number(finalAmount) * 100);
-
     console.log('[DEBUG] RAZORPAY_KEY_ID is defined:', !!process.env.RAZORPAY_KEY_ID);
     console.log('[DEBUG] RAZORPAY_KEY_SECRET is defined:', !!process.env.RAZORPAY_KEY_SECRET);
 

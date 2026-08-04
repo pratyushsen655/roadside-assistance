@@ -2,13 +2,14 @@ import React, { useState, useEffect, useRef, useContext } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
   SafeAreaView, ActivityIndicator, Alert, Animated, Platform,
-  Linking, AppState
+  Linking, AppState, Image
 } from 'react-native';
 import { AuthContext, API_URL } from '../context/AuthContext';
 import { downloadInvoice } from '../utils/downloadInvoice';
+import { getSocket } from '../config/socket';
 
 export default function PaymentScreen({ route, navigation }) {
-  const { jobId, mechanicName, amount } = route.params || {};
+  const { jobId, mechanicName, amount, serviceType } = route.params || {};
   const { token } = useContext(AuthContext);
 
   const [loading, setLoading] = useState(false);
@@ -18,20 +19,24 @@ export default function PaymentScreen({ route, navigation }) {
   // UPI Flow States
   const [paymentStatus, setPaymentStatus] = useState('PENDING'); // PENDING, SUBMITTED, SUCCESS, FAILURE, CANCELLED
   const [noUpiApp, setNoUpiApp] = useState(false);
-  const [orderId, setOrderId] = useState('');
+  const [orderId, setOrderId] = useState(jobId ? `job_${jobId.toString().slice(-6)}` : 'job_pay_123');
 
   // Animation Refs
   const checkScale = useRef(new Animated.Value(0)).current;
   const overlayOpacity = useRef(new Animated.Value(0)).current;
 
   const totalAmount = amount || 350;
+  const upiVpa = 'riderescue@upi';
+  const upiPayeeName = 'RideRescue Assistance';
+  const upiNote = `Payment for ${serviceType || 'Roadside Job'} #${jobId?.toString().slice(-6) || ''}`;
+  const upiUri = `upi://pay?pa=${encodeURIComponent(upiVpa)}&pn=${encodeURIComponent(upiPayeeName)}&am=${totalAmount}&cu=INR&tn=${encodeURIComponent(upiNote)}`;
+  const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(upiUri)}`;
 
   // Check if UPI apps are installed on mount
   useEffect(() => {
     const checkUpiPresence = async () => {
       try {
-        const dummyUri = 'upi://pay?pa=merchant@upi&pn=RescueAssist&am=10&cu=INR&tn=test';
-        const canOpen = await Linking.canOpenURL(dummyUri);
+        const canOpen = await Linking.canOpenURL(upiUri);
         setNoUpiApp(!canOpen);
       } catch (err) {
         console.log('[PaymentScreen] Error checking UPI app presence:', err);
@@ -39,26 +44,53 @@ export default function PaymentScreen({ route, navigation }) {
       }
     };
     checkUpiPresence();
-  }, []);
+  }, [upiUri]);
 
-  // Poll payment status every 3 seconds while in SUBMITTED state
+  // Connect socket to room for live payment confirmation
+  useEffect(() => {
+    if (!token || !jobId) return;
+    const socket = getSocket(token);
+    if (!socket) return;
+
+    socket.emit('join:job:room', { jobId });
+
+    const handlePaymentCompleted = (data) => {
+      console.log('[Socket] payment:completed received on PaymentScreen:', data);
+      if (data && (data.requestId === jobId || data.jobId === jobId)) {
+        setPaymentStatus('SUCCESS');
+        triggerSuccessAnimation();
+      }
+    };
+
+    socket.on('payment:completed', handlePaymentCompleted);
+    socket.on('payment_completed', handlePaymentCompleted);
+
+    return () => {
+      socket.off('payment:completed', handlePaymentCompleted);
+      socket.off('payment_completed', handlePaymentCompleted);
+    };
+  }, [token, jobId]);
+
+  // Poll payment status every 4 seconds while in SUBMITTED state
   useEffect(() => {
     let intervalId;
     if (paymentStatus === 'SUBMITTED' && jobId) {
-      intervalId = setInterval(pollPaymentStatus, 3000);
+      intervalId = setInterval(() => {
+        pollPaymentStatus(true);
+      }, 4000);
     }
     return () => {
       if (intervalId) {
         clearInterval(intervalId);
       }
     };
-  }, [paymentStatus, orderId]);
+  }, [paymentStatus, jobId]);
 
   // Monitor AppState change (when returning from UPI app)
   useEffect(() => {
     const handleAppStateChange = (nextAppState) => {
       if (nextAppState === 'active' && paymentStatus === 'SUBMITTED') {
-        pollPaymentStatus();
+        pollPaymentStatus(true);
       }
     };
 
@@ -66,9 +98,9 @@ export default function PaymentScreen({ route, navigation }) {
     return () => {
       subscription.remove();
     };
-  }, [paymentStatus, orderId]);
+  }, [paymentStatus, jobId]);
 
-  // Function to show success animation
+  // Function to show success animation and auto-navigate to RateJob screen
   const triggerSuccessAnimation = () => {
     setShowSuccessOverlay(true);
     Animated.parallel([
@@ -84,60 +116,62 @@ export default function PaymentScreen({ route, navigation }) {
         useNativeDriver: true,
       }),
     ]).start();
+
+    // Auto-navigate directly to RateJob screen after brief success animation
+    setTimeout(() => {
+      navigation.replace('RateJob', { jobId, mechanicName });
+    }, 1600);
   };
 
-  // Create Order and launch UPI app
-  const handlePayNow = async () => {
+  // Launch UPI App Deep Link
+  const handlePayViaUpiApp = async () => {
     setLoading(true);
     setPaymentStatus('PENDING');
     try {
-      // 1. Create order on backend
-      const resOrder = await fetch(`${API_URL}/api/payments/create-order`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ jobId, amount: totalAmount })
-      });
-
-      const orderData = await resOrder.json();
-      if (!resOrder.ok) {
-        throw new Error(orderData.message || 'Failed to create payment order');
+      // 1. Create order on backend (optional pre-order tracking)
+      try {
+        const resOrder = await fetch(`${API_URL}/api/payments/create-order`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ jobId, amount: totalAmount })
+        });
+        const orderData = await resOrder.json();
+        if (orderData.success && orderData.orderId) {
+          setOrderId(orderData.orderId);
+        }
+      } catch (err) {
+        console.log('[PaymentScreen] Order creation pre-step note:', err.message);
       }
 
-      const fetchedOrderId = orderData.orderId;
-      setOrderId(fetchedOrderId);
-
-      // 2. Generate UPI Intent URI
-      const upiUri = `upi://pay?pa=merchant@upi&pn=RescueAssist&am=${totalAmount}&cu=INR&tn=${fetchedOrderId}`;
-
-      // 3. Check if UPI app can open the URI
+      // 2. Launch UPI Intent
       const canOpen = await Linking.canOpenURL(upiUri);
       if (!canOpen) {
         setNoUpiApp(true);
-        setPaymentStatus('FAILURE');
-        Alert.alert('No UPI App Found', 'No UPI app found. Please install Google Pay, PhonePe, Paytm, or BHIM.');
+        Alert.alert(
+          'UPI App Required',
+          'Please scan the QR code using any UPI app (Google Pay, PhonePe, Paytm, BHIM) on your phone or install a UPI app.'
+        );
         setLoading(false);
         return;
       }
 
-      // 4. Launch UPI Intent and set status to SUBMITTED
       setPaymentStatus('SUBMITTED');
       setLoading(false);
-      
       await Linking.openURL(upiUri);
     } catch (err) {
-      Alert.alert('Error', err.message || 'Could not initiate payment.');
+      Alert.alert('Error', err.message || 'Could not launch UPI app.');
       setPaymentStatus('FAILURE');
       setLoading(false);
     }
   };
 
-  // Verify payment status on backend
-  const pollPaymentStatus = async () => {
+  // Verify payment status on backend (Manual Check or Polling)
+  const pollPaymentStatus = async (silent = false) => {
     if (!jobId) return;
-    setVerificationLoading(true);
+    if (!silent) setVerificationLoading(true);
     try {
       const res = await fetch(`${API_URL}/api/payments/status/${jobId}`, {
         headers: {
@@ -148,20 +182,27 @@ export default function PaymentScreen({ route, navigation }) {
       if (data.success && data.paid) {
         setPaymentStatus('SUCCESS');
         triggerSuccessAnimation();
+      } else if (!silent) {
+        Alert.alert(
+          'Payment Processing',
+          'We have not received payment confirmation from your bank yet. If you have already completed the transfer in your UPI app, please wait a moment or tap "Verify Status" again.'
+        );
       }
     } catch (err) {
       console.log('[PaymentScreen] Error checking payment status:', err);
+      if (!silent) {
+        Alert.alert('Network Error', 'Could not check payment status. Please try again.');
+      }
     } finally {
-      setVerificationLoading(false);
+      if (!silent) setVerificationLoading(false);
     }
   };
 
-  // Custom Simulator actions for Testing
+  // Developer Simulator helper
   const runSimulatedPaymentState = async (state) => {
     if (state === 'SUCCESS') {
       setLoading(true);
       try {
-        // Direct simulation via simulate-payment endpoint
         const response = await fetch(`${API_URL}/api/payments/simulate-payment`, {
           method: 'POST',
           headers: {
@@ -189,71 +230,90 @@ export default function PaymentScreen({ route, navigation }) {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.container}>
+      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
         <View style={styles.card}>
-          <Text style={styles.headerTitle}>Settle Service Invoice</Text>
+          <Text style={styles.headerTitle}>Pay with UPI</Text>
+          <Text style={styles.headerSub}>Settle your roadside service bill securely</Text>
           
           <View style={styles.divider} />
 
-          {/* Merchant Name */}
-          <View style={styles.row}>
-            <Text style={styles.label}>Merchant Name</Text>
-            <Text style={styles.value}>{mechanicName || 'Rescue Assist'}</Text>
+          {/* Job Summary */}
+          <View style={styles.summaryContainer}>
+            <View style={styles.row}>
+              <Text style={styles.label}>Service Type</Text>
+              <Text style={styles.value}>{serviceType ? String(serviceType).replace(/_/g, ' ') : 'Roadside Repair'}</Text>
+            </View>
+            <View style={styles.row}>
+              <Text style={styles.label}>Assigned Mechanic</Text>
+              <Text style={styles.value}>{mechanicName || 'Professional Mechanic'}</Text>
+            </View>
           </View>
 
           {/* Amount Display */}
           <View style={styles.amountContainer}>
-            <Text style={styles.amountLabel}>Total Payable Amount</Text>
+            <Text style={styles.amountLabel}>Total Amount Due</Text>
             <Text style={styles.amountValue}>₹{totalAmount}</Text>
+          </View>
+
+          {/* QR Code Section */}
+          <View style={styles.qrSection}>
+            <Text style={styles.qrTitle}>Scan to Pay via UPI</Text>
+            <View style={styles.qrCard}>
+              <Image
+                source={{ uri: qrCodeUrl }}
+                style={styles.qrImage}
+                resizeMode="contain"
+              />
+            </View>
+            <Text style={styles.qrSub}>Use Google Pay, PhonePe, Paytm, BHIM or any UPI app</Text>
           </View>
 
           <View style={styles.divider} />
 
-          {/* Warning Message if no UPI app installed */}
-          {noUpiApp && (
-            <View style={styles.warningBox}>
-              <Text style={styles.warningText}>
-                No UPI app found. Please install Google Pay, PhonePe, Paytm, or BHIM.
-              </Text>
-            </View>
-          )}
-
-          {/* Action Button */}
-          {loading || verificationLoading ? (
+          {/* Pay via UPI App Deep Link Button */}
+          {loading ? (
             <View style={styles.loaderContainer}>
-              <ActivityIndicator size="large" color="#B34700" />
-              <Text style={styles.loaderText}>
-                {verificationLoading ? 'Verifying payment on backend...' : 'Initiating payment...'}
-              </Text>
+              <ActivityIndicator size="large" color="#E8192C" />
+              <Text style={styles.loaderText}>Launching UPI App...</Text>
             </View>
           ) : (
             <TouchableOpacity
-              style={[styles.payBtn, noUpiApp && styles.disabledBtn]}
-              onPress={handlePayNow}
-              disabled={noUpiApp}
-              activeOpacity={0.9}
+              style={styles.payBtn}
+              onPress={handlePayViaUpiApp}
+              activeOpacity={0.88}
             >
-              <Text style={styles.payBtnText}>Pay with UPI</Text>
+              <Text style={styles.payBtnText}>📲 Pay via UPI App</Text>
             </TouchableOpacity>
           )}
 
-          {/* Current UPI Payment Status indicator */}
+          {/* Fallback "I've Paid" Verification Button */}
+          <TouchableOpacity
+            style={styles.verifyBtn}
+            onPress={() => pollPaymentStatus(false)}
+            disabled={verificationLoading}
+            activeOpacity={0.8}
+          >
+            {verificationLoading ? (
+              <ActivityIndicator size="small" color="#4B5563" />
+            ) : (
+              <Text style={styles.verifyBtnText}>🔄 I've Paid (Verify Status)</Text>
+            )}
+          </TouchableOpacity>
+
+          {/* Current Payment Status Banner */}
           {paymentStatus !== 'PENDING' && (
             <View style={styles.statusIndicator}>
               <Text style={[styles.statusText, styles[`statusText_${paymentStatus}`]]}>
-                Transaction Status: {paymentStatus}
+                Status: {paymentStatus === 'SUBMITTED' ? 'Processing Payment...' : paymentStatus}
               </Text>
             </View>
           )}
         </View>
 
-        {/* Developer Sandbox Simulator controls */}
-        {(__DEV__ || noUpiApp) && (
+        {/* Developer Sandbox Controls */}
+        {__DEV__ && (
           <View style={styles.simulatorCard}>
-            <Text style={styles.simTitle}>🛠️ Developer Simulator (UPI Response)</Text>
-            <Text style={styles.simSubtitle}>
-              Simulate standard response states from external UPI apps during development.
-            </Text>
+            <Text style={styles.simTitle}>🛠️ Developer Sandbox Simulator</Text>
             <View style={styles.simButtonsContainer}>
               <TouchableOpacity
                 style={[styles.simBtn, styles.simBtnSuccess]}
@@ -269,22 +329,6 @@ export default function PaymentScreen({ route, navigation }) {
                 <Text style={styles.simBtnText}>Simulate FAILURE</Text>
               </TouchableOpacity>
             </View>
-
-            <View style={styles.simButtonsContainer}>
-              <TouchableOpacity
-                style={[styles.simBtn, styles.simBtnSubmitted]}
-                onPress={() => runSimulatedPaymentState('SUBMITTED')}
-              >
-                <Text style={styles.simBtnText}>Simulate SUBMITTED</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.simBtn, styles.simBtnCancelled]}
-                onPress={() => runSimulatedPaymentState('CANCELLED')}
-              >
-                <Text style={styles.simBtnText}>Simulate CANCELLED</Text>
-              </TouchableOpacity>
-            </View>
           </View>
         )}
       </ScrollView>
@@ -297,16 +341,9 @@ export default function PaymentScreen({ route, navigation }) {
               <Text style={styles.checkmarkIcon}>✓</Text>
             </View>
             <Text style={styles.successTitle}>Payment Successful!</Text>
-            <Text style={styles.successSubtitle}>Your invoice has been settled successfully.</Text>
+            <Text style={styles.successSubtitle}>Your invoice of ₹{totalAmount} has been settled.</Text>
 
             <View style={styles.successBtnContainer}>
-              <TouchableOpacity
-                style={[styles.successBtn, styles.successInvoiceBtn]}
-                onPress={() => downloadInvoice(jobId, token)}
-              >
-                <Text style={styles.successInvoiceBtnText}>📄 Download Invoice</Text>
-              </TouchableOpacity>
-
               <TouchableOpacity
                 style={[styles.successBtn, styles.successRateBtn]}
                 onPress={() => {
@@ -315,6 +352,13 @@ export default function PaymentScreen({ route, navigation }) {
                 }}
               >
                 <Text style={styles.successRateBtnText}>⭐ Rate Mechanic</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.successBtn, styles.successInvoiceBtn]}
+                onPress={() => downloadInvoice(jobId, token)}
+              >
+                <Text style={styles.successInvoiceBtnText}>📄 Download Invoice</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -347,114 +391,152 @@ export default function PaymentScreen({ route, navigation }) {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#FAFAFA'
+    backgroundColor: '#F8FAFC'
   },
   container: {
     flexGrow: 1,
-    padding: 24,
+    padding: 20,
     justifyContent: 'center',
-    backgroundColor: '#FAFAFA'
+    backgroundColor: '#F8FAFC'
   },
   card: {
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#EAEAEA',
-    padding: 24,
+    borderColor: '#E2E8F0',
+    padding: 20,
     shadowColor: '#000',
     shadowOpacity: 0.04,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
     elevation: 3,
-    marginBottom: 20
+    marginBottom: 16
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '800',
-    color: '#1A1A2E',
+    color: '#0F172A',
     textAlign: 'center',
-    marginBottom: 10
+  },
+  headerSub: {
+    fontSize: 13,
+    color: '#64748B',
+    textAlign: 'center',
+    marginTop: 4
   },
   divider: {
     height: 1,
-    backgroundColor: '#F0F0F0',
+    backgroundColor: '#E2E8F0',
     marginVertical: 16
+  },
+  summaryContainer: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#F1F5F9'
   },
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20
+    marginVertical: 4
   },
   label: {
-    fontSize: 14,
-    color: '#666',
+    fontSize: 13,
+    color: '#64748B',
     fontWeight: '500'
   },
   value: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '700',
-    color: '#1A1A2E'
+    color: '#0F172A'
   },
   amountContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    marginVertical: 20,
-    backgroundColor: '#FFF7F2',
+    marginVertical: 10,
+    backgroundColor: '#FEE2E2',
     borderRadius: 16,
-    paddingVertical: 20,
+    paddingVertical: 16,
     borderWidth: 1,
-    borderColor: '#FFE0CC'
+    borderColor: '#FECACA'
   },
   amountLabel: {
-    fontSize: 13,
-    color: '#B34700',
-    fontWeight: '600',
-    marginBottom: 6,
+    fontSize: 12,
+    color: '#E8192C',
+    fontWeight: '700',
+    marginBottom: 4,
     textTransform: 'uppercase',
     letterSpacing: 0.5
   },
   amountValue: {
-    fontSize: 36,
+    fontSize: 34,
     fontWeight: '800',
-    color: '#B34700'
+    color: '#E8192C'
   },
-  warningBox: {
-    backgroundColor: '#FFEBEE',
-    borderWidth: 1,
-    borderColor: '#FFCDD2',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 20
+  qrSection: {
+    alignItems: 'center',
+    marginVertical: 12
   },
-  warningText: {
-    color: '#C62828',
-    fontSize: 13,
-    fontWeight: '600',
-    textAlign: 'center',
-    lineHeight: 18
+  qrTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginBottom: 10
+  },
+  qrCard: {
+    padding: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
+    marginBottom: 8
+  },
+  qrImage: {
+    width: 180,
+    height: 180
+  },
+  qrSub: {
+    fontSize: 11,
+    color: '#64748B',
+    textAlign: 'center'
   },
   payBtn: {
-    backgroundColor: '#B34700',
+    backgroundColor: '#E8192C',
     paddingVertical: 16,
     borderRadius: 14,
     alignItems: 'center',
-    shadowColor: '#B34700',
-    shadowOpacity: 0.2,
+    shadowColor: '#E8192C',
+    shadowOpacity: 0.25,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
-    elevation: 4
-  },
-  disabledBtn: {
-    backgroundColor: '#CCCCCC',
-    shadowOpacity: 0,
-    elevation: 0
+    elevation: 4,
+    marginBottom: 10
   },
   payBtnText: {
     color: '#FFFFFF',
     fontWeight: 'bold',
     fontSize: 16,
     letterSpacing: 0.5
+  },
+  verifyBtn: {
+    backgroundColor: '#F1F5F9',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#CBD5E1'
+  },
+  verifyBtnText: {
+    color: '#334155',
+    fontWeight: '700',
+    fontSize: 14
   },
   loaderContainer: {
     alignItems: 'center',
@@ -463,11 +545,11 @@ const styles = StyleSheet.create({
   loaderText: {
     marginTop: 10,
     fontSize: 13,
-    color: '#B34700',
+    color: '#E8192C',
     fontWeight: '600'
   },
   statusIndicator: {
-    marginTop: 16,
+    marginTop: 14,
     alignItems: 'center'
   },
   statusText: {
@@ -475,43 +557,35 @@ const styles = StyleSheet.create({
     fontWeight: '700'
   },
   statusText_SUBMITTED: {
-    color: '#FF8F00'
+    color: '#D97706'
   },
   statusText_FAILURE: {
-    color: '#C62828'
-  },
-  statusText_CANCELLED: {
-    color: '#555555'
+    color: '#DC2626'
   },
   statusText_SUCCESS: {
-    color: '#2E7D32'
+    color: '#16A34A'
   },
   simulatorCard: {
-    backgroundColor: '#2E3842',
+    backgroundColor: '#1E293B',
     borderRadius: 16,
-    padding: 20,
+    padding: 16,
     borderWidth: 1,
-    borderColor: '#4A5560'
+    borderColor: '#334155'
   },
   simTitle: {
     color: '#FFFFFF',
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: 'bold',
-    marginBottom: 6
-  },
-  simSubtitle: {
-    color: '#B0BEC5',
-    fontSize: 12,
-    lineHeight: 16,
-    marginBottom: 16
+    marginBottom: 10,
+    textAlign: 'center'
   },
   simButtonsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 10
+    gap: 8
   },
   simBtn: {
-    flex: 0.48,
+    flex: 1,
     paddingVertical: 10,
     borderRadius: 8,
     alignItems: 'center'
@@ -522,20 +596,14 @@ const styles = StyleSheet.create({
     fontWeight: 'bold'
   },
   simBtnSuccess: {
-    backgroundColor: '#2E7D32'
+    backgroundColor: '#16A34A'
   },
   simBtnFailure: {
-    backgroundColor: '#C62828'
-  },
-  simBtnSubmitted: {
-    backgroundColor: '#FF8F00'
-  },
-  simBtnCancelled: {
-    backgroundColor: '#546E7A'
+    backgroundColor: '#DC2626'
   },
   successOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(26,26,46,0.85)',
+    backgroundColor: 'rgba(15, 23, 42, 0.85)',
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 1000
@@ -543,89 +611,84 @@ const styles = StyleSheet.create({
   successCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
-    padding: 30,
+    padding: 24,
     width: '85%',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 15,
     elevation: 10
   },
   checkmarkCircle: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    backgroundColor: '#2E7D32',
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#16A34A',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 20
+    marginBottom: 16
   },
   checkmarkIcon: {
-    fontSize: 36,
+    fontSize: 32,
     color: '#FFFFFF',
     fontWeight: 'bold'
   },
   successTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 8
+    color: '#0F172A',
+    marginBottom: 6
   },
   successSubtitle: {
     fontSize: 13,
-    color: '#666',
+    color: '#64748B',
     textAlign: 'center',
-    lineHeight: 18
+    marginBottom: 16
   },
   successBtnContainer: {
     width: '100%',
-    marginTop: 20,
-    alignItems: 'center',
+    gap: 8
   },
   successBtn: {
     width: '100%',
     paddingVertical: 12,
     borderRadius: 10,
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  successInvoiceBtn: {
-    backgroundColor: '#E0F2F1',
-    borderWidth: 1,
-    borderColor: '#00BFA5',
-  },
-  successInvoiceBtnText: {
-    color: '#00BFA5',
-    fontWeight: 'bold',
-    fontSize: 14,
+    alignItems: 'center'
   },
   successRateBtn: {
-    backgroundColor: '#FFF3E6',
+    backgroundColor: '#FEE2E2',
     borderWidth: 1,
-    borderColor: '#B34700',
+    borderColor: '#E8192C'
   },
   successRateBtnText: {
-    color: '#B34700',
+    color: '#E8192C',
     fontWeight: 'bold',
-    fontSize: 14,
+    fontSize: 14
+  },
+  successInvoiceBtn: {
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#CBD5E1'
+  },
+  successInvoiceBtnText: {
+    color: '#334155',
+    fontWeight: 'bold',
+    fontSize: 14
   },
   successHistoryBtn: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: '#E2E8F0'
   },
   successHistoryBtnText: {
-    color: '#4B5563',
+    color: '#64748B',
     fontWeight: 'bold',
-    fontSize: 14,
+    fontSize: 14
   },
   successHomeBtn: {
     paddingVertical: 10,
-    marginTop: 5,
+    alignItems: 'center'
   },
   successHomeBtnText: {
-    color: '#9CA3AF',
+    color: '#94A3B8',
     fontSize: 13,
-    fontWeight: '500',
-  },
+    fontWeight: '500'
+  }
 });

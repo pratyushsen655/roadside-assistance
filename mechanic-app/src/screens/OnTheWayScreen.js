@@ -1,10 +1,10 @@
 // src/screens/OnTheWayScreen.js
 import React, { useEffect, useState, useContext, useRef } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, ScrollView, Image,
-  ActivityIndicator, Alert, Linking, Modal, TextInput, Platform
+  View, Text, StyleSheet, TouchableOpacity, ScrollView,
+  ActivityIndicator, Alert, Linking, Modal, TextInput, Platform, SafeAreaView, StatusBar
 } from 'react-native';
-import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -12,424 +12,329 @@ import { AuthContext } from '../context/AuthContext';
 import { getSocket } from '../config/socket';
 import API_URL from '../config/api';
 
-// ---------- Helpers ----------
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 const toRad = deg => (deg * Math.PI) / 180;
 const haversine = (lat1, lon1, lat2, lon2) => {
-  const R = 6371; // km
+  const R = 6371;
   const dLat = toRad(lat2 - lat1);
   const dLon = toRad(lon2 - lon1);
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c; // km
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+const calcEta = km => Math.max(1, Math.round((km / 30) * 60));
+const isValidCoord = c =>
+  c &&
+  typeof c.latitude === 'number' && !isNaN(c.latitude) &&
+  typeof c.longitude === 'number' && !isNaN(c.longitude) &&
+  (c.latitude !== 0 || c.longitude !== 0);
+
+const formatService = type => {
+  if (!type) return null;
+  return type.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 };
 
-// Approximate ETA assuming average speed of 30 km/h in city traffic
-const calculateEta = (distanceKm) => Math.max(1, Math.round((distanceKm / 30) * 60));
-
-// Check if coordinate is a valid latitude/longitude number pair
-const isValidCoordinate = (coord) => {
-  return coord && 
-         typeof coord.latitude === 'number' && !isNaN(coord.latitude) &&
-         typeof coord.longitude === 'number' && !isNaN(coord.longitude);
-};
-
-// ---------- Progress Tracker Steps ----------
-const trackerSteps = [
-  { label: 'Accepted', icon: 'check-bold', library: 'MaterialCommunityIcons' },
-  { label: 'On the Way', icon: 'scooter', library: 'MaterialCommunityIcons' },
-  { label: 'Arrived', icon: 'account', library: 'MaterialCommunityIcons' },
-  { label: 'Completed', icon: 'wrench', library: 'MaterialCommunityIcons' },
+// ─── Step Tracker ─────────────────────────────────────────────────────────────
+const STEPS = [
+  { label: 'Accepted', icon: 'checkmark', lib: 'Ionicons' },
+  { label: 'On the Way', icon: 'bicycle', lib: 'Ionicons' },
+  { label: 'Arrived', icon: 'person', lib: 'Ionicons' },
+  { label: 'Completed', icon: 'construct', lib: 'Ionicons' },
 ];
 
-const ProgressTracker = ({ currentStep }) => {
-  return (
-    <View style={styles.progressContainer}>
-      {/* Background connecting lines */}
-      <View style={styles.progressLineBg}>
-        {trackerSteps.map((_, idx) => {
-          if (idx === trackerSteps.length - 1) return null;
-          const completedOrCurrent = idx < currentStep;
-          return (
-            <View
-              key={idx}
-              style={[
-                styles.progressLineSegment,
-                completedOrCurrent ? styles.progressLineCompleted : styles.progressLinePending
-              ]}
-            />
-          );
-        })}
-      </View>
+const ProgressTracker = ({ currentStep = 1 }) => (
+  <View style={styles.trackerWrapper}>
+    <View style={styles.trackerInner}>
+      {STEPS.map((step, idx) => {
+        const done = idx < currentStep;
+        const active = idx === currentStep;
+        const circleBg = done || active ? '#27AE60' : '#D1D5DB';
+        const lineDone = idx < currentStep;
 
-      {/* Steps */}
-      <View style={styles.stepsRow}>
-        {trackerSteps.map((step, idx) => {
-          const completed = idx < currentStep;
-          const isCurrent = idx === currentStep;
-          const completedOrCurrent = completed || isCurrent;
-          const bgColor = completedOrCurrent ? '#27AE60' : '#B3B3B3';
-          const IconComponent = step.library === 'MaterialCommunityIcons' ? MaterialCommunityIcons : Ionicons;
-
-          return (
-            <View key={step.label} style={styles.stepWrapper}>
-              <View style={[styles.circle, { backgroundColor: bgColor }]}>
-                <IconComponent name={step.icon} size={14} color="#fff" />
+        return (
+          <React.Fragment key={step.label}>
+            <View style={styles.trackerStep}>
+              <View style={[styles.trackerCircle, { backgroundColor: circleBg }]}>
+                <Ionicons name={step.icon} size={14} color="#fff" />
               </View>
-              <Text style={[styles.stepLabel, isCurrent && styles.stepLabelCurrent]}>
+              <Text style={[
+                styles.trackerLabel,
+                active && styles.trackerLabelActive,
+              ]}>
                 {step.label}
               </Text>
             </View>
-          );
-        })}
-      </View>
+            {idx < STEPS.length - 1 && (
+              <View style={[styles.trackerLine, lineDone ? styles.trackerLineDone : styles.trackerLinePending]} />
+            )}
+          </React.Fragment>
+        );
+      })}
     </View>
-  );
-};
+  </View>
+);
 
+// ─── Main Screen ──────────────────────────────────────────────────────────────
 const OnTheWayScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
   const { requestId } = route.params || {};
-  const { mechanicToken, mechanic } = useContext(AuthContext);
+  const { mechanicToken } = useContext(AuthContext);
 
   const isMounted = useRef(true);
-  useEffect(() => {
-    isMounted.current = true;
-    return () => {
-      isMounted.current = false;
-    };
-  }, []);
+  useEffect(() => () => { isMounted.current = false; }, []);
 
-  const [loading, setLoading] = useState(true);
-  const [request, setRequest] = useState(null);
-  const [mechanicLoc, setMechanicLoc] = useState(null);
-  const [lastLoggedLoc, setLastLoggedLoc] = useState(null);
-  const [eta, setEta] = useState('--');
-  const [distance, setDistance] = useState(null);
+  const [loading, setLoading]               = useState(true);
+  const [request, setRequest]               = useState(null);
+  const [mechanicLoc, setMechanicLoc]       = useState(null);
+  const [lastLoggedLoc, setLastLoggedLoc]   = useState(null);
+  const [eta, setEta]                       = useState(null);
+  const [distance, setDistance]             = useState(null);
   const [showCancelModal, setShowCancelModal] = useState(false);
-  const [showOtpModal, setShowOtpModal] = useState(false);
-  const [otpVal, setOtpVal] = useState(['', '', '', '']);
-  const [otpLoading, setOtpLoading] = useState(false);
-  const [cancellationReason, setCancellationReason] = useState('');
-  const [otpError, setOtpError] = useState('');
+  const [showOtpModal, setShowOtpModal]     = useState(false);
+  const [otpVal, setOtpVal]                 = useState(['', '', '', '']);
+  const [otpLoading, setOtpLoading]         = useState(false);
+  const [otpError, setOtpError]             = useState('');
+  const [cancelReason, setCancelReason]     = useState('');
 
   const otpRefs = [useRef(), useRef(), useRef(), useRef()];
 
-  // Fetch request details on mount
+  // ── Fetch request data ─────────────────────────────────────────────────────
   useEffect(() => {
     if (!requestId || !mechanicToken) return;
-    const fetchData = async () => {
+    (async () => {
       try {
         const res = await fetch(`${API_URL}/api/requests/${requestId}`, {
           headers: { Authorization: `Bearer ${mechanicToken}` },
         });
         const data = await res.json();
         if (data.success && data.request) {
-          if (isMounted.current) {
-            setRequest(data.request);
-          }
+          if (isMounted.current) setRequest(data.request);
         } else {
           Alert.alert('Error', data.message || 'Unable to load request');
-          if (isMounted.current && navigation) {
-            navigation.navigate('Home');
-          }
+          if (isMounted.current) navigation.navigate('Home');
         }
       } catch (e) {
-        console.error('[ON_THE_WAY_FETCH_ERROR] Error fetching request details:', e);
-        Alert.alert('Error', 'Network error while fetching request');
+        console.error('[OnTheWay] fetch error:', e);
+        Alert.alert('Error', 'Network error loading request');
       } finally {
-        if (isMounted.current) {
-          setLoading(false);
-        }
+        if (isMounted.current) setLoading(false);
       }
-    };
-    fetchData();
+    })();
   }, [requestId, mechanicToken]);
 
-  // Request location permission and start watching GPS
+  // ── GPS tracking ───────────────────────────────────────────────────────────
   useEffect(() => {
-    let subscriber;
-
-    const startWatching = async () => {
+    if (!mechanicToken || !requestId) return;
+    let sub;
+    (async () => {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') {
-          Alert.alert('Permission Denied', 'Location permission is required to en-route.');
-          return;
-        }
+        if (status !== 'granted') return;
 
-        // Get initial location
-        const initialLoc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        const initialCoords = { latitude: initialLoc.coords.latitude, longitude: initialLoc.coords.longitude };
-        if (isMounted.current) {
-          setMechanicLoc(initialCoords);
-          setLastLoggedLoc(initialCoords);
-        }
+        const init = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        const coords = { latitude: init.coords.latitude, longitude: init.coords.longitude };
+        if (isMounted.current) { setMechanicLoc(coords); setLastLoggedLoc(coords); }
 
-        // Watch live position updates
-        subscriber = await Location.watchPositionAsync(
-          {
-            accuracy: Location.Accuracy.High,
-            distanceInterval: 10, // Check GPS every 10 meters, but only redraw on 50m
-            timeInterval: 5000,
-          },
-          (location) => {
-            const { latitude, longitude } = location.coords;
-            const currentCoords = { latitude, longitude };
-            if (isMounted.current) {
-              setMechanicLoc(currentCoords);
-            }
-
-            // Emit location to customer via Socket
+        sub = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.High, distanceInterval: 10, timeInterval: 5000 },
+          loc => {
+            const c = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
+            if (isMounted.current) setMechanicLoc(c);
             try {
               const socket = getSocket(mechanicToken);
-              if (socket) {
-                socket.emit('mechanic:location', {
-                  jobId: requestId,
-                  lat: latitude,
-                  lng: longitude
-                });
-              }
-            } catch (socketErr) {
-              console.error('[ON_THE_WAY_SOCKET_ERROR] Error emitting location update:', socketErr);
-            }
+              if (socket) socket.emit('mechanic:location', { jobId: requestId, lat: c.latitude, lng: c.longitude });
+            } catch (_) {}
           }
         );
-      } catch (err) {
-        console.log('Location tracking error:', err);
-      }
-    };
-
-    if (mechanicToken && requestId) {
-      startWatching();
-    }
-
-    return () => {
-      if (subscriber) {
-        subscriber.remove();
-      }
-    };
+      } catch (err) { console.log('[OnTheWay] GPS error:', err); }
+    })();
+    return () => sub?.remove();
   }, [mechanicToken, requestId]);
 
-  // Calculate distance/ETA throttle (updates whenever mechanic moves >= 50m)
+  // ── Distance / ETA ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!mechanicLoc || !request?.customerLocation?.coordinates) return;
+    const [custLng, custLat] = request.customerLocation.coordinates;
+    const dist = haversine(custLat, custLng, mechanicLoc.latitude, mechanicLoc.longitude);
 
-    try {
-      const [custLng, custLat] = request.customerLocation.coordinates;
-      const dist = haversine(custLat, custLng, mechanicLoc.latitude, mechanicLoc.longitude);
-
-      if (!lastLoggedLoc) {
-        if (isMounted.current) {
-          setDistance(dist.toFixed(1));
-          setEta(`${calculateEta(dist)} mins`);
-          setLastLoggedLoc(mechanicLoc);
-        }
-      } else {
-        const movedDist = haversine(lastLoggedLoc.latitude, lastLoggedLoc.longitude, mechanicLoc.latitude, mechanicLoc.longitude) * 1000;
-        if (movedDist >= 50) {
-          if (isMounted.current) {
-            setDistance(dist.toFixed(1));
-            setEta(`${calculateEta(dist)} mins`);
-            setLastLoggedLoc(mechanicLoc);
-          }
-        }
+    if (!lastLoggedLoc) {
+      if (isMounted.current) { setDistance(dist.toFixed(1)); setEta(calcEta(dist)); setLastLoggedLoc(mechanicLoc); }
+    } else {
+      const moved = haversine(lastLoggedLoc.latitude, lastLoggedLoc.longitude, mechanicLoc.latitude, mechanicLoc.longitude) * 1000;
+      if (moved >= 50) {
+        if (isMounted.current) { setDistance(dist.toFixed(1)); setEta(calcEta(dist)); setLastLoggedLoc(mechanicLoc); }
       }
-    } catch (err) {
-      console.error('[ON_THE_WAY_DISTANCE_EFFECT_ERROR] Error in distance calculation:', err);
     }
   }, [mechanicLoc, request, lastLoggedLoc]);
 
-  // Socket listeners for cancellation from customer side
+  // ── Socket — customer cancels ──────────────────────────────────────────────
   useEffect(() => {
-    if (!mechanicToken || !requestId) return undefined;
+    if (!mechanicToken || !requestId) return;
     const socket = getSocket(mechanicToken);
-    if (!socket) return undefined;
-
+    if (!socket) return;
     socket.emit('join:job:room', { jobId: requestId });
-
-    const cancelHandler = () => {
-      try {
-        Alert.alert('Job Cancelled', 'The customer has cancelled this service request.', [
-          { text: 'Okay', onPress: () => {
-            if (isMounted.current && navigation) {
-              navigation.navigate('Home');
-            }
-          } }
-        ]);
-      } catch (err) {
-        console.error('[ON_THE_WAY_CANCEL_ALERT_ERROR] Error showing cancel alert:', err);
-      }
-    };
-
-    socket.on('request:cancelled', cancelHandler);
-    return () => {
-      socket.off('request:cancelled', cancelHandler);
-    };
+    const handler = () =>
+      Alert.alert('Job Cancelled', 'The customer has cancelled this job.', [
+        { text: 'OK', onPress: () => { if (isMounted.current) navigation.navigate('Home'); } },
+      ]);
+    socket.on('request:cancelled', handler);
+    return () => socket.off('request:cancelled', handler);
   }, [mechanicToken, requestId]);
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#27AE60" />
-      </View>
-    );
-  }
+  // ── Handlers ───────────────────────────────────────────────────────────────
+  const customerCoords = (() => {
+    try {
+      const loc = request?.customerLocation;
+      if (!loc) return null;
+      if (Array.isArray(loc.coordinates) && loc.coordinates.length >= 2) {
+        const [lng, lat] = loc.coordinates;
+        if (typeof lat === 'number' && !isNaN(lat) && (lat !== 0 || lng !== 0))
+          return { latitude: lat, longitude: lng };
+      }
+      const lat = loc.latitude ?? loc.lat;
+      const lng = loc.longitude ?? loc.lng;
+      if (typeof lat === 'number' && !isNaN(lat) && (lat !== 0 || lng !== 0))
+        return { latitude: lat, longitude: lng };
+    } catch (_) {}
+    return null;
+  })();
 
-  if (!request) {
-    return (
-      <View style={styles.loadingContainer}>
-        <Text style={styles.errorText}>Unable to load job details.</Text>
-      </View>
-    );
-  }
-
-  const customerObj = request.customer || {};
+  const customerObj = request?.customer || {};
+  const customerName =
+    (typeof customerObj === 'object' && customerObj?.name) ||
+    request?.customerName ||
+    null;
+  const customerPhone =
+    (typeof customerObj === 'object' && customerObj?.phone) ||
+    request?.customerPhone ||
+    null;
+  const jobPrice =
+    request?.accepted_price ||
+    request?.current_price ||
+    request?.totalPrice ||
+    request?.amount ||
+    request?.pricing?.totalAmount ||
+    request?.price ||
+    null;
+  const serviceLabel = formatService(request?.serviceType);
+  const vehicleName =
+    request?.vehicleModel ||
+    (request?.vehicleType ? formatService(request.vehicleType) : null);
 
   const handleCall = () => {
-    if (customerObj.phone) {
-      Linking.openURL(`tel:${customerObj.phone}`);
+    if (customerPhone) {
+      Linking.openURL(`tel:${customerPhone}`);
     } else {
-      Alert.alert('Error', 'Customer phone number is not available');
+      Alert.alert('Unavailable', 'Customer phone number is not available for this job.');
     }
   };
 
-  const handleChat = () => {
-    navigation.navigate('Chat', {
-      jobId: requestId,
-      receiverName: customerObj.name || 'Customer'
-    });
-  };
+  const handleChat = () =>
+    navigation.navigate('Chat', { jobId: requestId, receiverName: customerName || 'Customer' });
 
-  const handleStartNavigation = () => {
-    if (!request.customerLocation?.coordinates) return;
-    const [lng, lat] = request.customerLocation.coordinates;
-    const url = Platform.OS === 'ios'
-      ? `maps://app?daddr=${lat},${lng}`
-      : `google.navigation:q=${lat},${lng}`;
-    Linking.openURL(url).catch(() => Alert.alert('Error', 'Unable to open maps app'));
+  const handleNavigate = () => {
+    if (!customerCoords) return;
+    const { latitude: lat, longitude: lng } = customerCoords;
+    const url =
+      Platform.OS === 'ios'
+        ? `maps://app?daddr=${lat},${lng}`
+        : `google.navigation:q=${lat},${lng}`;
+    Linking.openURL(url).catch(() => Alert.alert('Error', 'Unable to open maps'));
   };
 
   const handleArrived = async () => {
-    if (!mechanicLoc || !request?.customerLocation?.coordinates) {
-      Alert.alert('Error', 'Location data missing. Unable to verify your position.');
+    if (!mechanicLoc || !customerCoords) {
+      Alert.alert('Error', 'Location data missing. Please wait for GPS to initialise.');
       return;
     }
-    const [custLng, custLat] = request.customerLocation.coordinates;
-    const distMetres = haversine(custLat, custLng, mechanicLoc.latitude, mechanicLoc.longitude) * 1000;
-
-    // Check if within 200m
+    const distMetres =
+      haversine(customerCoords.latitude, customerCoords.longitude, mechanicLoc.latitude, mechanicLoc.longitude) * 1000;
     if (distMetres > 200) {
-      Alert.alert('Too Far Away', `You are currently ${(distMetres / 1000).toFixed(1)} km away. You must be within 200 meters of the customer to mark arrival.`);
+      Alert.alert(
+        'Too Far Away',
+        `You are ${(distMetres / 1000).toFixed(1)} km from the customer. Move within 200 m to confirm arrival.`
+      );
       return;
     }
-
     try {
       setOtpLoading(true);
-      setOtpError('');
       const res = await fetch(`${API_URL}/api/requests/${requestId}/mark-arrived`, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${mechanicToken}`,
-          'Content-Type': 'application/json',
-        },
+        headers: { Authorization: `Bearer ${mechanicToken}`, 'Content-Type': 'application/json' },
       });
       const data = await res.json();
       if (data.success) {
-        if (isMounted.current) {
-          setOtpVal(['', '', '', '']);
-          setShowOtpModal(true);
-        }
+        if (isMounted.current) { setOtpVal(['', '', '', '']); setShowOtpModal(true); }
       } else {
-        Alert.alert('Error', data.message || 'Unable to update status to Arrived');
+        Alert.alert('Error', data.message || 'Unable to update arrival status');
       }
     } catch (e) {
-      console.error('[ON_THE_WAY_ARRIVED_ERROR] Error in handleArrived:', e);
-      Alert.alert('Error', 'Network error while updating status');
+      Alert.alert('Error', 'Network error. Please try again.');
     } finally {
-      setOtpLoading(false);
+      if (isMounted.current) setOtpLoading(false);
     }
   };
 
-  const handleResendOtp = async () => {
-    try {
-      setOtpLoading(true);
-      setOtpError('');
-      const res = await fetch(`${API_URL}/api/requests/${requestId}/mark-arrived`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${mechanicToken}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      const data = await res.json();
-      if (data.success) {
-        setOtpVal(['', '', '', '']);
-        Alert.alert('OTP Sent', 'A new verification code has been sent to the customer.');
-      } else {
-        setOtpError(data.message || 'Failed to resend OTP.');
-      }
-    } catch (e) {
-      console.error('[ON_THE_WAY_RESEND_ERROR] Error in handleResendOtp:', e);
-      setOtpError('Network error while resending OTP.');
-    } finally {
-      setOtpLoading(false);
-    }
-  };
-
-  const handleVerifyOtpSubmit = async () => {
+  const handleVerifyOtp = async () => {
     const code = otpVal.join('');
-    if (code.length < 4) {
-      Alert.alert('Invalid OTP', 'Please enter the full 4-digit code.');
-      return;
-    }
-
-    if (isMounted.current) {
-      setOtpLoading(true);
-      setOtpError('');
-    }
+    if (code.length < 4) { Alert.alert('Invalid OTP', 'Enter the full 4-digit code from the customer.'); return; }
+    setOtpLoading(true); setOtpError('');
     try {
       const res = await fetch(`${API_URL}/api/requests/${requestId}/verify-otp`, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${mechanicToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ otp: code })
+        headers: { Authorization: `Bearer ${mechanicToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ otp: code }),
       });
       const data = await res.json();
       if (data.success) {
-        if (isMounted.current) {
-          setShowOtpModal(false);
-        }
-        Alert.alert('Success', 'OTP verified! Starting service job.', [
+        if (isMounted.current) setShowOtpModal(false);
+        Alert.alert('Verified!', 'Starting service job.', [
           {
             text: 'Go to Job Screen',
             onPress: () => {
-              if (isMounted.current && navigation) {
+              if (isMounted.current)
                 navigation.navigate('ActiveJob', {
                   jobId: requestId,
                   status: 'in_progress',
                   customerLocation: request.customerLocation,
-                  customerName: customerObj.name || 'Customer',
-                  customerPhone: customerObj.phone || '',
-                  customerAddress: request.customerAddress || 'Customer Address',
-                  issue: request.issueDescription || request.serviceType || 'Roadside Assistance'
+                  customerName,
+                  customerPhone,
+                  customerAddress: request.customerAddress || '',
+                  issue: request.issueDescription || request.serviceType || '',
                 });
-              }
-            }
-          }
+            },
+          },
         ]);
       } else {
-        setOtpError(data.message || 'Incorrect verification OTP.');
+        if (isMounted.current) setOtpError(data.message || 'Incorrect OTP. Please try again.');
       }
-    } catch (err) {
-      console.error('[ON_THE_WAY_VERIFY_OTP_ERROR] Error in handleVerifyOtpSubmit:', err);
-      setOtpError('Failed to connect to verification service.');
+    } catch (e) {
+      if (isMounted.current) setOtpError('Connection error. Please try again.');
     } finally {
-      if (isMounted.current) {
-        setOtpLoading(false);
+      if (isMounted.current) setOtpLoading(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    setOtpLoading(true); setOtpError('');
+    try {
+      const res = await fetch(`${API_URL}/api/requests/${requestId}/mark-arrived`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${mechanicToken}`, 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      if (data.success) {
+        if (isMounted.current) setOtpVal(['', '', '', '']);
+        Alert.alert('OTP Sent', 'A new code has been sent to the customer.');
+      } else {
+        if (isMounted.current) setOtpError(data.message || 'Failed to resend OTP.');
       }
+    } catch (_) {
+      if (isMounted.current) setOtpError('Network error.');
+    } finally {
+      if (isMounted.current) setOtpLoading(false);
     }
   };
 
@@ -437,250 +342,307 @@ const OnTheWayScreen = () => {
     try {
       const res = await fetch(`${API_URL}/api/requests/${requestId}/cancel`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${mechanicToken}`
-        },
-        body: JSON.stringify({ reason: cancellationReason || 'Cancelled by mechanic' })
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${mechanicToken}` },
+        body: JSON.stringify({ reason: cancelReason || 'Cancelled by mechanic' }),
       });
       const data = await res.json();
       if (data.success) {
-        Alert.alert('Job Cancelled', 'The job has been cancelled successfully.');
-        if (isMounted.current && navigation) {
-          navigation.navigate('Home');
-        }
+        Alert.alert('Cancelled', 'Job cancelled successfully.');
+        if (isMounted.current) navigation.navigate('Home');
       } else {
         Alert.alert('Error', data.message || 'Cancellation failed.');
       }
-    } catch (e) {
-      console.error('[ON_THE_WAY_CANCEL_JOB_ERROR] Error cancelling job:', e);
+    } catch (_) {
       Alert.alert('Error', 'Network error during cancellation.');
     }
-    if (isMounted.current) {
-      setShowCancelModal(false);
-    }
+    if (isMounted.current) setShowCancelModal(false);
   };
 
-  const formatServiceType = type => {
-    if (!type) return 'Service';
-    return type
-      .split('_')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
-  };
-
-  const updateOtpDigit = (text, index) => {
+  const updateOtp = (text, idx) => {
     setOtpError('');
     const cleaned = text.replace(/[^0-9]/g, '');
-    const newOtp = [...otpVal];
-    newOtp[index] = cleaned;
-    setOtpVal(newOtp);
-
-    if (cleaned && index < 3) {
-      otpRefs[index + 1].current.focus();
-    }
+    const next = [...otpVal];
+    next[idx] = cleaned;
+    setOtpVal(next);
+    if (cleaned && idx < 3) otpRefs[idx + 1].current?.focus();
   };
 
-  const handleOtpKeyPress = (e, index) => {
-    if (e.nativeEvent.key === 'Backspace' && !otpVal[index] && index > 0) {
-      otpRefs[index - 1].current.focus();
-    }
+  const handleOtpKey = (e, idx) => {
+    if (e.nativeEvent.key === 'Backspace' && !otpVal[idx] && idx > 0)
+      otpRefs[idx - 1].current?.focus();
   };
 
-  const customerCoords = (() => {
-    try {
-      const coords = request?.customerLocation?.coordinates;
-      if (Array.isArray(coords) && coords.length >= 2 && typeof coords[1] === 'number' && typeof coords[0] === 'number') {
-        return { latitude: coords[1], longitude: coords[0] };
-      }
-    } catch (err) {
-      console.error('[ON_THE_WAY_MAP_ERROR] Error parsing customer coords:', err);
-    }
-    return null;
-  })();
+  // ── Render ─────────────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color="#27AE60" />
+      </View>
+    );
+  }
+  if (!request) {
+    return (
+      <View style={styles.centered}>
+        <Ionicons name="alert-circle-outline" size={48} color="#EF4444" />
+        <Text style={styles.errorText}>Unable to load job details.</Text>
+      </View>
+    );
+  }
 
-  const currentStep = 1; // Index 1 for "On the Way" step
-
-  console.log('[OnTheWayScreen DEBUG] Full request object:', request);
+  const etaLabel = eta != null ? `${eta} mins` : '—';
+  const distLabel = distance != null ? `${distance} km` : '—';
 
   return (
-    <View style={styles.container}>
-      {/* 1. DEEP INDIGO HEADER */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.navigate('Home')}>
-          <Ionicons name="arrow-back" size={22} color="#FFFFFF" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Job In Progress</Text>
-        <TouchableOpacity style={styles.shieldBtn} onPress={() => navigation.navigate('SOSAlerts')}>
-          <Ionicons name="shield-checkmark-outline" size={22} color="#FFFFFF" />
-        </TouchableOpacity>
+    <SafeAreaView style={styles.root}>
+      <StatusBar barStyle="light-content" backgroundColor="#1B6B3A" />
+
+      {/* ── STATUS BAR HEADER ── */}
+      <View style={styles.statusHeader}>
+        <View style={styles.statusHeaderLeft}>
+          <View style={styles.scooterBadge}>
+            <MaterialCommunityIcons name="scooter" size={20} color="#fff" />
+          </View>
+          <View>
+            <Text style={styles.statusHeaderTitle}>On the Way</Text>
+            <Text style={styles.statusHeaderSub}>Head to the customer location</Text>
+          </View>
+        </View>
+        <View style={styles.etaBox}>
+          <Text style={styles.etaBoxLabel}>ETA</Text>
+          <Text style={styles.etaBoxVal}>{etaLabel}</Text>
+        </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* TOP JOB SUMMARY CARD */}
-        <View style={styles.jobSummaryCard}>
-          <View style={styles.jobSummaryHeaderRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.jobSummaryTitle}>{formatServiceType(request.serviceType || 'Flat/Puncture Repair')}</Text>
-              <View style={styles.locationRow}>
-                <Ionicons name="location-outline" size={14} color="#64748B" style={{ marginRight: 4 }} />
-                <Text style={styles.locationText} numberOfLines={1}>
-                  {request.customerAddress || 'DLF Cyber City, Phase 2 Gurugram, Haryana'}
-                </Text>
-              </View>
+      {/* ── PROGRESS TRACKER ── */}
+      <View style={styles.trackerCard}>
+        <ProgressTracker currentStep={1} />
+      </View>
+
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+
+        {/* ── CUSTOMER CARD ── */}
+        <View style={styles.card}>
+          <View style={styles.customerRow}>
+            <View style={styles.avatarCircle}>
+              <Ionicons name="person" size={28} color="#fff" />
             </View>
-            <View style={styles.inProgressBadge}>
-              <Text style={styles.inProgressBadgeText}>In Progress</Text>
+            <View style={styles.customerMeta}>
+              {customerName ? (
+                <Text style={styles.customerName}>{customerName}</Text>
+              ) : (
+                <Text style={styles.noDataText}>Customer name unavailable</Text>
+              )}
             </View>
+            <TouchableOpacity style={styles.actionBtn} onPress={handleCall}>
+              <Ionicons name="call" size={18} color="#27AE60" />
+              <Text style={styles.actionBtnLabel}>Call</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.actionBtn, { marginLeft: 8 }]} onPress={handleChat}>
+              <Ionicons name="chatbubble-ellipses" size={18} color="#27AE60" />
+              <Text style={styles.actionBtnLabel}>Chat</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
-        {/* MAP VIEW CONTAINER */}
-        <View style={styles.mapCard}>
-          {isValidCoordinate(customerCoords) ? (
-            <MapView
-              style={styles.map}
-              initialRegion={{
-                latitude: customerCoords.latitude,
-                longitude: customerCoords.longitude,
-                latitudeDelta: 0.02,
-                longitudeDelta: 0.02,
-              }}
-              showsUserLocation={false}
-            >
-              <Marker coordinate={customerCoords} title="Customer Location">
-                <View style={styles.customerMarkerPin}>
-                  <Text style={{ fontSize: 16 }}>📍</Text>
-                </View>
-              </Marker>
-              {isValidCoordinate(mechanicLoc) && (
-                <Marker coordinate={mechanicLoc} title="Your Location">
-                  <View style={styles.mechanicMarkerDot} />
-                </Marker>
-              )}
-              {isValidCoordinate(mechanicLoc) && (
-                <Polyline coordinates={[mechanicLoc, customerCoords]} strokeColor="#4F46E5" strokeWidth={4} />
-              )}
-            </MapView>
-          ) : (
-            <View style={styles.mapFallback}>
-              <Ionicons name="map-outline" size={40} color="#94A3B8" />
-              <Text style={styles.mapFallbackText}>Live Map Navigation</Text>
+        {/* ── SERVICE DETAILS CARD ── */}
+        <View style={styles.card}>
+          <View style={styles.cardTitleRow}>
+            <MaterialCommunityIcons name="wrench" size={16} color="#27AE60" />
+            <Text style={styles.cardTitle}>Service Details</Text>
+          </View>
+          <View style={styles.detailsGrid}>
+            <View style={styles.detailCol}>
+              <Text style={styles.detailLabel}>Service</Text>
+              <Text style={styles.detailValue}>{serviceLabel || <Text style={styles.noDataText}>—</Text>}</Text>
             </View>
+            <View style={styles.detailDivider} />
+            <View style={styles.detailCol}>
+              <Text style={styles.detailLabel}>Vehicle</Text>
+              <Text style={styles.detailValue}>{vehicleName || <Text style={styles.noDataText}>—</Text>}</Text>
+            </View>
+            {request?.vehicleNumber ? (
+              <>
+                <View style={styles.detailDivider} />
+                <View style={styles.detailCol}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
+                    <Ionicons name="id-card-outline" size={12} color="#27AE60" style={{ marginRight: 4 }} />
+                    <Text style={styles.detailLabel}>Vehicle No.</Text>
+                  </View>
+                  <Text style={[styles.detailValue, { fontWeight: '700' }]}>{request.vehicleNumber}</Text>
+                </View>
+              </>
+            ) : null}
+          </View>
+        </View>
+
+        {/* ── CUSTOMER LOCATION CARD ── */}
+        <View style={styles.card}>
+          <View style={styles.cardTitleRow}>
+            <Ionicons name="location" size={16} color="#27AE60" />
+            <Text style={styles.cardTitle}>Customer Location</Text>
+          </View>
+
+          {request?.customerAddress ? (
+            <Text style={styles.addressText}>{request.customerAddress}</Text>
+          ) : customerCoords ? (
+            <Text style={styles.addressText}>
+              {customerCoords.latitude.toFixed(5)}, {customerCoords.longitude.toFixed(5)}
+            </Text>
+          ) : (
+            <Text style={styles.noDataText}>Address not available</Text>
           )}
 
-          {/* Map Overlay Pill */}
-          <View style={styles.mapDistanceOverlay}>
-            <Ionicons name="car-outline" size={16} color="#362A84" style={{ marginRight: 6 }} />
-            <Text style={styles.mapDistanceText}>{distance ? `${distance} km` : '2.4 km'} • {eta || '8 min'}</Text>
-          </View>
-
-          {/* Recenter Button */}
-          <TouchableOpacity style={styles.recenterBtn} onPress={handleStartNavigation}>
-            <Ionicons name="locate" size={20} color="#362A84" />
-          </TouchableOpacity>
-        </View>
-
-        {/* CUSTOMER CARD */}
-        <View style={styles.sectionCard}>
-          <Text style={styles.cardSectionLabel}>Customer</Text>
-          <View style={styles.customerRow}>
-            <Text style={styles.customerName}>{customerObj.name || 'Ankit Verma'}</Text>
-
-            <View style={styles.actionIconRow}>
-              <TouchableOpacity style={styles.contactIconBtn} onPress={handleCall}>
-                <Ionicons name="call-outline" size={18} color="#362A84" />
-              </TouchableOpacity>
-
-              <TouchableOpacity style={[styles.contactIconBtn, { marginLeft: 8 }]} onPress={handleChat}>
-                <Ionicons name="chatbubble-ellipses-outline" size={18} color="#362A84" />
-              </TouchableOpacity>
+          <View style={styles.distEtaRow}>
+            <View style={styles.distEtaItem}>
+              <MaterialCommunityIcons name="wrench" size={14} color="#64748B" />
+              <View style={{ marginLeft: 8 }}>
+                <Text style={styles.distEtaLabel}>Distance</Text>
+                <Text style={styles.distEtaVal}>{distLabel}</Text>
+              </View>
+            </View>
+            <View style={styles.distEtaDivider} />
+            <View style={styles.distEtaItem}>
+              <Ionicons name="time-outline" size={14} color="#64748B" />
+              <View style={{ marginLeft: 8 }}>
+                <Text style={styles.distEtaLabel}>ETA</Text>
+                <Text style={styles.distEtaVal}>{etaLabel}</Text>
+              </View>
             </View>
           </View>
-        </View>
 
-        {/* VEHICLE INFO CARD */}
-        <View style={styles.sectionCard}>
-          <Text style={styles.cardSectionLabel}>Vehicle</Text>
-          <Text style={styles.vehicleText}>
-            {request.vehicleModel || 'Honda City'} • {request.vehicleNumber || 'HR26DK1234'} • {request.vehicleColor || 'White'}
-          </Text>
-        </View>
-
-        {/* JOB AMOUNT CARD */}
-        <View style={styles.sectionCard}>
-          <View style={styles.priceRow}>
-            <View>
-              <Text style={styles.cardSectionLabel}>Job Amount</Text>
-              <Text style={styles.basePriceSub}>Base Price ₹{request.price || 150}</Text>
-            </View>
-            <Text style={styles.jobAmountText}>₹{request.price || 150}</Text>
+          {/* MAP */}
+          <View style={styles.mapWrapper}>
+            {isValidCoord(customerCoords) ? (
+              <MapView
+                style={styles.map}
+                initialRegion={{
+                  latitude: customerCoords.latitude,
+                  longitude: customerCoords.longitude,
+                  latitudeDelta: 0.02,
+                  longitudeDelta: 0.02,
+                }}
+              >
+                {isValidCoord(mechanicLoc) && (
+                  <Marker coordinate={mechanicLoc} title="Your Location">
+                    <View style={styles.myMarker} />
+                  </Marker>
+                )}
+                <Marker coordinate={customerCoords} title="Customer Location">
+                  <View style={styles.custMarker}>
+                    <Ionicons name="location" size={22} color="#EF4444" />
+                  </View>
+                </Marker>
+                {isValidCoord(mechanicLoc) && (
+                  <Polyline
+                    coordinates={[mechanicLoc, customerCoords]}
+                    strokeColor="#2563EB"
+                    strokeWidth={3}
+                    lineDashPattern={[6, 3]}
+                  />
+                )}
+              </MapView>
+            ) : (
+              <View style={styles.mapFallback}>
+                <Ionicons name="map-outline" size={36} color="#94A3B8" />
+                <Text style={styles.mapFallbackText}>Map unavailable — location not set</Text>
+              </View>
+            )}
           </View>
         </View>
 
-        {/* BOTTOM ACTION BUTTONS */}
-        <View style={styles.bottomButtonsContainer}>
-          <TouchableOpacity style={styles.markCompletedBtn} onPress={handleArrived}>
-            <Ionicons name="checkmark-circle-outline" size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
-            <Text style={styles.markCompletedText}>Mark as Completed</Text>
+        {/* ── ACTION ROW ── */}
+        <View style={styles.actionRow}>
+          <TouchableOpacity style={styles.navBtn} onPress={handleNavigate} activeOpacity={0.85}>
+            <Ionicons name="navigate" size={16} color="#fff" style={{ marginRight: 6 }} />
+            <Text style={styles.navBtnText}>Start Navigation</Text>
           </TouchableOpacity>
-
-          <TouchableOpacity style={styles.needHelpBtn} onPress={() => Alert.alert('Support', 'Connecting to Roadside Assistance Support line...')}>
-            <Ionicons name="call-outline" size={16} color="#EF4444" style={{ marginRight: 6 }} />
-            <Text style={styles.needHelpText}>Need Help?</Text>
+          <TouchableOpacity style={styles.callBtn} onPress={handleCall} activeOpacity={0.85}>
+            <Ionicons name="call" size={16} color="#27AE60" style={{ marginRight: 4 }} />
+            <Text style={styles.callBtnText}>Call Customer</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.chatBtn} onPress={handleChat} activeOpacity={0.85}>
+            <Ionicons name="chatbubble-ellipses" size={16} color="#27AE60" style={{ marginRight: 4 }} />
+            <Text style={styles.chatBtnText}>Chat</Text>
           </TouchableOpacity>
         </View>
+
+        {/* ── SAFETY NOTE ── */}
+        <View style={styles.safetyCard}>
+          <Ionicons name="shield-checkmark" size={18} color="#D97706" style={{ marginRight: 8 }} />
+          <View>
+            <Text style={styles.safetyTitle}>Safety First</Text>
+            <Text style={styles.safetyText}>Please follow traffic rules and reach the customer safely.</Text>
+          </View>
+        </View>
+
+        {/* ── ARRIVED BUTTON ── */}
+        <TouchableOpacity
+          style={styles.arrivedBtn}
+          onPress={handleArrived}
+          disabled={otpLoading}
+          activeOpacity={0.88}
+        >
+          {otpLoading ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Text style={styles.arrivedBtnText}>I've Arrived at Location</Text>
+          )}
+        </TouchableOpacity>
+
+        {/* ── CANCEL JOB ── */}
+        <TouchableOpacity style={styles.cancelJobBtn} onPress={() => setShowCancelModal(true)} activeOpacity={0.85}>
+          <Ionicons name="close-circle-outline" size={16} color="#EF4444" style={{ marginRight: 6 }} />
+          <Text style={styles.cancelJobBtnText}>Cancel Job</Text>
+        </TouchableOpacity>
+
       </ScrollView>
 
-      {/* Cancel Confirmation Modal */}
+      {/* ── CANCEL MODAL ── */}
       <Modal visible={showCancelModal} transparent animationType="fade" onRequestClose={() => setShowCancelModal(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Cancel Job</Text>
-            <Text style={styles.modalMessage}>
-              Are you sure you want to cancel this job? Frequent cancellations may affect your rating and eligibility.
-            </Text>
+            <Text style={styles.modalMsg}>Are you sure? Frequent cancellations may affect your rating.</Text>
             <TextInput
               style={styles.cancelInput}
               placeholder="Reason for cancellation (optional)"
-              value={cancellationReason}
-              onChangeText={setCancellationReason}
+              placeholderTextColor="#94A3B8"
+              value={cancelReason}
+              onChangeText={setCancelReason}
             />
-            <View style={styles.modalButtonsRow}>
-              <TouchableOpacity style={styles.modalBtnKeep} onPress={() => setShowCancelModal(false)}>
-                <Text style={styles.modalBtnKeepText}>Keep Job</Text>
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity style={styles.keepBtn} onPress={() => setShowCancelModal(false)}>
+                <Text style={styles.keepBtnText}>Keep Job</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.modalBtnConfirm} onPress={handleCancelJob}>
-                <Text style={styles.modalBtnConfirmText}>Cancel Job</Text>
+              <TouchableOpacity style={styles.confirmCancelBtn} onPress={handleCancelJob}>
+                <Text style={styles.confirmCancelText}>Cancel Job</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
 
-      {/* OTP Verification Modal */}
+      {/* ── OTP MODAL ── */}
       <Modal visible={showOtpModal} transparent animationType="slide" onRequestClose={() => setShowOtpModal(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.otpModalContent}>
-            <View style={styles.otpModalHeader}>
-              <Ionicons name="shield-checkmark" size={24} color="#362A84" />
-              <Text style={styles.otpModalTitle}>Verify Arrival OTP</Text>
+          <View style={styles.modalCard}>
+            <View style={styles.otpHeader}>
+              <Ionicons name="shield-checkmark" size={22} color="#27AE60" />
+              <Text style={styles.otpTitle}>Verify Arrival OTP</Text>
             </View>
-            <Text style={styles.otpModalMessage}>
-              Ask the customer for the 4-digit verification code shown on their screen.
-            </Text>
-            {otpError ? <Text style={styles.otpErrorText}>{otpError}</Text> : null}
-            <View style={styles.otpInputRow}>
-              {otpVal.map((digit, index) => (
+            <Text style={styles.otpMsg}>Ask the customer for the 4-digit code shown on their screen.</Text>
+            {otpError ? <Text style={styles.otpError}>{otpError}</Text> : null}
+            <View style={styles.otpRow}>
+              {otpVal.map((d, i) => (
                 <TextInput
-                  key={index}
-                  ref={otpRefs[index]}
+                  key={i}
+                  ref={otpRefs[i]}
                   style={styles.otpBox}
                   keyboardType="number-pad"
                   maxLength={1}
-                  value={digit}
-                  onChangeText={(text) => updateOtpDigit(text, index)}
-                  onKeyPress={(e) => handleOtpKeyPress(e, index)}
+                  value={d}
+                  onChangeText={t => updateOtp(t, i)}
+                  onKeyPress={e => handleOtpKey(e, i)}
                   selectTextOnFocus
                 />
               ))}
@@ -688,297 +650,203 @@ const OnTheWayScreen = () => {
             <TouchableOpacity style={styles.resendBtn} onPress={handleResendOtp} disabled={otpLoading}>
               <Text style={styles.resendBtnText}>Resend OTP</Text>
             </TouchableOpacity>
-            <View style={styles.otpActionRow}>
+            <View style={styles.otpActions}>
               <TouchableOpacity style={styles.otpCancelBtn} onPress={() => setShowOtpModal(false)}>
-                <Text style={styles.otpCancelBtnText}>Cancel</Text>
+                <Text style={styles.otpCancelText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[
-                  styles.otpVerifyBtn,
-                  (otpLoading || otpVal.some(d => !d)) && { backgroundColor: '#A0D8B4' }
-                ]}
-                onPress={handleVerifyOtpSubmit}
+                style={[styles.otpVerifyBtn, (otpLoading || otpVal.some(d => !d)) && { opacity: 0.5 }]}
+                onPress={handleVerifyOtp}
                 disabled={otpLoading || otpVal.some(d => !d)}
               >
-                {otpLoading ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.otpVerifyBtnText}>Verify & Start Job</Text>
-                )}
+                {otpLoading ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.otpVerifyText}>Verify & Start Job</Text>}
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
-}
+};
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
+const GREEN = '#27AE60';
+const DARK_GREEN = '#1B6B3A';
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F4F5FB',
-  },
-  header: {
-    backgroundColor: '#362A84',
-    paddingTop: 46,
-    paddingHorizontal: 20,
-    paddingBottom: 16,
+  root: { flex: 1, backgroundColor: '#F5F7F5' },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F5F7F5' },
+  errorText: { color: '#EF4444', fontSize: 15, marginTop: 12 },
+
+  // Status Header
+  statusHeader: {
+    backgroundColor: DARK_GREEN,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-  },
-  backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  shieldBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerTitle: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  scrollContent: {
-    padding: 20,
-    paddingBottom: 40,
-  },
-  jobSummaryCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-    shadowColor: '#362A84',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  jobSummaryHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  jobSummaryTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#1E293B',
-    marginBottom: 4,
-  },
-  locationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  locationText: {
-    fontSize: 13,
-    color: '#64748B',
-  },
-  inProgressBadge: {
-    backgroundColor: '#EEF2FF',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 10,
-  },
-  inProgressBadgeText: {
-    color: '#4F46E5',
-    fontSize: 11,
-    fontWeight: 'bold',
-  },
-  mapCard: {
-    height: 220,
-    borderRadius: 16,
-    overflow: 'hidden',
-    marginBottom: 16,
-    position: 'relative',
-    backgroundColor: '#FFFFFF',
-  },
-  map: {
-    width: '100%',
-    height: '100%',
-  },
-  mapFallback: {
-    flex: 1,
-    backgroundColor: '#EEF2FF',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  mapFallbackText: {
-    color: '#64748B',
-    fontSize: 13,
-    marginTop: 6,
-  },
-  customerMarkerPin: {
-    backgroundColor: '#FFF',
-    borderRadius: 12,
-    padding: 4,
-  },
-  mechanicMarkerDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: '#4F46E5',
-    borderWidth: 2,
-    borderColor: '#FFF',
-  },
-  mapDistanceOverlay: {
-    position: 'absolute',
-    top: 14,
-    left: 14,
-    backgroundColor: '#FFFFFF',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  mapDistanceText: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#1E293B',
-  },
-  recenterBtn: {
-    position: 'absolute',
-    bottom: 14,
-    right: 14,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  sectionCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
-    shadowColor: '#362A84',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  cardSectionLabel: {
-    fontSize: 12,
-    color: '#94A3B8',
-    marginBottom: 4,
-  },
-  customerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  customerName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#1E293B',
-  },
-  actionIconRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  contactIconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#EEF2FF',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  vehicleText: {
-    fontSize: 14,
-    color: '#1E293B',
-    fontWeight: '500',
-  },
-  priceRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  basePriceSub: {
-    fontSize: 12,
-    color: '#64748B',
-  },
-  jobAmountText: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#059669',
-  },
-  bottomButtonsContainer: {
-    marginTop: 10,
-    alignItems: 'center',
-  },
-  markCompletedBtn: {
-    backgroundColor: '#362A84',
-    borderRadius: 14,
-    width: '100%',
+    paddingHorizontal: 18,
     paddingVertical: 14,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
+  },
+  statusHeaderLeft: { flexDirection: 'row', alignItems: 'center' },
+  scooterBadge: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: GREEN, justifyContent: 'center', alignItems: 'center', marginRight: 12,
+  },
+  statusHeaderTitle: { color: '#fff', fontSize: 17, fontWeight: '700' },
+  statusHeaderSub: { color: 'rgba(255,255,255,0.75)', fontSize: 12, marginTop: 1 },
+  etaBox: { alignItems: 'flex-end' },
+  etaBoxLabel: { color: 'rgba(255,255,255,0.7)', fontSize: 11, fontWeight: '600', textTransform: 'uppercase' },
+  etaBoxVal: { color: GREEN, fontSize: 22, fontWeight: '800' },
+
+  // Tracker
+  trackerCard: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+  trackerWrapper: { width: '100%' },
+  trackerInner: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
+  trackerStep: { alignItems: 'center', width: 60 },
+  trackerCircle: {
+    width: 32, height: 32, borderRadius: 16,
+    justifyContent: 'center', alignItems: 'center', marginBottom: 6,
+  },
+  trackerLabel: { fontSize: 11, color: '#94A3B8', textAlign: 'center', fontWeight: '500' },
+  trackerLabelActive: { color: GREEN, fontWeight: '700' },
+  trackerLine: { flex: 1, height: 2, marginTop: 15, borderStyle: 'dashed', borderWidth: 1 },
+  trackerLineDone: { borderColor: GREEN },
+  trackerLinePending: { borderColor: '#D1D5DB' },
+
+  scroll: { flex: 1 },
+  scrollContent: { padding: 14, paddingBottom: 40 },
+
+  // Cards
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 16,
     marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
   },
-  markCompletedText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: 'bold',
+  cardTitleRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  cardTitle: { fontSize: 14, fontWeight: '700', color: '#0F172A', marginLeft: 6 },
+
+  // Customer
+  customerRow: { flexDirection: 'row', alignItems: 'center' },
+  avatarCircle: {
+    width: 52, height: 52, borderRadius: 26,
+    backgroundColor: '#64748B', justifyContent: 'center', alignItems: 'center', marginRight: 12,
   },
-  needHelpBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
+  customerMeta: { flex: 1 },
+  customerName: { fontSize: 17, fontWeight: '700', color: '#0F172A' },
+  noDataText: { fontSize: 13, color: '#94A3B8', fontStyle: 'italic' },
+  actionBtn: {
+    flexDirection: 'row', alignItems: 'center',
+    borderWidth: 1.5, borderColor: GREEN, borderRadius: 8,
+    paddingHorizontal: 12, paddingVertical: 7,
   },
-  needHelpText: {
-    color: '#EF4444',
-    fontSize: 14,
-    fontWeight: '600',
+  actionBtnLabel: { color: GREEN, fontSize: 13, fontWeight: '600', marginLeft: 5 },
+
+  // Service Details
+  detailsGrid: { flexDirection: 'row', alignItems: 'flex-start' },
+  detailCol: { flex: 1 },
+  detailDivider: { width: 1, height: 40, backgroundColor: '#E2E8F0', marginHorizontal: 12, alignSelf: 'center' },
+  detailLabel: { fontSize: 11, color: '#94A3B8', marginBottom: 4 },
+  detailValue: { fontSize: 13, fontWeight: '600', color: '#1E293B' },
+
+  // Address & Distance
+  addressText: { fontSize: 13, color: '#475569', marginBottom: 12, lineHeight: 19 },
+  distEtaRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8FAFC', borderRadius: 10, padding: 12, marginBottom: 12 },
+  distEtaItem: { flex: 1, flexDirection: 'row', alignItems: 'center' },
+  distEtaDivider: { width: 1, height: 28, backgroundColor: '#E2E8F0', marginHorizontal: 12 },
+  distEtaLabel: { fontSize: 11, color: '#94A3B8' },
+  distEtaVal: { fontSize: 15, fontWeight: '700', color: '#0F172A' },
+
+  // Map
+  mapWrapper: { height: 180, borderRadius: 12, overflow: 'hidden' },
+  map: { width: '100%', height: '100%' },
+  mapFallback: { flex: 1, backgroundColor: '#EEF2FF', justifyContent: 'center', alignItems: 'center' },
+  mapFallbackText: { color: '#94A3B8', fontSize: 12, marginTop: 8, textAlign: 'center', paddingHorizontal: 20 },
+  myMarker: { width: 14, height: 14, borderRadius: 7, backgroundColor: '#2563EB', borderWidth: 2, borderColor: '#fff' },
+  custMarker: { backgroundColor: '#fff', borderRadius: 12, padding: 2 },
+
+  // Action Row
+  actionRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 },
+  navBtn: {
+    flex: 2, backgroundColor: GREEN, borderRadius: 10,
+    paddingVertical: 11, flexDirection: 'row', justifyContent: 'center', alignItems: 'center',
   },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  errorText: { color: '#EF4444', fontSize: 16 },
+  navBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  callBtn: {
+    flex: 1.2, borderWidth: 1.5, borderColor: GREEN, borderRadius: 10,
+    paddingVertical: 11, flexDirection: 'row', justifyContent: 'center', alignItems: 'center',
+    backgroundColor: '#fff',
+  },
+  callBtnText: { color: GREEN, fontWeight: '700', fontSize: 12 },
+  chatBtn: {
+    flex: 1, borderWidth: 1.5, borderColor: GREEN, borderRadius: 10,
+    paddingVertical: 11, flexDirection: 'row', justifyContent: 'center', alignItems: 'center',
+    backgroundColor: '#fff',
+  },
+  chatBtnText: { color: GREEN, fontWeight: '700', fontSize: 12 },
+
+  // Safety
+  safetyCard: {
+    flexDirection: 'row', alignItems: 'flex-start',
+    backgroundColor: '#FFFBEB', borderRadius: 12, padding: 14, marginBottom: 14,
+    borderLeftWidth: 3, borderLeftColor: '#F59E0B',
+  },
+  safetyTitle: { fontSize: 13, fontWeight: '700', color: '#92400E', marginBottom: 2 },
+  safetyText: { fontSize: 12, color: '#92400E', lineHeight: 17 },
+
+  // Arrived / Cancel
+  arrivedBtn: {
+    backgroundColor: GREEN, borderRadius: 12, paddingVertical: 16,
+    alignItems: 'center', marginBottom: 10,
+  },
+  arrivedBtnText: { color: '#fff', fontSize: 16, fontWeight: '800', letterSpacing: 0.3 },
+  cancelJobBtn: {
+    borderWidth: 1.5, borderColor: '#FECACA', borderRadius: 12,
+    paddingVertical: 14, alignItems: 'center', flexDirection: 'row',
+    justifyContent: 'center', backgroundColor: '#fff', marginBottom: 4,
+  },
+  cancelJobBtnText: { color: '#EF4444', fontWeight: '700', fontSize: 14 },
+
+  // Modals
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  modalContent: { backgroundColor: '#FFF', width: '85%', borderRadius: 16, padding: 20 },
-  modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#1E293B', marginBottom: 8 },
-  modalMessage: { fontSize: 13, color: '#64748B', marginBottom: 16 },
-  cancelInput: { borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 8, padding: 10, marginBottom: 16 },
-  modalButtonsRow: { flexDirection: 'row', justifyContent: 'flex-end' },
-  modalBtnKeep: { paddingVertical: 8, paddingHorizontal: 16, marginRight: 8 },
-  modalBtnKeepText: { color: '#64748B', fontWeight: 'bold' },
-  modalBtnConfirm: { backgroundColor: '#EF4444', borderRadius: 8, paddingVertical: 8, paddingHorizontal: 16 },
-  modalBtnConfirmText: { color: '#FFF', fontWeight: 'bold' },
-  otpModalContent: { backgroundColor: '#FFF', width: '85%', borderRadius: 16, padding: 20 },
-  otpModalHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  otpModalTitle: { fontSize: 18, fontWeight: 'bold', color: '#1E293B', marginLeft: 8 },
-  otpModalMessage: { fontSize: 13, color: '#64748B', marginBottom: 16 },
-  otpErrorText: { color: '#EF4444', fontSize: 12, marginBottom: 8 },
-  otpInputRow: { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 16 },
-  otpBox: { width: 44, height: 48, borderWidth: 1, borderColor: '#362A84', borderRadius: 8, textAlign: 'center', fontSize: 20, fontWeight: 'bold' },
+  modalCard: { backgroundColor: '#fff', width: '88%', borderRadius: 16, padding: 22 },
+  modalTitle: { fontSize: 17, fontWeight: '700', color: '#0F172A', marginBottom: 8 },
+  modalMsg: { fontSize: 13, color: '#64748B', marginBottom: 14 },
+  cancelInput: { borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 8, padding: 10, marginBottom: 16, fontSize: 13, color: '#1E293B' },
+  modalBtnRow: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
+  keepBtn: { paddingVertical: 9, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: '#E2E8F0' },
+  keepBtnText: { color: '#64748B', fontWeight: '600' },
+  confirmCancelBtn: { backgroundColor: '#EF4444', borderRadius: 8, paddingVertical: 9, paddingHorizontal: 16 },
+  confirmCancelText: { color: '#fff', fontWeight: '700' },
+
+  // OTP
+  otpHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  otpTitle: { fontSize: 17, fontWeight: '700', color: '#0F172A', marginLeft: 8 },
+  otpMsg: { fontSize: 13, color: '#64748B', marginBottom: 16 },
+  otpError: { color: '#EF4444', fontSize: 12, marginBottom: 10 },
+  otpRow: { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 16 },
+  otpBox: {
+    width: 52, height: 56, borderWidth: 1.5, borderColor: GREEN,
+    borderRadius: 10, textAlign: 'center', fontSize: 22, fontWeight: '700', color: '#0F172A',
+  },
   resendBtn: { alignSelf: 'center', marginBottom: 16 },
-  resendBtnText: { color: '#4F46E5', fontSize: 12, fontWeight: '600' },
-  otpActionRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  otpCancelBtn: { flex: 1, paddingVertical: 10, alignItems: 'center' },
-  otpCancelBtnText: { color: '#64748B', fontWeight: 'bold' },
-  otpVerifyBtn: { flex: 1.5, backgroundColor: '#362A84', borderRadius: 8, paddingVertical: 10, alignItems: 'center' },
-  otpVerifyBtnText: { color: '#FFF', fontWeight: 'bold' },
+  resendBtnText: { color: GREEN, fontSize: 13, fontWeight: '600' },
+  otpActions: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
+  otpCancelBtn: { flex: 1, paddingVertical: 11, alignItems: 'center', borderRadius: 8, borderWidth: 1, borderColor: '#E2E8F0' },
+  otpCancelText: { color: '#64748B', fontWeight: '600' },
+  otpVerifyBtn: { flex: 2, backgroundColor: GREEN, borderRadius: 8, paddingVertical: 11, alignItems: 'center' },
+  otpVerifyText: { color: '#fff', fontWeight: '700', fontSize: 14 },
 });
 
 export default OnTheWayScreen;

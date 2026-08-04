@@ -315,6 +315,75 @@ const RegisterScreen = ({ navigation }) => {
       if (data.success) {
         const token = data.token;
         
+        // Upload local document files to backend server storage to get publicly accessible HTTP URLs.
+        // IMPORTANT: Local file:// URIs must NEVER be saved to the database — they are inaccessible
+        // outside the device and will break document verification in the admin dashboard.
+        const uploadDocToServer = async (fileUri, docType) => {
+          if (!fileUri) {
+            throw new Error(`Missing document file for: ${docType}`);
+          }
+          // Already a server URL — no re-upload needed (shouldn't happen on first registration)
+          if (fileUri.startsWith('http://') || fileUri.startsWith('https://')) {
+            return fileUri;
+          }
+          // fileUri is a local device path — attempt server upload
+          const formData = new FormData();
+          const fileName = fileUri.split('/').pop() || 'document.jpg';
+          const match = /\.(\w+)$/.exec(fileName);
+          const mimeType = match ? `image/${match[1] === 'jpg' ? 'jpeg' : match[1]}` : 'image/jpeg';
+
+          // @ts-ignore — React Native FormData accepts object with uri/name/type
+          formData.append('document', {
+            uri: fileUri,
+            name: fileName,
+            type: mimeType
+          });
+          formData.append('docType', docType);
+
+          let uploadRes;
+          try {
+            const res = await fetch(`${API_URL}/api/mechanic/kyc/upload`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`
+              },
+              body: formData
+            });
+            uploadRes = await res.json();
+          } catch (networkErr) {
+            console.error(`[KYC Upload] Network error for ${docType}:`, networkErr);
+            throw new Error(`Network error while uploading ${docType}. Please check your connection and try again.`);
+          }
+
+          if (uploadRes.success && uploadRes.kyc?.docUrl) {
+            const savedUrl = uploadRes.kyc.docUrl;
+            // Safety check: server must return an HTTP URL, never a local path
+            if (!savedUrl.startsWith('http://') && !savedUrl.startsWith('https://')) {
+              throw new Error(`Server returned an invalid document URL for ${docType}. Please contact support.`);
+            }
+            console.log(`[KYC Upload] ${docType} uploaded successfully: ${savedUrl}`);
+            return savedUrl;
+          }
+
+          // Server rejected the document (e.g. failed classification, invalid format)
+          const errMsg = uploadRes.message || uploadRes.error || `Failed to upload ${docType} to server.`;
+          console.error(`[KYC Upload] Server rejected ${docType}:`, errMsg);
+          throw new Error(errMsg);
+        };
+
+        let uploadedIdProof, uploadedLicense, uploadedShopPhoto;
+        try {
+          uploadedIdProof = await uploadDocToServer(docs.idProof, 'Aadhaar Card');
+          uploadedLicense = await uploadDocToServer(docs.drivingLicense, 'Driving License');
+          uploadedShopPhoto = await uploadDocToServer(docs.shopPhoto, 'Shop Photo');
+        } catch (uploadErr) {
+          setLoading(false);
+          setError(
+            `Document upload failed: ${uploadErr.message}\n\nPlease ensure you have a stable internet connection and that your photos are clear, well-lit images of your documents.`
+          );
+          return;
+        }
+
         // 2. Update Profile with Shop Details, Name, Email, Specialization, Docs
         const profileUpdateResponse = await fetch(`${API_URL}/api/mechanic/profile`, {
           method: 'PUT',
@@ -330,9 +399,9 @@ const RegisterScreen = ({ navigation }) => {
             city: city,
             vehicleSpecializations: [specialization],
             documents: {
-              identityProof: docs.idProof,
-              licenseImage: docs.drivingLicense,
-              certificationImages: [docs.shopPhoto]
+              identityProof: uploadedIdProof,
+              licenseImage: uploadedLicense,
+              certificationImages: [uploadedShopPhoto]
             }
           }),
         });

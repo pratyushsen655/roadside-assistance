@@ -23,8 +23,12 @@ import PerformanceScreen from '../screens/PerformanceScreen';
 import RegisterScreen from '../screens/RegisterScreen';
 import LanguageSelectionScreen from '../screens/LanguageSelectionScreen';
 import IncomingRequestScreen from '../screens/IncomingRequestScreen';
+import BankDetailsScreen from '../screens/BankDetailsScreen';
+import NotificationHistoryScreen from '../screens/NotificationHistoryScreen';
+import SettingsScreen from '../screens/SettingsScreen';
 import { useLanguage } from '../context/LanguageContext';
 import { getSocket, joinMechanicRoom } from '../config/socket';
+import { playIncomingRequestSound, stopIncomingRequestSound } from '../services/soundService';
 
 const { RingingModule } = NativeModules;
 
@@ -131,6 +135,7 @@ const AppNavigator = ({ navigationRef }) => {
     let handleRequestCancelledOrTimeout;
     try {
       const mechId = mechanic?._id || mechanic?.id || mechanic?.mechanicId;
+      console.log('[MECHANIC ID SOURCE]', mechId, typeof mechId, '| Full mechanic object:', JSON.stringify(mechanic));
       socket = getSocket(mechanicToken, mechId);
       if (mechId) {
         joinMechanicRoom(mechId);
@@ -142,6 +147,9 @@ const AppNavigator = ({ navigationRef }) => {
           console.log(`[TRACE App-Level Event Fired] Incoming request received! Storing in global state. Payload:`, JSON.stringify(data));
           
           try {
+            // Trigger request alert sound playback (respecting sound toggle)
+            playIncomingRequestSound();
+
             // 1. Push to global store so HomeScreen & all components update immediately
             addPendingRequest(data);
 
@@ -163,6 +171,7 @@ const AppNavigator = ({ navigationRef }) => {
 
         handleRequestCancelledOrTimeout = (data) => {
           console.log(`[TRACE Request Cancelled/Timeout] Removing request from global state:`, data);
+          stopIncomingRequestSound();
           const reqId = data?.requestId || data?._id;
           if (reqId) {
             removePendingRequest(reqId);
@@ -181,13 +190,14 @@ const AppNavigator = ({ navigationRef }) => {
       console.log('[TRACE App-Level Listener ERROR] Failed to hook socket listener:', err.message);
     }
 
-    // 2. Setup Native Module Event Listener
+    // 2. Setup Native Module Event Listener (only if native module exposes full event emitter interface)
     let subscription;
-    if (Platform.OS === 'android' && RingingModule) {
+    if (Platform.OS === 'android' && RingingModule && typeof RingingModule.addListener === 'function' && typeof RingingModule.removeListeners === 'function') {
       try {
         const eventEmitter = new NativeEventEmitter(RingingModule);
         subscription = eventEmitter.addListener('onIncomingRequest', (data) => {
           console.log('[TRACE Native Event Fired] Incoming request received:', data);
+          playIncomingRequestSound();
           addPendingRequest(data);
           if (navigationRef.current?.isReady()) {
             navigationRef.current?.navigate('IncomingRequest', { requestData: data });
@@ -239,7 +249,7 @@ const AppNavigator = ({ navigationRef }) => {
       ref={navigationRef}
       onReady={() => {
         console.log('[NavigationContainer] Navigation is ready');
-        if (Platform.OS === 'android' && RingingModule && mechanicToken) {
+        if (Platform.OS === 'android' && RingingModule && typeof RingingModule.getInitialRingingData === 'function' && mechanicToken) {
           RingingModule.getInitialRingingData().then((data) => {
             if (data) {
               console.log('[NavigationContainer] Cold start ringing data detected:', data);
@@ -261,6 +271,9 @@ const AppNavigator = ({ navigationRef }) => {
           <MainStack.Screen name="Reviews" component={ReviewsScreen} />
           <MainStack.Screen name="Performance" component={PerformanceScreen} />
           <MainStack.Screen name="IncomingRequest" component={IncomingRequestScreen} />
+          <MainStack.Screen name="BankDetails" component={BankDetailsScreen} />
+          <MainStack.Screen name="NotificationHistory" component={NotificationHistoryScreen} />
+          <MainStack.Screen name="Settings" component={SettingsScreen} />
         </MainStack.Navigator>
       ) : (
         <AuthStack />

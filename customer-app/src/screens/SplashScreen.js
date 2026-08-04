@@ -108,7 +108,7 @@ export default function AppSplashScreen({ onFinish, navigation }) {
 
       {/* App Name */}
       <Animated.Text style={[styles.appName, { opacity: textOpacity }]}>
-        RoadMitra
+        RideRescue
       </Animated.Text>
 
       {/* Tagline */}

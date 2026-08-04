@@ -1,8 +1,9 @@
 /* eslint-disable no-console */
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, ScrollView, Switch, Alert, Dimensions
+  View, Text, StyleSheet, TouchableOpacity, ScrollView, Switch, Alert, Dimensions, Linking
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Animated, { FadeInUp, FadeInDown } from 'react-native-reanimated';
 import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
@@ -10,6 +11,7 @@ import Skeleton from '../components/Skeleton';
 import { theme } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from 'react-i18next';
+import { useTheme } from '../context/ThemeContext';
 import GlobalBottomNav from '../components/GlobalBottomNav';
 
 const { width } = Dimensions.get('window');
@@ -17,8 +19,11 @@ const { width } = Dimensions.get('window');
 export default function AccountScreen({ navigation }) {
   const { t } = useTranslation();
   const { logout } = useAuth();
+  const { theme, themePreference, setThemePreference, isDark } = useTheme();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const insets = useSafeAreaInsets();
+  const topInset = Math.max(insets.top, 24);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
 
   useEffect(() => {
@@ -47,18 +52,11 @@ export default function AccountScreen({ navigation }) {
       if (data.success && data.user) {
         setUser(data.user);
       } else {
-        // Mock fallback for guest/dev environments
-        setUser({
-          name: t('account.guestCustomer', 'Guest Customer'),
-          phone: '9876543210'
-        });
+        setUser(null);
       }
     } catch (error) {
       console.log('Error loading user profile:', error);
-      setUser({
-        name: t('account.guestCustomer', 'Guest Customer'),
-        phone: '9876543210'
-      });
+      setUser(null);
     } finally {
       setTimeout(() => {
         setLoading(false);
@@ -152,7 +150,7 @@ export default function AccountScreen({ navigation }) {
   return (
     <View style={styles.container}>
       {/* Scrollable Content */}
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.scrollContent, { paddingTop: topInset + 10 }]}>
         {/* Header Section */}
         <Animated.View entering={FadeInUp.delay(100).duration(400)} style={styles.header}>
           <Text style={styles.greetingText}>
@@ -194,7 +192,12 @@ export default function AccountScreen({ navigation }) {
             onPress={() => {
               Alert.alert(
                 t('account.helpSupport', 'Help & Support'),
-                t('account.helpSupportAlert', 'Need assistance? Call us 24/7 at +1-800-555-0199 or email support@roadsideassistance.com.')
+                'Need assistance?\n📞 Helpline: +91 9140906912\n✉️ Email: riderescue@gmail.com',
+                [
+                  { text: t('common.cancel', 'Cancel'), style: 'cancel' },
+                  { text: 'Send Email', onPress: () => Linking.openURL('mailto:riderescue@gmail.com') },
+                  { text: 'Call Support', onPress: () => Linking.openURL('tel:9140906912') }
+                ]
               );
             }}
           >
@@ -292,6 +295,49 @@ export default function AccountScreen({ navigation }) {
             </View>
             <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
           </TouchableOpacity>
+
+          {/* App Theme Selector */}
+          <View style={[styles.settingsItem, { marginTop: 10, flexDirection: 'column', alignItems: 'flex-start' }]}>
+            <View style={[styles.settingsLeft, { marginBottom: 10 }]}>
+              <View style={styles.menuIconCircle}>
+                <Ionicons name="color-palette-outline" size={20} color="#374151" />
+              </View>
+              <Text style={styles.settingsLabel}>{t('account.appTheme', 'App Theme')}</Text>
+            </View>
+            <View style={{ flexDirection: 'row', width: '100%', gap: 8 }}>
+              {[
+                { value: 'light', label: 'Light', icon: 'sunny-outline' },
+                { value: 'dark', label: 'Dark', icon: 'moon-outline' },
+                { value: 'system', label: 'System', icon: 'phone-portrait-outline' },
+              ].map((opt) => {
+                const selected = themePreference === opt.value;
+                return (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={{
+                      flex: 1,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      paddingVertical: 10,
+                      borderRadius: 10,
+                      borderWidth: 1.5,
+                      borderColor: selected ? '#E8192C' : '#E5E7EB',
+                      backgroundColor: selected ? (isDark ? '#371B26' : '#FEE2E2') : (isDark ? '#27354A' : '#F9FAFB'),
+                      gap: 4
+                    }}
+                    onPress={() => setThemePreference(opt.value)}
+                    activeOpacity={0.75}
+                  >
+                    <Ionicons name={opt.icon} size={16} color={selected ? '#E8192C' : '#6B7280'} />
+                    <Text style={{ fontSize: 12, fontWeight: selected ? '700' : '500', color: selected ? '#E8192C' : (isDark ? '#FFFFFF' : '#374151') }}>
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
         </Animated.View>
 
         {/* Log Out Option */}

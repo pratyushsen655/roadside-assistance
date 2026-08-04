@@ -197,9 +197,9 @@ export default function RateJobScreen({ route, navigation }) {
 
       <Animated.View entering={FadeInDown.delay(400).duration(400)} style={styles.footer}>
         <TouchableOpacity
-          style={styles.submitBtn}
+          style={[styles.submitBtn, (rating === 0 || submitting) && styles.disabledBtn]}
           onPress={handleSubmit}
-          disabled={submitting}
+          disabled={rating === 0 || submitting}
         >
           {submitting ? (
             <ActivityIndicator color="#fff" />
@@ -329,6 +329,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 15,
     elevation: 3,
+  },
+  disabledBtn: {
+    backgroundColor: '#CCCCCC',
+    elevation: 0,
   },
   submitBtnText: {
     color: '#fff',

@@ -43,6 +43,9 @@ router.post('/', authMiddleware, async (req, res) => {
       tags: tags || []
     });
 
+    job.isRated = true;
+    await job.save();
+
     // Recalculate mechanic stats
     const ratings = await Rating.find({ mechanicId });
     const avg = ratings.reduce((sum, r) => sum + r.rating, 0) / ratings.length;

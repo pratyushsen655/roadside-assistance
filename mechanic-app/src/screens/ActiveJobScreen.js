@@ -123,16 +123,36 @@ export default function ActiveJobScreen({ route, navigation }) {
 
   const socket = getSocket(mechanicToken);
 
-  const customerCoords = {
-    latitude:
-      Array.isArray(customerLocation?.coordinates) && customerLocation.coordinates.length >= 2
-        ? customerLocation.coordinates[1]
-        : 28.6139,
-    longitude:
-      Array.isArray(customerLocation?.coordinates) && customerLocation.coordinates.length >= 2
-        ? customerLocation.coordinates[0]
-        : 77.2090
-  };
+  const [jobDetail, setJobDetail] = useState(null);
+
+  const customerCoords = (() => {
+    try {
+      const loc = customerLocation || route.params?.customerLocation || jobDetail?.customerLocation;
+      if (!loc) return null;
+      if (Array.isArray(loc.coordinates) && loc.coordinates.length >= 2) {
+        const [lng, lat] = loc.coordinates;
+        if (typeof lat === 'number' && !isNaN(lat) && typeof lng === 'number' && !isNaN(lng) && (lat !== 0 || lng !== 0)) {
+          return { latitude: lat, longitude: lng };
+        }
+      }
+      const lat = loc.latitude ?? loc.lat;
+      const lng = loc.longitude ?? loc.lng;
+      if (typeof lat === 'number' && !isNaN(lat) && typeof lng === 'number' && !isNaN(lng) && (lat !== 0 || lng !== 0)) {
+        return { latitude: lat, longitude: lng };
+      }
+    } catch (err) {}
+    return null;
+  })();
+
+  const resolvedCustomerName = customerName || (typeof jobDetail?.customer === 'object' ? jobDetail.customer?.name : null) || jobDetail?.customerName || 'Customer';
+  const resolvedPrice = jobDetail?.accepted_price || jobDetail?.current_price || jobDetail?.totalPrice || jobDetail?.amount || jobDetail?.pricing?.totalAmount || 350;
+
+  console.log('[DIAG Mechanic ActiveJobScreen]', JSON.stringify({
+    jobId,
+    customerName: resolvedCustomerName,
+    price: resolvedPrice,
+    customerLocation: customerCoords
+  }));
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
@@ -153,6 +173,7 @@ export default function ActiveJobScreen({ route, navigation }) {
         const data = await res.json();
         if (data.success && data.request) {
           if (isMounted.current) {
+            setJobDetail(data.request);
             const statusMap = {
               accepted: 'accepted',
               on_the_way: 'en_route',
@@ -161,6 +182,11 @@ export default function ActiveJobScreen({ route, navigation }) {
               completed: 'completed'
             };
             setJobStatus(statusMap[data.request.status] || 'accepted');
+            const reqPrice = data.request.accepted_price || data.request.current_price || data.request.totalPrice || data.request.amount || data.request.pricing?.totalAmount;
+            if (reqPrice) {
+              setFinalAmount(reqPrice);
+              setEarnings(Math.round(reqPrice * 0.8));
+            }
           }
         }
       } catch (err) {
@@ -322,6 +348,55 @@ export default function ActiveJobScreen({ route, navigation }) {
     };
   }, []);
 
+  const [qrCodeUrl, setQrCodeUrl] = useState(null);
+  const [qrLoading, setQrLoading] = useState(false);
+
+  const fetchPaymentQrCode = async (targetJobId) => {
+    console.log('[QR] Requesting QR generation for job:', targetJobId);
+    if (!targetJobId || !mechanicToken) return;
+
+    if (isMounted.current) {
+      setQrLoading(true);
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/api/payments/create-qr-order`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${mechanicToken}`
+        },
+        body: JSON.stringify({ requestId: targetJobId })
+      });
+
+      const resText = await response.text();
+      console.log(`[QR] Response HTTP ${response.status}:`, resText);
+
+      let data;
+      try {
+        data = JSON.parse(resText);
+      } catch (jsonErr) {
+        throw new Error(`Invalid JSON response: ${resText.slice(0, 100)}`);
+      }
+
+      if (data.success && data.qrUrl) {
+        if (isMounted.current) {
+          setQrCodeUrl(data.qrUrl);
+        }
+      } else {
+        console.warn('[QR] Backend response did not contain qrUrl:', data);
+        Alert.alert('Payment Link Notice', data.message || 'QR Code link could not be generated.');
+      }
+    } catch (qrErr) {
+      console.error('[QR ERROR] Failed to generate payment QR code:', qrErr);
+      Alert.alert('QR Error', 'Failed to generate QR payment link. You can use simulation in test mode.');
+    } finally {
+      if (isMounted.current) {
+        setQrLoading(false);
+      }
+    }
+  };
+
   const updateStatus = async (newStatus) => {
     if (isMounted.current) {
       setLoading(true);
@@ -353,10 +428,12 @@ export default function ActiveJobScreen({ route, navigation }) {
 
         if (newStatus === 'completed') {
           if (isMounted.current) {
-            setEarnings(data.earningsEarned || 350);
-            setFinalAmount(data.earningsEarned || 350);
+            const reqAmt = data.earningsEarned || 350;
+            setEarnings(reqAmt);
+            setFinalAmount(reqAmt);
             setPaymentPaid(false);
             setShowCompleteModal(true);
+            fetchPaymentQrCode(jobId);
             startPaymentPolling();
           }
         }
@@ -473,7 +550,7 @@ export default function ActiveJobScreen({ route, navigation }) {
       <View style={styles.topCard}>
         <View style={styles.customerHeader}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.customerName}>{customerName || 'Customer'}</Text>
+            <Text style={styles.customerName}>{resolvedCustomerName}</Text>
             <Text style={styles.issueText}>🔧 {issue || 'Roadside Assistance'}</Text>
           </View>
           <View style={styles.actionsRow}>
@@ -488,7 +565,7 @@ export default function ActiveJobScreen({ route, navigation }) {
               style={styles.chatBtn}
               onPress={() => {
                 setUnreadCount(0);
-                navigation.navigate('Chat', { jobId, receiverName: customerName });
+                navigation.navigate('Chat', { jobId, receiverName: resolvedCustomerName });
               }}
             >
               <Text style={{ fontSize: 20 }}>💬</Text>
@@ -528,17 +605,35 @@ export default function ActiveJobScreen({ route, navigation }) {
           <View style={styles.modalContent}>
             {!paymentPaid ? (
               <View style={{ alignItems: 'center', width: '100%' }}>
-                <Text style={styles.modalTitle}>Waiting for Payment</Text>
-                <Text style={[styles.earningsValue, { marginBottom: 20 }]}>₹{finalAmount}</Text>
+                <Text style={styles.modalTitle}>Scan & Pay</Text>
+                <Text style={[styles.earningsValue, { marginBottom: 12 }]}>₹{finalAmount}</Text>
                 
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, marginBottom: 20 }}>
+                {qrLoading ? (
+                  <View style={{ height: 180, justifyContent: 'center', alignItems: 'center' }}>
+                    <ActivityIndicator size="large" color="#00BFA5" />
+                    <Text style={{ color: '#aaaaaa', marginTop: 10, fontSize: 13 }}>Generating Payment QR Code...</Text>
+                  </View>
+                ) : qrCodeUrl ? (
+                  <View style={{ alignItems: 'center', marginVertical: 12, backgroundColor: '#FFFFFF', padding: 14, borderRadius: 16, width: '100%' }}>
+                    <Image
+                      source={{ uri: `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrCodeUrl)}` }}
+                      style={{ width: 170, height: 170, borderRadius: 8 }}
+                      resizeMode="contain"
+                    />
+                    <Text style={{ color: '#1E293B', fontSize: 12, marginTop: 8, fontWeight: 'bold', textAlign: 'center' }}>
+                      Scan with PhonePe, Paytm, Google Pay, or UPI
+                    </Text>
+                  </View>
+                ) : null}
+
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, marginBottom: 16 }}>
                   <ActivityIndicator size="small" color="#00BFA5" style={{ marginRight: 8 }} />
-                  <Text style={{ color: '#aaaaaa', fontSize: 14 }}>Waiting for customer payment...</Text>
+                  <Text style={{ color: '#aaaaaa', fontSize: 13 }}>Waiting for customer payment...</Text>
                 </View>
 
                 {(__DEV__ || (typeof API_URL === 'string' && API_URL.includes('localhost'))) && (
                   <TouchableOpacity
-                    style={[styles.modalBtn, { marginTop: 20, backgroundColor: '#E67E22' }]}
+                    style={[styles.modalBtn, { marginTop: 10, backgroundColor: '#E67E22' }]}
                     onPress={simulatePaymentSuccess}
                   >
                     <Text style={styles.modalBtnText}>⚡ Simulate Payment Success</Text>

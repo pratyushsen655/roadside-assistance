@@ -1,7 +1,7 @@
 /* eslint-disable no-console */
 import React from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Alert, Dimensions
+  View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Alert, Dimensions, Linking
 } from 'react-native';
 import Animated, { FadeInUp, FadeInDown } from 'react-native-reanimated';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -68,6 +68,39 @@ export default function HelpScreen({ navigation }) {
             activeOpacity={0.9}
           >
             <Text style={styles.browseBtnText}>{t('help.browseServices', 'BROWSE SERVICES')}</Text>
+          </TouchableOpacity>
+        </Animated.View>
+
+        {/* 24/7 Support Helpline & Email Card */}
+        <Animated.View entering={FadeInDown.delay(320).duration(500)}>
+          <TouchableOpacity
+            style={styles.supportCard}
+            onPress={() => {
+              Alert.alert(
+                'Customer Support',
+                '📞 Helpline: +91 9140906912\n✉️ Email: riderescue@gmail.com',
+                [
+                  { text: 'Close', style: 'cancel' },
+                  { text: 'Send Email', onPress: () => Linking.openURL('mailto:riderescue@gmail.com') },
+                  { text: 'Call Now', onPress: () => Linking.openURL('tel:9140906912') }
+                ]
+              );
+            }}
+            activeOpacity={0.85}
+          >
+            <View style={styles.supportCardLeft}>
+              <View style={styles.phoneIconCircle}>
+                <Ionicons name="headset" size={20} color="#FFFFFF" />
+              </View>
+              <View>
+                <Text style={styles.supportTitle}>24/7 Help & Support</Text>
+                <Text style={styles.supportPhone}>+91 9140906912</Text>
+                <Text style={styles.supportEmail}>riderescue@gmail.com</Text>
+              </View>
+            </View>
+            <View style={styles.callNowBtn}>
+              <Text style={styles.callNowText}>Contact Us</Text>
+            </View>
           </TouchableOpacity>
         </Animated.View>
 
@@ -194,6 +227,63 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
     letterSpacing: 0.5,
+  },
+  supportCard: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: theme.colors.white,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.card.borderRadius,
+    padding: 16,
+    marginBottom: 16,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+  },
+  supportCardLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  phoneIconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: theme.colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  supportTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: theme.colors.textPrimary,
+  },
+  supportPhone: {
+    fontSize: 13,
+    color: '#6B7280',
+    marginTop: 2,
+    fontWeight: '600',
+  },
+  supportEmail: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 1,
+    fontWeight: '500',
+  },
+  callNowBtn: {
+    backgroundColor: '#FEE2E2',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  callNowText: {
+    color: theme.colors.primary,
+    fontSize: 12,
+    fontWeight: 'bold',
   },
   faqCard: {
     flexDirection: 'row',

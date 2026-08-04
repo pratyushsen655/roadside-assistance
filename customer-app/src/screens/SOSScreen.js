@@ -14,8 +14,8 @@ const { height, width } = Dimensions.get('window');
 
 export default function SOSScreen({ navigation }) {
   const { t } = useTranslation();
-  const [latitude, setLatitude] = useState(28.6139);
-  const [longitude, setLongitude] = useState(77.2090);
+  const [latitude, setLatitude] = useState(null);
+  const [longitude, setLongitude] = useState(null);
   const [address, setAddress] = useState('Fetching your location...');
   const [loading, setLoading] = useState(false);
   const mapRef = useRef(null);
@@ -24,13 +24,13 @@ export default function SOSScreen({ navigation }) {
   const resolveAndApplyLocation = async (loc) => {
     if (!loc || !loc.coords) return;
     const { latitude: lat, longitude: lng } = loc.coords;
-    setLatitude(lat || 28.6139);
-    setLongitude(lng || 77.2090);
+    setLatitude(lat);
+    setLongitude(lng);
 
     if (mapRef.current) {
       mapRef.current.animateToRegion({
-        latitude: lat || 28.6139,
-        longitude: lng || 77.2090,
+        latitude: lat,
+        longitude: lng,
         latitudeDelta: 0.005,
         longitudeDelta: 0.005,
       }, 1000);
@@ -43,9 +43,9 @@ export default function SOSScreen({ navigation }) {
     if (geo && geo.length > 0) {
       const place = geo[0];
       const displayAddress = `${place.name || place.street || ''}, ${place.city || place.district || ''}`;
-      setAddress(displayAddress.trim() || 'HSR Layout, Bengaluru');
+      setAddress(displayAddress.trim() || `Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`);
     } else {
-      setAddress('HSR Layout, Bengaluru');
+      setAddress(`Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`);
     }
   };
 
@@ -100,15 +100,17 @@ export default function SOSScreen({ navigation }) {
       const lastKnown = await Location.getLastKnownPositionAsync({ maxAge: 60000 }).catch(() => null);
       if (lastKnown && lastKnown.coords) {
         const { latitude: lat, longitude: lng } = lastKnown.coords;
-        setLatitude(lat || 28.6139);
-        setLongitude(lng || 77.2090);
-        if (mapRef.current) {
-          mapRef.current.animateToRegion({
-            latitude: lat || 28.6139,
-            longitude: lng || 77.2090,
-            latitudeDelta: 0.005,
-            longitudeDelta: 0.005,
-          }, 800);
+        if (lat && lng) {
+          setLatitude(lat);
+          setLongitude(lng);
+          if (mapRef.current) {
+            mapRef.current.animateToRegion({
+              latitude: lat,
+              longitude: lng,
+              latitudeDelta: 0.005,
+              longitudeDelta: 0.005,
+            }, 800);
+          }
         }
       }
 
@@ -125,15 +127,17 @@ export default function SOSScreen({ navigation }) {
       });
       if (fresh && fresh.coords) {
         const { latitude: lat, longitude: lng } = fresh.coords;
-        setLatitude(lat || 28.6139);
-        setLongitude(lng || 77.2090);
-        if (mapRef.current) {
-          mapRef.current.animateToRegion({
-            latitude: lat || 28.6139,
-            longitude: lng || 77.2090,
-            latitudeDelta: 0.005,
-            longitudeDelta: 0.005,
-          }, 800);
+        if (lat && lng) {
+          setLatitude(lat);
+          setLongitude(lng);
+          if (mapRef.current) {
+            mapRef.current.animateToRegion({
+              latitude: lat,
+              longitude: lng,
+              latitudeDelta: 0.005,
+              longitudeDelta: 0.005,
+            }, 800);
+          }
         }
       }
     } catch (err) {
@@ -164,6 +168,13 @@ export default function SOSScreen({ navigation }) {
   };
 
   const handleServiceSelect = async (service) => {
+    if (!latitude || !longitude) {
+      Alert.alert(
+        t('common.error', 'Error'),
+        t('request.locationRequired', 'Unable to get your location — please enable location services and try again.')
+      );
+      return;
+    }
     Vibration.vibrate([0, 200, 100, 200]);
     setLoading(true);
     try {
@@ -181,8 +192,8 @@ export default function SOSScreen({ navigation }) {
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          lat: latitude || 28.6139,
-          lng: longitude || 77.2090,
+          lat: latitude,
+          lng: longitude,
           serviceType: service.value,
           description: `SOS: ${service.label.replace('\n', ' ')}`
         })
@@ -198,7 +209,7 @@ export default function SOSScreen({ navigation }) {
       if (response.ok) {
         const data = await response.json();
         Alert.alert(t('request.sosBroadcasting', 'SOS Broadcasting 🚨'), t('request.sosSentMsg', 'Emergency request for {{service}} has been sent!', { service: service.label.replace('\n', ' ') }));
-        navigation.navigate('SOSConfirmation', { sosId: data._id, lat: latitude || 28.6139, lng: longitude || 77.2090 });
+        navigation.navigate('SOSConfirmation', { sosId: data._id, lat: latitude, lng: longitude });
       } else {
         const data = await response.json();
         Alert.alert(t('request.sosFailed', 'SOS Failed'), data.message || t('common.error', 'Something went wrong.'));
@@ -228,18 +239,20 @@ export default function SOSScreen({ navigation }) {
         <MapView
           ref={mapRef}
           style={styles.map}
-          initialRegion={{
-            latitude: latitude || 28.6139,
-            longitude: longitude || 77.2090,
+          initialRegion={latitude && longitude ? {
+            latitude: latitude,
+            longitude: longitude,
             latitudeDelta: 0.005,
             longitudeDelta: 0.005,
-          }}
+          } : undefined}
         >
-          <Marker coordinate={{ latitude: latitude || 28.6139, longitude: longitude || 77.2090 }}>
-            <View style={styles.markerContainer}>
-              <View style={styles.markerPin} />
-            </View>
-          </Marker>
+          {latitude && longitude ? (
+            <Marker coordinate={{ latitude: latitude, longitude: longitude }}>
+              <View style={styles.markerContainer}>
+                <View style={styles.markerPin} />
+              </View>
+            </Marker>
+          ) : null}
         </MapView>
 
         {/* Floating Back Button */}

@@ -7,15 +7,19 @@ const otpRateLimiter = require('../middleware/otpRateLimiter');
  
 const router = express.Router();
 
+const { authRateLimiter } = require('../middleware/rateLimiter');
+const validate = require('../middleware/validationMiddleware');
+const { loginValidation, registerValidation } = require('../middleware/validationRules');
+
 // ── Phone OTP Authentication ──────────────────────────────────────────────────
 router.post('/send-otp', otpRateLimiter, sendOtp);
-router.post('/verify-otp', verifyOtp);
+router.post('/verify-otp', authRateLimiter, verifyOtp);
 
 // ── Customer registration (alias for /register with role=user) ──────────────
-router.post('/register/customer', register);
+router.post('/register/customer', authRateLimiter, registerValidation, validate, register);
 
 // ── Mechanic registration: creates User + Mechanic profile ──────────────────
-router.post('/register/mechanic', async (req, res) => {
+router.post('/register/mechanic', authRateLimiter, registerValidation, validate, async (req, res) => {
   try {
     const User = require('../models/User');
     const Mechanic = require('../models/Mechanic');
@@ -53,9 +57,9 @@ router.post('/register/mechanic', async (req, res) => {
   }
 });
 
-// ── Generic registration ─────────────────────────────────────────────────────
-router.post('/register', register);
-router.post('/login', login);
+// ── Generic registration & login ─────────────────────────────────────────────
+router.post('/register', authRateLimiter, registerValidation, validate, register);
+router.post('/login', authRateLimiter, loginValidation, validate, login);
  
 router.get('/profile', authMiddleware, getProfile);
 router.put('/profile', authMiddleware, updateProfile);

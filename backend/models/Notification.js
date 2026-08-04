@@ -5,7 +5,13 @@ const NotificationSchema = new mongoose.Schema(
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true,
+      required: false,
+      index: true,
+    },
+    mechanicId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Mechanic',
+      required: false,
       index: true,
     },
     title: {
@@ -16,10 +22,17 @@ const NotificationSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    message: {
+      type: String,
+      default: '',
+    },
     type: {
       type: String,
-      enum: ['mechanic_assigned', 'job_complete', 'rate_mechanic', 'mechanic_enroute', 'message', 'admin_broadcast'],
-      required: true,
+      enum: [
+        'new_request', 'job_cancelled', 'payment_received', 'kyc_update', 'announcement',
+        'mechanic_assigned', 'job_complete', 'rate_mechanic', 'mechanic_enroute', 'message', 'admin_broadcast', 'other'
+      ],
+      default: 'other',
     },
     isRead: {
       type: Boolean,
