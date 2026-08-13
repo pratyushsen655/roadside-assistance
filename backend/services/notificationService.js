@@ -37,6 +37,27 @@ const createMechanicNotification = async (params) => {
   }
 };
 
+const { sendRingingRequestNotification } = require('./pushNotificationService');
+
+/**
+ * Send high-priority, DATA-ONLY FCM message to mechanic token for incoming requests
+ * @param {string} fcmToken
+ * @param {object} payload - { jobId, customerName, price, lat, lng, ... }
+ */
+const sendIncomingRequestDataNotification = async (fcmToken, payload) => {
+  const dataPayload = {
+    type: 'incoming_request',
+    jobId: payload.jobId || payload.requestId,
+    customerName: payload.customerName || 'Customer',
+    price: payload.price != null ? String(payload.price) : '0',
+    lat: payload.lat != null ? String(payload.lat) : '0',
+    lng: payload.lng != null ? String(payload.lng) : '0',
+    ...payload,
+  };
+  return await sendRingingRequestNotification(fcmToken, dataPayload);
+};
+
 module.exports = {
-  createMechanicNotification
+  createMechanicNotification,
+  sendIncomingRequestDataNotification,
 };

@@ -176,15 +176,18 @@ if (require.main === module) {
   });
 }
 
+const logger = require('./utils/logger');
+
 // Handle unhandled promise rejections
 process.on('unhandledRejection', (err) => {
   const message = err instanceof Error ? err.message : String(err);
-  process.stderr.write(`[CRITICAL] Unhandled Rejection: ${message}\n`);
+  const stack = err instanceof Error ? err.stack : undefined;
+  logger.error(`[CRITICAL] Unhandled Rejection: ${message}`, { stack });
   if (serverInstance) serverInstance.close(() => process.exit(1));
 });
 
 process.on('uncaughtException', (err) => {
-  process.stderr.write(`[CRITICAL] Uncaught Exception: ${err.message}\n`);
+  logger.error(`[CRITICAL] Uncaught Exception: ${err.message}`, { stack: err.stack });
   process.exit(1);
 });
 

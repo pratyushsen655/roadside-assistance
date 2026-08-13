@@ -190,5 +190,6 @@ const sendRingingRequestNotification = async (token, payload) => {
 module.exports = {
   sendPushNotification,
   sendMulticastNotification,
-  sendRingingRequestNotification
+  sendRingingRequestNotification,
+  sendIncomingRequestDataNotification: sendRingingRequestNotification,
 };

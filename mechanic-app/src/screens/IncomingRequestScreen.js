@@ -172,9 +172,19 @@ const IncomingRequestScreen = ({ route, navigation }) => {
     declineRequest('user_decline');
   };
 
+  const cancelNotifeeNotifications = () => {
+    try {
+      const notifee = require('@notifee/react-native').default;
+      if (notifee && typeof notifee.cancelAllNotifications === 'function') {
+        notifee.cancelAllNotifications();
+      }
+    } catch (e) {}
+  };
+
   const declineRequest = async (reason = 'unknown') => {
     console.log(`[DECLINE] Triggered declineRequest! Reason: "${reason}" | effectiveRequestId: "${effectiveRequestId}" | pendingRequests count: ${pendingRequests?.length || 0}`);
     stopIncomingRequestSound();
+    cancelNotifeeNotifications();
     if (Platform.OS === 'android' && RingingModule && typeof RingingModule.stopRinging === 'function') {
       RingingModule.stopRinging();
     } else {
@@ -209,6 +219,7 @@ const IncomingRequestScreen = ({ route, navigation }) => {
     actionTakenRef.current = true;
 
     stopIncomingRequestSound();
+    cancelNotifeeNotifications();
     if (Platform.OS === 'android' && RingingModule && typeof RingingModule.stopRinging === 'function') {
       RingingModule.stopRinging();
     } else {

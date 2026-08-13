@@ -104,7 +104,7 @@ global.fetch = async function (input, init = {}) {
         } catch (_) {}
 
         if (__DEV__) {
-          console.warn(`[Network HTTP Error] ${url} - Status: ${response.status} - Body: ${responseBody}`);
+          console.log(`[Network HTTP Error] ${url} - Status: ${response.status} - Body: ${responseBody}`);
         }
 
         // Check if it is a temporary 5xx failure that should be retried

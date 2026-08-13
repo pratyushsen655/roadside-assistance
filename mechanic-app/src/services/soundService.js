@@ -1,4 +1,4 @@
-﻿/**
+/**
  * soundService.js — Incoming-request alert sound using expo-audio.
  *
  * Migrated from expo-av (removed/unsupported on Expo SDK 57) to expo-audio,
@@ -13,7 +13,7 @@
 import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { generateIncomingRequestWavBase64, getRawBase64String } from '../assets/soundData';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 
 let currentPlayer = null;
 let cachedFileUri = null;

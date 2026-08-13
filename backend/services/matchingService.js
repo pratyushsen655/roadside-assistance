@@ -145,9 +145,14 @@ const dispatchNextMechanic = async (request, io) => {
 
   // Prepare FCM Payload (Must be string fields only)
   const fcmPayload = {
+    type: 'incoming_request',
+    jobId: request._id.toString(),
     requestId: request._id.toString(),
     screen: 'IncomingRequest',
     customerName: customerName,
+    price: request.pricing?.totalAmount != null ? request.pricing.totalAmount.toString() : '0',
+    lat: cLat.toString(),
+    lng: cLng.toString(),
     customerLocation: JSON.stringify({ latitude: cLat, longitude: cLng }),
     customerAddress: request.customerAddress || 'Nearby Coordinates',
     serviceType: request.serviceType || 'breakdown',

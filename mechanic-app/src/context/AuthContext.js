@@ -77,6 +77,12 @@ export const AuthProvider = ({ children }) => {
               setMechanic({ ...m, _id: realId, id: realId, mechanicId: realId });
             } else {
               console.warn('[AuthContext] Profile API returned unsuccessful response:', data);
+              if (res.status === 401 || data.message?.toLowerCase().includes('token expired') || data.message?.toLowerCase().includes('jwt expired') || data.message?.toLowerCase().includes('invalid token')) {
+                console.log('[AuthContext] Expired or invalid token detected. Auto-logging out...');
+                await AsyncStorage.removeItem('mechanicToken');
+                setMechanicToken(null);
+                setMechanic(null);
+              }
             }
           } catch (profileErr) {
             console.log('[AuthContext] Profile API fetch error:', profileErr.message);

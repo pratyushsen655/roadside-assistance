@@ -2,6 +2,7 @@ import React, { useEffect, useState, useContext, useRef } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Linking, Alert, Dimensions, ActivityIndicator
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import API_URL from '../config/api';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import * as Location from 'expo-location';
@@ -31,6 +32,7 @@ const isValidCoordinate = (coord) => {
 };
 
 export default function TrackingScreen({ route, navigation }) {
+  const insets = useSafeAreaInsets();
   const params = route.params || {};
   const { jobId, mechanicId, mechanicName, mechanicPhone, customerLat, customerLng } = params;
 
@@ -52,13 +54,18 @@ export default function TrackingScreen({ route, navigation }) {
     longitude: customerLng || null
   });
   const [mechanicCoords, setMechanicCoords] = useState(null);
+  const [mechanicInfo, setMechanicInfo] = useState({
+    id: mechanicId || null,
+    name: mechanicName || '',
+    phone: mechanicPhone || ''
+  });
   const [status, setStatus] = useState('accepted'); // accepted, en_route, arrived, in_progress, completed
   const [mapLoading, setMapLoading] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
   const [mechanicRating, setMechanicRating] = useState(4.8);
   const [arrivalOtp, setArrivalOtp] = useState(route.params?.arrivalOtp || '');
 
-  // Fetch request details to get the OTP
+  // Fetch request details to get mechanic details, status, and OTP
   useEffect(() => {
     if (!jobId || !token) return;
     const fetchRequestDetails = async () => {
@@ -71,10 +78,36 @@ export default function TrackingScreen({ route, navigation }) {
           if (isMounted.current) {
             setArrivalOtp(data.request.arrivalOtp || '');
             setStatus(data.request.status || 'accepted');
+
+            // Populate mechanic details from request backend object
+            const mech = data.request.mechanic;
+            if (mech && typeof mech === 'object') {
+              setMechanicInfo(prev => ({
+                id: mech._id || prev.id,
+                name: mech.name || prev.name,
+                phone: mech.phone || prev.phone
+              }));
+              if (mech.averageRating || mech.rating) {
+                setMechanicRating(mech.averageRating || mech.rating);
+              }
+              // Set initial mechanic location if available
+              if (mech.location?.coordinates && Array.isArray(mech.location.coordinates) && mech.location.coordinates.length >= 2) {
+                const [mLng, mLat] = mech.location.coordinates;
+                if (mLat !== 0 || mLng !== 0) {
+                  setMechanicCoords(prev => prev || { latitude: mLat, longitude: mLng });
+                }
+              }
+            } else if (data.request.mechanicLocation) {
+              const mLoc = data.request.mechanicLocation;
+              if (typeof mLoc.latitude === 'number' && typeof mLoc.longitude === 'number') {
+                setMechanicCoords(prev => prev || { latitude: mLoc.latitude, longitude: mLoc.longitude });
+              }
+            }
+
             if (data.request.status === 'completed') {
               navigation.replace('Payment', {
                 jobId,
-                mechanicName: mechanicName || data.request.mechanic?.name || 'Mechanic',
+                mechanicName: mechanicInfo.name || mechanicName || data.request.mechanic?.name || 'Mechanic',
                 serviceType: data.request.serviceType,
                 amount: data.request.accepted_price || data.request.pricing?.totalAmount || data.request.amount || 350
               });
@@ -242,25 +275,29 @@ export default function TrackingScreen({ route, navigation }) {
       }
     });
 
-    const arrivalOtpHandler = (data) => {
+    const jobAcceptedHandler = (data) => {
       try {
-        console.log('[Socket] TrackingScreen - Arrival OTP received:', data);
-        if (data && data.otp) {
-          if (isMounted.current) {
-            setArrivalOtp(data.otp);
-          }
+        console.log('[Socket] TrackingScreen - Job accepted notify received:', data);
+        if (data && isMounted.current) {
+          setMechanicInfo(prev => ({
+            id: data.mechanicId || prev.id,
+            name: data.mechanicName || prev.name,
+            phone: data.mechanicPhone || prev.phone
+          }));
         }
       } catch (err) {
-        console.error('[Socket] Error handling arrival_otp in TrackingScreen:', err);
+        console.error('[Socket] Error handling job:accepted:notify in TrackingScreen:', err);
       }
     };
 
+    socket.on('job:accepted:notify', jobAcceptedHandler);
     socket.on('arrival_otp', arrivalOtpHandler);
 
     return () => {
       socket.off('mechanic:location:update');
       socket.off('job:status:changed');
       socket.off('chat:message');
+      socket.off('job:accepted:notify', jobAcceptedHandler);
       socket.off('arrival_otp', arrivalOtpHandler);
       socket.off('connect', reconnectHandler);
     };
@@ -408,68 +445,74 @@ export default function TrackingScreen({ route, navigation }) {
       </View>
 
       {/* Bottom Sheet Card */}
-      <View style={styles.bottomSheet}>
-        <View style={styles.mechanicDetails}>
-          <TouchableOpacity 
-            style={styles.avatar}
-            onPress={() => mechanicId && navigation.navigate('MechanicProfile', { mechanicId })}
-          >
-            <Text style={styles.avatarText}>{mechanicName?.charAt(0) || 'M'}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.nameContainer}
-            onPress={() => mechanicId && navigation.navigate('MechanicProfile', { mechanicId })}
-          >
-            <Text style={styles.mechanicName}>{mechanicName || 'Professional Mechanic'}</Text>
-            <Text style={styles.ratingText}>⭐ {mechanicRating.toFixed(1)} Rating</Text>
-          </TouchableOpacity>
-          
-          <View style={styles.actionsContainer}>
-            <TouchableOpacity
-              style={styles.callBtn}
-              onPress={() => {
-                if (mechanicPhone) {
-                  Linking.openURL(`tel:${mechanicPhone}`);
-                } else {
-                  Alert.alert('Phone Unavailable', 'Mechanic phone number is not available right now.');
-                }
-              }}
-            >
-              <Text style={styles.callBtnText}>📞 Call</Text>
-            </TouchableOpacity>
+      {(() => {
+        const activeMechId = mechanicInfo.id || mechanicId || null;
+        const activeMechName = mechanicInfo.name || mechanicName || 'Mechanic';
+        const activeMechPhone = mechanicInfo.phone || mechanicPhone || '';
 
-            <TouchableOpacity
-              style={styles.chatBtn}
-              onPress={() => {
-                setUnreadCount(0);
-                navigation.navigate('Chat', { jobId, mechanicId, mechanicName });
-              }}
-            >
-              <Text style={styles.chatBtnText}>💬 Chat</Text>
-              {unreadCount > 0 && (
-                <View style={styles.chatBadge}>
-                  <Text style={styles.chatBadgeText}>{unreadCount}</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
+        return (
+          <View style={[styles.bottomSheet, { paddingBottom: Math.max(24, insets.bottom + 16) }]}>
+            <View style={styles.mechanicDetails}>
+              <TouchableOpacity 
+                style={styles.avatar}
+                onPress={() => activeMechId && navigation.navigate('MechanicProfile', { mechanicId: activeMechId })}
+              >
+                <Text style={styles.avatarText}>{activeMechName?.charAt(0).toUpperCase() || 'M'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.nameContainer}
+                onPress={() => activeMechId && navigation.navigate('MechanicProfile', { mechanicId: activeMechId })}
+              >
+                <Text style={styles.mechanicName}>{activeMechName}</Text>
+                <Text style={styles.ratingText}>⭐ {mechanicRating.toFixed(1)} Rating</Text>
+              </TouchableOpacity>
+              
+              <View style={styles.actionsContainer}>
+                <TouchableOpacity
+                  style={styles.callBtn}
+                  onPress={() => {
+                    if (activeMechPhone) {
+                      Linking.openURL(`tel:${activeMechPhone}`);
+                    } else {
+                      Alert.alert('Phone Unavailable', 'Mechanic phone number is not available right now.');
+                    }
+                  }}
+                >
+                  <Text style={styles.callBtnText}>📞 Call</Text>
+                </TouchableOpacity>
 
-        <View style={styles.statsContainer}>
-          <View style={styles.statBox}>
-            <Text style={styles.statLabel}>Distance</Text>
-            <Text style={styles.statValue}>
-              {mechanicCoords ? `${distance.toFixed(1)} km` : 'Calculating...'}
-            </Text>
-          </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statBox}>
-            <Text style={styles.statLabel}>ETA</Text>
-            <Text style={styles.statValue}>
-              {mechanicCoords ? `~${eta} mins` : 'Calculating...'}
-            </Text>
-          </View>
-        </View>
+                <TouchableOpacity
+                  style={styles.chatBtn}
+                  onPress={() => {
+                    setUnreadCount(0);
+                    navigation.navigate('Chat', { jobId, mechanicId: activeMechId, mechanicName: activeMechName });
+                  }}
+                >
+                  <Text style={styles.chatBtnText}>💬 Chat</Text>
+                  {unreadCount > 0 && (
+                    <View style={styles.chatBadge}>
+                      <Text style={styles.chatBadgeText}>{unreadCount}</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={styles.statsContainer}>
+              <View style={styles.statBox}>
+                <Text style={styles.statLabel}>Distance</Text>
+                <Text style={styles.statValue}>
+                  {mechanicCoords ? `${distance.toFixed(1)} km` : 'Fetching location...'}
+                </Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statBox}>
+                <Text style={styles.statLabel}>ETA</Text>
+                <Text style={styles.statValue}>
+                  {mechanicCoords ? `~${eta} mins` : 'Fetching location...'}
+                </Text>
+              </View>
+            </View>
 
         {/* OTP Display */}
         {status === 'arrived' && arrivalOtp ? (

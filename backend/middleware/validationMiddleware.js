@@ -11,7 +11,15 @@ module.exports = (req, res, next) => {
     return res.status(400).json({
       success: false,
       message: 'Validation failed',
-      errors: errors.array().map(err => ({ param: err['path'] || err['param'] || err.type || 'unknown', msg: err.msg })),
+      errors: errors.array().map(err => {
+        const fieldName = err.path || err.param || err.type || 'unknown';
+        return {
+          field: fieldName,
+          param: fieldName,
+          message: err.msg,
+          msg: err.msg
+        };
+      }),
       statusCode: 400,
     });
   }

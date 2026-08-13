@@ -235,12 +235,17 @@ const dispatchNext = async (serviceRequestId, io = null) => {
     };
 
     const fcmPayload = {
+      type: 'incoming_request',
+      jobId: request._id.toString(),
       requestId: request._id.toString(),
-      screen: 'IncomingRequest',
       customerName,
+      price: storedPrice ? storedPrice.toString() : '0',
+      lat: request.customerLocation?.coordinates?.[1] ? request.customerLocation.coordinates[1].toString() : '0',
+      lng: request.customerLocation?.coordinates?.[0] ? request.customerLocation.coordinates[0].toString() : '0',
+      screen: 'IncomingRequest',
       customerLocation: JSON.stringify({
-        latitude: request.customerLocation.coordinates[1],
-        longitude: request.customerLocation.coordinates[0],
+        latitude: request.customerLocation?.coordinates?.[1] || 0,
+        longitude: request.customerLocation?.coordinates?.[0] || 0,
       }),
       customerAddress: request.customerAddress || 'Nearby Coordinates',
       vehicleType: request.vehicleType || 'car',

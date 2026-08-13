@@ -103,7 +103,7 @@ global.fetch = async function (input, init = {}) {
           try {
             responseBody = await response.clone().text();
           } catch (_) {}
-          console.warn(`[Network HTTP Info] ${url} - Status: ${response.status} - Body: ${responseBody}`);
+          console.log(`[Network HTTP Info] ${url} - Status: ${response.status} - Body: ${responseBody}`);
         }
       }
 

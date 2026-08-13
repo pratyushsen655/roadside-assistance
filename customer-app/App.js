@@ -1,7 +1,9 @@
+import 'react-native-gesture-handler';
 // App.js - Root component for the Customer Expo app
 import './src/utils/network'; // Global fetch network override
 import './src/i18n'; // Initialize i18next before any screen renders
 import React, { useState, useEffect, useRef } from 'react';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { LogBox, InteractionManager } from 'react-native';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -116,19 +118,21 @@ export default function App() {
   }
 
   return (
-    <SafeAreaProvider>
-      <ErrorBoundary>
-        <ThemeProvider>
-          <LanguageProvider>
-            <AuthProvider>
-              <NavigationContainer ref={navigationRef}>
-                <RootNavigator />
-              </NavigationContainer>
-              <OfflineBanner />
-            </AuthProvider>
-          </LanguageProvider>
-        </ThemeProvider>
-      </ErrorBoundary>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <ErrorBoundary>
+          <ThemeProvider>
+            <LanguageProvider>
+              <AuthProvider>
+                <NavigationContainer ref={navigationRef}>
+                  <RootNavigator />
+                </NavigationContainer>
+                <OfflineBanner />
+              </AuthProvider>
+            </LanguageProvider>
+          </ThemeProvider>
+        </ErrorBoundary>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }

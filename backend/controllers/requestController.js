@@ -171,14 +171,23 @@ exports.createRequest = async (req, res, next) => {
         }
       });
 
-      // Send push notification to mechanics
-      if (mechanicTokens.length > 0) {
-        await fcmService.sendMulticastNotification(
-          mechanicTokens,
-          'New Breakdown Alert!',
-          `A ${vehicleType} needs roadside assistance nearby: "${issueDescription.substring(0, 40)}..."`,
-          { requestId: serviceRequest._id.toString() }
-        );
+      // Send high-priority data-only ringing FCM notification to matched mechanics
+      const { sendIncomingRequestDataNotification } = require('../services/notificationService');
+      for (const match of optimalMatches) {
+        const token = match.mechanic.fcmToken || match.mechanic.pushToken;
+        if (token) {
+          await sendIncomingRequestDataNotification(token, {
+            type: 'incoming_request',
+            jobId: serviceRequest._id.toString(),
+            requestId: serviceRequest._id.toString(),
+            customerName: user.name || 'Customer',
+            price: serviceRequest.pricing ? serviceRequest.pricing.totalAmount : 150,
+            lat: latitude,
+            lng: longitude,
+            vehicleType,
+            issueDescription: finalIssueDescription,
+          });
+        }
       }
 
       // Notify admins

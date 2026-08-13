@@ -15,7 +15,7 @@ const checkIsPlaceholderKey = () => {
 };
 
 // Create a Razorpay Order
-exports.createOrder = async (req, res) => {
+exports.createOrder = async (req, res, next) => {
   try {
     const { jobId, serviceRequestId, requestId, amount } = req.body;
     const finalJobId = requestId || jobId || serviceRequestId;
@@ -69,12 +69,12 @@ exports.createOrder = async (req, res) => {
       keyId: process.env.RAZORPAY_KEY_ID || 'rzp_test_YourKeyId'
     });
   } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
+    next(error);
   }
 };
 
 // Verify Razorpay Payment Signature
-exports.verifyPayment = async (req, res) => {
+exports.verifyPayment = async (req, res, next) => {
   try {
     const {
       razorpayOrderId, orderId, razorpay_order_id,
@@ -186,12 +186,12 @@ exports.verifyPayment = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Payment verification failed' });
     }
   } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
+    next(error);
   }
 };
 
 // Process Pay Cash Option
-exports.payCash = async (req, res) => {
+exports.payCash = async (req, res, next) => {
   try {
     const { jobId } = req.body;
 
@@ -226,12 +226,12 @@ exports.payCash = async (req, res) => {
 
     return res.status(200).json({ success: true, message: 'Cash payment processed successfully', payment });
   } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
+    next(error);
   }
 };
 
 // Get Payment History for User
-exports.getHistory = async (req, res) => {
+exports.getHistory = async (req, res, next) => {
   try {
     const payments = await Payment.find({ userId: req.user.id })
       .populate('mechanicId', 'name phone')
@@ -239,12 +239,12 @@ exports.getHistory = async (req, res) => {
 
     return res.status(200).json({ success: true, payments });
   } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
+    next(error);
   }
 };
 
 // Create Razorpay QR payment or fallback to Payment Link
-exports.createQrOrder = async (req, res) => {
+exports.createQrOrder = async (req, res, next) => {
   let request;
   let finalAmount;
   try {
@@ -265,8 +265,6 @@ exports.createQrOrder = async (req, res) => {
 
     console.log('[QR BACKEND] Generating QR order for request:', requestId, 'Amount:', finalAmount);
     const amountInPaise = Math.round(Number(finalAmount) * 100);
-    console.log('[DEBUG] RAZORPAY_KEY_ID is defined:', !!process.env.RAZORPAY_KEY_ID);
-    console.log('[DEBUG] RAZORPAY_KEY_SECRET is defined:', !!process.env.RAZORPAY_KEY_SECRET);
 
     const razorpay = new Razorpay({
       key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_YourKeyId',
@@ -324,16 +322,11 @@ exports.createQrOrder = async (req, res) => {
         currency: 'INR'
       });
     } catch (plError) {
-      console.error('[Razorpay Payment Link Creation Failed]:');
-      console.error('  Error message:', plError.message);
-      console.error('  Error description:', plError.description);
-      if (plError.error) {
-        console.error('  Error object description:', plError.error.description);
-      }
+      console.error('[Razorpay Payment Link Creation Failed]:', plError.message);
       throw plError;
     }
   } catch (error) {
-    console.error('[createQrOrder Error - falling back to mock payment link]:', error);
+    console.error('[createQrOrder Error - falling back to mock payment link]:', error.message);
     
     // Fallback to mock payment link instead of returning 500
     try {
@@ -358,14 +351,13 @@ exports.createQrOrder = async (req, res) => {
         mocked: true
       });
     } catch (fallbackError) {
-      console.error('[createQrOrder Fallback Failed]:', fallbackError);
-      return res.status(500).json({ success: false, message: 'Could not generate payment link' });
+      next(fallbackError);
     }
   }
 };
 
 // Poll Payment Status
-exports.getPaymentStatus = async (req, res) => {
+exports.getPaymentStatus = async (req, res, next) => {
   try {
     const { requestId } = req.params;
     if (!requestId) {
@@ -478,13 +470,12 @@ exports.getPaymentStatus = async (req, res) => {
 
     return res.status(200).json({ success: true, paid: false });
   } catch (error) {
-    console.error('[getPaymentStatus Error]:', error);
-    return res.status(500).json({ success: false, message: error.message });
+    next(error);
   }
 };
 
 // Webhook handler
-exports.handleWebhook = async (req, res) => {
+exports.handleWebhook = async (req, res, next) => {
   try {
     const signature = req.headers['x-razorpay-signature'];
     if (!signature) {
@@ -608,13 +599,12 @@ exports.handleWebhook = async (req, res) => {
 
     return res.status(200).json({ received: true });
   } catch (error) {
-    console.error('[handleWebhook Error]:', error);
-    return res.status(500).json({ success: false, message: error.message });
+    next(error);
   }
 };
 
 // Simulate successful payment (for testing/mock purposes)
-exports.simulatePayment = async (req, res) => {
+exports.simulatePayment = async (req, res, next) => {
   try {
     const { requestId } = req.body;
     if (!requestId) {
@@ -681,8 +671,7 @@ exports.simulatePayment = async (req, res) => {
 
     return res.status(200).json({ success: true, message: 'Payment simulated successfully' });
   } catch (error) {
-    console.error('[simulatePayment Error]:', error);
-    return res.status(500).json({ success: false, message: error.message });
+    next(error);
   }
 };
 

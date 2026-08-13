@@ -1,6 +1,8 @@
+import 'react-native-gesture-handler';
 import './src/utils/network'; // Global fetch network override
 import './src/i18n'; // Initialize i18next before any component renders
 import React, { useEffect, useRef } from 'react';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 console.log(`[Mechanic App Bundle Verification] Bundle build timestamp: 2026-07-28T13:20:00.000Z | Expo SDK: ${require('expo/package.json').version}`);
 import { LogBox, InteractionManager } from 'react-native';
@@ -67,28 +69,80 @@ export default function App() {
   const responseListener = useRef();
 
   useEffect(() => {
+    // Notifee initial notification & press handlers for dev build / standalone
+    try {
+      const notifee = require('@notifee/react-native').default;
+      const { EventType, AndroidImportance, AndroidVisibility } = require('@notifee/react-native');
+
+      // Create notification channel once on startup
+      notifee.createChannel({
+        id: 'incoming_job_channel_v2',
+        name: 'Incoming Job Requests',
+        importance: AndroidImportance.HIGH,
+        visibility: AndroidVisibility.PUBLIC,
+        sound: 'incoming_request_alert',
+        vibration: true,
+      });
+
+      notifee.getInitialNotification().then(initialNotification => {
+        if (initialNotification) {
+          console.log('[Notifee Launch App]', initialNotification);
+          const data = initialNotification.notification.data;
+          const jobId = data?.jobId || data?.requestId;
+          if (jobId) {
+            setTimeout(() => {
+              if (navigationRef.isReady()) {
+                navigationRef.navigate('IncomingRequest', { requestId: jobId, requestData: data });
+              }
+            }, 500);
+          }
+        }
+      });
+
+      const unsubscribeNotifee = notifee.onForegroundEvent(({ type, detail }) => {
+        if (type === EventType.PRESS || type === EventType.ACTION_PRESS) {
+          console.log('[Notifee Event Press]', detail);
+          const data = detail.notification?.data;
+          const jobId = data?.jobId || data?.requestId;
+          if (jobId && navigationRef.isReady()) {
+            navigationRef.navigate('IncomingRequest', { requestId: jobId, requestData: data });
+          }
+          if (detail.notification?.id) {
+            notifee.cancelNotification(detail.notification.id);
+          }
+        }
+      });
+
+      // Cleanup
+      var notifeeCleanup = unsubscribeNotifee;
+    } catch (e) {
+      console.log('[App] Notifee setup notice:', e.message);
+    }
+
     if (!Notifications) {
       console.log('[App] Running in Expo Go — push notifications disabled. Use a dev build for full support.');
-      return;
+      return () => {
+        if (notifeeCleanup) notifeeCleanup();
+      };
     }
     try {
       notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
         console.log('Notification received in foreground:', notification);
         const data = notification.request.content.data;
-        if (data && data.requestId) {
+        if (data && (data.requestId || data.jobId)) {
           console.log('[App] Ringing notification received in foreground. Navigating...');
           if (navigationRef.isReady()) {
-            navigationRef.navigate('IncomingRequest', { requestData: data });
+            navigationRef.navigate('IncomingRequest', { requestId: data.jobId || data.requestId, requestData: data });
           }
         }
       });
       responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
         try {
           const data = response.notification.request.content.data;
-          if (data && data.requestId) {
+          if (data && (data.requestId || data.jobId)) {
             console.log('[App] Ringing notification tapped. Navigating...');
             if (navigationRef.isReady()) {
-              navigationRef.navigate('IncomingRequest', { requestData: data });
+              navigationRef.navigate('IncomingRequest', { requestId: data.jobId || data.requestId, requestData: data });
             }
           } else if (data && data.screen) {
             let params = data.params;
@@ -107,6 +161,7 @@ export default function App() {
       console.log('[App] Notification listener setup failed:', err.message);
     }
     return () => {
+      if (notifeeCleanup) notifeeCleanup();
       try {
         if (notificationListener.current) Notifications.removeNotificationSubscription(notificationListener.current);
         if (responseListener.current) Notifications.removeNotificationSubscription(responseListener.current);
@@ -115,18 +170,20 @@ export default function App() {
   }, []);
 
   return (
-    <SafeAreaProvider>
-      <ErrorBoundary>
-        <ThemeProvider>
-          <LanguageProvider>
-            <AuthProvider>
-              <StatusBar style="auto" />
-              <AppNavigator navigationRef={navigationRef} />
-              <OfflineBanner />
-            </AuthProvider>
-          </LanguageProvider>
-        </ThemeProvider>
-      </ErrorBoundary>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <ErrorBoundary>
+          <ThemeProvider>
+            <LanguageProvider>
+              <AuthProvider>
+                <StatusBar style="auto" />
+                <AppNavigator navigationRef={navigationRef} />
+                <OfflineBanner />
+              </AuthProvider>
+            </LanguageProvider>
+          </ThemeProvider>
+        </ErrorBoundary>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }

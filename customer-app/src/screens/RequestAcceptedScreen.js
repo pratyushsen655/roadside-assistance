@@ -628,7 +628,15 @@ export default function RequestAcceptedScreen() {
             )
           ) : (
             <>
-              <TouchableOpacity style={styles.trackBtn} onPress={() => navigation.navigate('Tracking', { jobId: requestId })}>
+              <TouchableOpacity 
+                style={styles.trackBtn} 
+                onPress={() => navigation.navigate('Tracking', { 
+                  jobId: requestId,
+                  mechanicId: mechanic?._id,
+                  mechanicName: mechanic?.name,
+                  mechanicPhone: mechanic?.phone
+                })}
+              >
                 <Ionicons name="navigate" size={20} color="#fff" />
                 <Text style={styles.trackBtnText}>Track Mechanic</Text>
               </TouchableOpacity>

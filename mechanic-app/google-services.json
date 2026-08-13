@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "559207851141",
+    "project_id": "roadmitra-79fb5",
+    "storage_bucket": "roadmitra-79fb5.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:559207851141:android:c612d4ae7018ea6a2975ec",
+        "android_client_info": {
+          "package_name": "com.prateeksen655.mechanicapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC41grMq0xLa7DS_rkOldTi4D5p8Hw4Jws"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

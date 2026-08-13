@@ -1,5 +1,7 @@
 const express = require('express');
 const authMiddleware = require('../middleware/authMiddleware');
+const validate = require('../middleware/validationMiddleware');
+const { createRequestValidation } = require('../middleware/validationRules');
 const ServiceRequest = require('../models/ServiceRequest');
 const Mechanic = require('../models/Mechanic');
 const User = require('../models/User');
@@ -35,7 +37,7 @@ router.post('/clean-legacy', async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
-router.post('/', authMiddleware, async (req, res) => {
+router.post('/', authMiddleware, createRequestValidation, validate, async (req, res) => {
   try {
     const {
       serviceType,
@@ -307,7 +309,7 @@ router.get('/:id', async (req, res) => {
   try {
     const request = await ServiceRequest.findById(req.params.id)
       .populate('customer', 'name phone email')
-      .populate('mechanic', 'name phone averageRating');
+      .populate('mechanic', 'name phone averageRating location');
 
     if (!request) {
       return res.status(404).json({
