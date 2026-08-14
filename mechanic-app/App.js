@@ -74,6 +74,36 @@ export default function App() {
       const notifee = require('@notifee/react-native').default;
       const { EventType, AndroidImportance, AndroidVisibility } = require('@notifee/react-native');
 
+      // Explicitly request notification permissions (required for Android 13+ / API 33+)
+      notifee.requestPermission()
+        .then(settings => {
+          console.log('[Notifee Startup] Authorization status:', settings.authorizationStatus);
+        })
+        .catch(err => {
+          console.log('[Notifee Startup Error] Request permission failed:', err?.message);
+        });
+
+      // Check battery optimization status
+      notifee.isBatteryOptimizationEnabled()
+        .then(batteryOptimizationEnabled => {
+          console.log('[Notifee Startup] Is Battery Optimization Enabled:', batteryOptimizationEnabled);
+          if (batteryOptimizationEnabled) {
+            console.log('[Notifee Startup Warning] Battery optimization is ENABLED. Incoming call notifications when app is closed may be delayed or restricted by OS.');
+          }
+        })
+        .catch(err => {
+          console.log('[Notifee Startup Error] Check battery optimization failed:', err?.message);
+        });
+
+      // Query detailed settings
+      notifee.getNotificationSettings()
+        .then(settings => {
+          console.log('[Notifee Startup] Current Notification Settings:', JSON.stringify(settings));
+        })
+        .catch(err => {
+          console.log('[Notifee Startup Error] Get notification settings failed:', err?.message);
+        });
+
       // Create notification channel once on startup
       notifee.createChannel({
         id: 'incoming_job_channel_v2',

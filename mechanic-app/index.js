@@ -18,17 +18,22 @@ try {
       const vehicleType = data.vehicleType || 'Breakdown';
 
       // Create high-importance CALL notification channel with custom raw alert sound
-      const channelId = await notifee.createChannel({
-        id: 'incoming_job_channel_v2',
-        name: 'Incoming Job Requests',
-        importance: AndroidImportance.HIGH,
-        visibility: AndroidVisibility.PUBLIC,
-        sound: 'incoming_request_alert',
-        vibration: true,
-      });
+      let channelId = 'incoming_job_channel_v2';
+      try {
+        channelId = await notifee.createChannel({
+          id: 'incoming_job_channel_v2',
+          name: 'Incoming Job Requests',
+          importance: AndroidImportance.HIGH,
+          visibility: AndroidVisibility.PUBLIC,
+          sound: 'incoming_request_alert',
+          vibration: true,
+        });
+        console.log('[Notifee Background] Channel created/verified:', channelId);
+      } catch (channelErr) {
+        console.error('[Notifee Background Error] Failed to create channel:', channelErr);
+      }
 
-      // Display full screen notification even when app is closed / phone locked
-      await notifee.displayNotification({
+      const notificationPayload = {
         title: '🚨 Emergency Assistance Request',
         body: `${customerName} needs ${vehicleType} assistance ${price ? `(${price})` : ''}`,
         data: {
@@ -38,25 +43,61 @@ try {
           requestData: data,
           screen: 'IncomingRequest',
         },
-        android: {
-          channelId,
-          importance: AndroidImportance.HIGH,
-          category: AndroidCategory.CALL,
-          fullScreenAction: {
-            id: 'default',
-            launchActivity: 'default',
+      };
+
+      // Attempt 1: Full-Screen Action Notification (Lock-screen / auto-launch)
+      try {
+        console.log('[Notifee Background] Attempting displayNotification with fullScreenAction...');
+        const notifId = await notifee.displayNotification({
+          ...notificationPayload,
+          android: {
+            channelId,
+            importance: AndroidImportance.HIGH,
+            category: AndroidCategory.CALL,
+            fullScreenAction: {
+              id: 'default',
+              launchActivity: 'default',
+            },
+            pressAction: {
+              id: 'default',
+              launchActivity: 'default',
+            },
+            ongoing: true,
+            autoCancel: false,
+            loopSound: true,
+            sound: 'incoming_request_alert',
+            timeoutAfter: 35000, // 35 seconds auto-timeout
           },
-          pressAction: {
-            id: 'default',
-            launchActivity: 'default',
-          },
-          ongoing: true,
-          autoCancel: false,
-          loopSound: true,
-          sound: 'incoming_request_alert',
-          timeoutAfter: 35000, // 35 seconds auto-timeout
-        },
-      });
+        });
+        console.log('[Notifee Background SUCCESS] Notification with fullScreenAction displayed, ID:', notifId);
+      } catch (primaryErr) {
+        console.error('[Notifee Background ERROR] Primary displayNotification with fullScreenAction failed:', primaryErr?.message || primaryErr, primaryErr);
+        
+        // Attempt 2: Fallback Heads-Up Banner Notification without fullScreenAction
+        try {
+          console.log('[Notifee Background] Attempting FALLBACK displayNotification without fullScreenAction...');
+          const fallbackId = await notifee.displayNotification({
+            ...notificationPayload,
+            android: {
+              channelId,
+              importance: AndroidImportance.HIGH,
+              category: AndroidCategory.CALL,
+              pressAction: {
+                id: 'default',
+                launchActivity: 'default',
+              },
+              ongoing: true,
+              autoCancel: false,
+              loopSound: true,
+              sound: 'incoming_request_alert',
+              timeoutAfter: 35000,
+            },
+          });
+          console.log('[Notifee Background FALLBACK SUCCESS] Fallback heads-up notification displayed, ID:', fallbackId);
+        } catch (fallbackErr) {
+          console.error('[Notifee Background CRITICAL ERROR] Fallback notification display also failed:', fallbackErr?.message || fallbackErr, fallbackErr);
+        }
+      }
     }
   });
 
