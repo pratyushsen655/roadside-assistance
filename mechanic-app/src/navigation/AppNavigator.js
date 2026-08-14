@@ -173,6 +173,17 @@ const AppNavigator = ({ navigationRef }) => {
           console.log(`[TRACE Request Cancelled/Timeout] Removing request from global state:`, data);
           stopIncomingRequestSound();
           const reqId = data?.requestId || data?._id;
+          try {
+            const notifee = require('@notifee/react-native').default;
+            if (notifee) {
+              if (reqId && typeof notifee.cancelNotification === 'function') {
+                notifee.cancelNotification(reqId);
+              }
+              if (typeof notifee.cancelAllNotifications === 'function') {
+                notifee.cancelAllNotifications();
+              }
+            }
+          } catch (e) {}
           if (reqId) {
             removePendingRequest(reqId);
           }

@@ -40,6 +40,7 @@ try {
           ...data,
           jobId,
           requestId: jobId,
+          notificationId: jobId,
           requestData: data,
           screen: 'IncomingRequest',
         },
@@ -49,6 +50,7 @@ try {
       try {
         console.log('[Notifee Background] Attempting displayNotification with fullScreenAction...');
         const notifId = await notifee.displayNotification({
+          id: jobId,
           ...notificationPayload,
           android: {
             channelId,
@@ -77,6 +79,7 @@ try {
         try {
           console.log('[Notifee Background] Attempting FALLBACK displayNotification without fullScreenAction...');
           const fallbackId = await notifee.displayNotification({
+            id: jobId,
             ...notificationPayload,
             android: {
               channelId,

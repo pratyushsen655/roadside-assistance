@@ -138,7 +138,9 @@ router.get('/requests/pending', authMiddleware, async (req, res) => {
       customerLocation: reqItem.customerLocation,
       price: reqItem.totalPrice || reqItem.current_price || reqItem.amount || reqItem.pricing?.totalAmount || 350,
       baseRate: reqItem.baseRate || 350,
-      distanceCharge: reqItem.distanceCharge || 0
+      distanceCharge: reqItem.distanceCharge || 0,
+      createdAt: reqItem.createdAt,
+      expiresAt: reqItem.expiresAt
     }));
 
     res.status(200).json(items);
@@ -700,43 +702,6 @@ router.put('/profile', authMiddleware, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Mechanic not found' });
     }
     res.status(200).json({ success: true, message: 'Profile updated successfully', mechanic });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// PUT /api/mechanic/location
-router.put('/location', authMiddleware, async (req, res) => {
-  try {
-    const Mechanic = require('../models/Mechanic');
-    const { latitude, longitude } = req.body;
-
-    if (latitude === undefined || longitude === undefined) {
-      return res.status(400).json({ success: false, message: 'Latitude and longitude are required' });
-    }
-
-    const mechanic = await Mechanic.findOneAndUpdate(
-      { $or: [{ _id: req.user.id }, { userId: req.user.id }] },
-      {
-        $set: {
-          location: {
-            type: 'Point',
-            coordinates: [Number(longitude), Number(latitude)]
-          }
-        }
-      },
-      { new: true }
-    );
-
-    if (!mechanic) {
-      return res.status(404).json({ success: false, message: 'Mechanic not found' });
-    }
-
-    res.status(200).json({
-      success: true,
-      message: 'Location updated successfully',
-      location: mechanic.location
-    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

@@ -117,12 +117,13 @@ export default function App() {
       notifee.getInitialNotification().then(initialNotification => {
         if (initialNotification) {
           console.log('[Notifee Launch App]', initialNotification);
-          const data = initialNotification.notification.data;
+          const data = initialNotification.notification?.data;
+          const notificationId = initialNotification.notification?.id || data?.notificationId || data?.jobId || data?.requestId;
           const jobId = data?.jobId || data?.requestId;
           if (jobId) {
             setTimeout(() => {
               if (navigationRef.isReady()) {
-                navigationRef.navigate('IncomingRequest', { requestId: jobId, requestData: data });
+                navigationRef.navigate('IncomingRequest', { requestId: jobId, requestData: data, notificationId });
               }
             }, 500);
           }
@@ -133,9 +134,10 @@ export default function App() {
         if (type === EventType.PRESS || type === EventType.ACTION_PRESS) {
           console.log('[Notifee Event Press]', detail);
           const data = detail.notification?.data;
+          const notificationId = detail.notification?.id || data?.notificationId || data?.jobId || data?.requestId;
           const jobId = data?.jobId || data?.requestId;
           if (jobId && navigationRef.isReady()) {
-            navigationRef.navigate('IncomingRequest', { requestId: jobId, requestData: data });
+            navigationRef.navigate('IncomingRequest', { requestId: jobId, requestData: data, notificationId });
           }
           if (detail.notification?.id) {
             notifee.cancelNotification(detail.notification.id);

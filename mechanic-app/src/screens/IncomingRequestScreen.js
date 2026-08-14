@@ -46,6 +46,41 @@ const IncomingRequestScreen = ({ route, navigation }) => {
     customerLocation: requestData?.customerLocation
   }));
 
+  const stopAllRingingAndNotifications = async () => {
+    const targetNotifId = route.params?.notificationId || route.params?.requestData?.notificationId || requestData?.notificationId || effectiveRequestId;
+    console.log('[IncomingRequestScreen] Stopping sound & cancelling Notifee notification(s). Target ID:', targetNotifId);
+
+    try {
+      await stopIncomingRequestSound();
+    } catch (e) {
+      console.log('[IncomingRequestScreen] soundService stop error:', e.message);
+    }
+
+    try {
+      if (Platform.OS === 'android' && RingingModule && typeof RingingModule.stopRinging === 'function') {
+        RingingModule.stopRinging();
+      } else {
+        Vibration.cancel();
+      }
+    } catch (e) {
+      console.log('[IncomingRequestScreen] RingingModule stop error:', e.message);
+    }
+
+    try {
+      const notifee = require('@notifee/react-native').default;
+      if (notifee) {
+        if (targetNotifId && typeof notifee.cancelNotification === 'function') {
+          await notifee.cancelNotification(targetNotifId);
+        }
+        if (typeof notifee.cancelAllNotifications === 'function') {
+          await notifee.cancelAllNotifications();
+        }
+      }
+    } catch (e) {
+      console.log('[IncomingRequestScreen] Notifee cancel error:', e.message);
+    }
+  };
+
   useEffect(() => {
     if (!mechanicToken || !effectiveRequestId) {
       console.log(`[TRACE IncomingRequestScreen useEffect] Skipping socket listener hook - mechanicToken: ${!!mechanicToken}, effectiveRequestId: "${effectiveRequestId}"`);
@@ -62,12 +97,7 @@ const IncomingRequestScreen = ({ route, navigation }) => {
           console.log(`[TRACE Socket Event: timeout] eventReqId: "${eventReqId}", localReqId: "${localReqId}"`);
           if (eventReqId && localReqId && eventReqId === localReqId) {
             console.log('[TRACE Socket Event: timeout] Match found! Resetting to Tabs...');
-            stopIncomingRequestSound();
-            if (Platform.OS === 'android' && RingingModule && typeof RingingModule.stopRinging === 'function') {
-              RingingModule.stopRinging();
-            } else {
-              Vibration.cancel();
-            }
+            stopAllRingingAndNotifications();
             navigation.reset({ index: 0, routes: [{ name: 'Tabs' }] });
           }
         };
@@ -78,12 +108,7 @@ const IncomingRequestScreen = ({ route, navigation }) => {
           console.log(`[TRACE Socket Event: cancelled] eventReqId: "${eventReqId}", localReqId: "${localReqId}"`);
           if (eventReqId && localReqId && eventReqId === localReqId) {
             console.log('[TRACE Socket Event: cancelled] Match found! Resetting to Tabs...');
-            stopIncomingRequestSound();
-            if (Platform.OS === 'android' && RingingModule && typeof RingingModule.stopRinging === 'function') {
-              RingingModule.stopRinging();
-            } else {
-              Vibration.cancel();
-            }
+            stopAllRingingAndNotifications();
             navigation.reset({ index: 0, routes: [{ name: 'Tabs' }] });
           }
         };
@@ -148,12 +173,7 @@ const IncomingRequestScreen = ({ route, navigation }) => {
 
     return () => {
       clearInterval(timerRef.current);
-      stopIncomingRequestSound();
-      if (Platform.OS === 'android' && RingingModule && typeof RingingModule.stopRinging === 'function') {
-        RingingModule.stopRinging();
-      } else {
-        Vibration.cancel();
-      }
+      stopAllRingingAndNotifications();
     };
   }, [effectiveRequestId]);
 
@@ -172,24 +192,9 @@ const IncomingRequestScreen = ({ route, navigation }) => {
     declineRequest('user_decline');
   };
 
-  const cancelNotifeeNotifications = () => {
-    try {
-      const notifee = require('@notifee/react-native').default;
-      if (notifee && typeof notifee.cancelAllNotifications === 'function') {
-        notifee.cancelAllNotifications();
-      }
-    } catch (e) {}
-  };
-
   const declineRequest = async (reason = 'unknown') => {
     console.log(`[DECLINE] Triggered declineRequest! Reason: "${reason}" | effectiveRequestId: "${effectiveRequestId}" | pendingRequests count: ${pendingRequests?.length || 0}`);
-    stopIncomingRequestSound();
-    cancelNotifeeNotifications();
-    if (Platform.OS === 'android' && RingingModule && typeof RingingModule.stopRinging === 'function') {
-      RingingModule.stopRinging();
-    } else {
-      Vibration.cancel();
-    }
+    stopAllRingingAndNotifications();
 
     try {
       if (effectiveRequestId) {
@@ -209,6 +214,8 @@ const IncomingRequestScreen = ({ route, navigation }) => {
       }
     } catch (err) {
       console.error('[DECLINE] Fetch error in declineRequest:', err);
+    } finally {
+      stopAllRingingAndNotifications();
     }
 
     navigation.reset({ index: 0, routes: [{ name: 'Tabs' }] });
@@ -218,13 +225,7 @@ const IncomingRequestScreen = ({ route, navigation }) => {
     if (actionTakenRef.current) return;
     actionTakenRef.current = true;
 
-    stopIncomingRequestSound();
-    cancelNotifeeNotifications();
-    if (Platform.OS === 'android' && RingingModule && typeof RingingModule.stopRinging === 'function') {
-      RingingModule.stopRinging();
-    } else {
-      Vibration.cancel();
-    }
+    stopAllRingingAndNotifications();
 
     try {
       if (effectiveRequestId) {
@@ -259,7 +260,11 @@ const IncomingRequestScreen = ({ route, navigation }) => {
           return;
         }
       }
-    } catch (error) {}
+    } catch (error) {
+      console.error('[ACCEPT] Error accepting request:', error);
+    } finally {
+      stopAllRingingAndNotifications();
+    }
 
     if (!effectiveRequestId) {
       Alert.alert('Error', 'Invalid request ID.');
