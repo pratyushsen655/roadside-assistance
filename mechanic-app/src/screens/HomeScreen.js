@@ -209,6 +209,14 @@ export default function HomeScreen() {
   const [acceptLoading, setAcceptLoading] = useState({});
   const [requests, setRequests] = useState([]);
   const [toggleLoading, setToggleLoading] = useState(false);
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTick(t => t + 1);
+    }, 30000); // Re-calculate relative time every 30 seconds
+    return () => clearInterval(timer);
+  }, []);
 
   const computeGreeting = () => {
     const hour = new Date().getHours();
@@ -629,25 +637,21 @@ export default function HomeScreen() {
     if (!dateString) return 'Just now';
     const created = new Date(dateString);
     if (isNaN(created.getTime())) return 'Just now';
-    const diffMins = Math.floor((Date.now() - created.getTime()) / 60000);
-    
-    if (diffMins < 1) return 'Just now';
+    const diffSecs = Math.floor((Date.now() - created.getTime()) / 1000);
+    if (diffSecs < 60) return 'Just now';
+    const diffMins = Math.floor(diffSecs / 60);
     if (diffMins < 60) return `${diffMins} min ago`;
     const diffHours = Math.floor(diffMins / 60);
     if (diffHours < 24) return `${diffHours} hr ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays < 7) return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
     return created.toLocaleDateString([], { month: 'short', day: 'numeric' });
   };
 
   const formatDistance = (req) => {
-    console.log('[formatDistance DEBUG] req ID:', req?._id);
-    console.log('[formatDistance DEBUG] locationPermissionGranted:', locationPermissionGranted);
-    console.log('[formatDistance DEBUG] mechanicLocation:', mechanicLocation);
-    console.log('[formatDistance DEBUG] req.distanceKm:', req?.distanceKm);
-    console.log('[formatDistance DEBUG] req.coordsMissing:', req?.coordsMissing);
-
     if (!req) return 'Distance unavailable';
     
-    if (req.coordsMissing) {
+    if (req.coordsMissing || req.distanceKm === null || req.distanceKm === undefined || isNaN(req.distanceKm) || req.distanceKm > 100) {
       return 'Location pending';
     }
 
@@ -656,13 +660,6 @@ export default function HomeScreen() {
     }
 
     const distanceKm = req.distanceKm;
-
-    if (distanceKm === undefined || distanceKm === null || isNaN(distanceKm)) {
-      return 'Distance unavailable';
-    }
-    if (distanceKm > 100) {
-      return 'Distance unavailable';
-    }
     if (distanceKm < 1) {
       const meters = Math.round(distanceKm * 1000);
       return `${meters} m away`;

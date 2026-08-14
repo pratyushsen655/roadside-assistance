@@ -79,25 +79,21 @@ router.get('/requests/pending', authMiddleware, async (req, res) => {
       let distanceKm = null;
       let coordsMissing = false;
 
-      if (mLng === 0 && mLat === 0) {
+      if ((mLng === 0 && mLat === 0) || (cLng === 0 && cLat === 0)) {
         coordsMissing = true;
-      } else if (cLng === 0 && cLat === 0) {
-        coordsMissing = true;
+        distanceKm = null;
       } else {
-        distanceKm = parseFloat(calculateHaversineDistance(mLat, mLng, cLat, cLng).toFixed(1));
+        const rawDist = parseFloat(calculateHaversineDistance(mLat, mLng, cLat, cLng).toFixed(1));
+        if (rawDist > 100) {
+          coordsMissing = true;
+          distanceKm = null;
+        } else {
+          distanceKm = rawDist;
+        }
       }
 
       console.log(`[NearbyRequests DEBUG] reqItem: ${reqItem._id}, mechanic: ${mechanic._id}`);
-      console.log(`[NearbyRequests DEBUG] mLng: ${mLng}, mLat: ${mLat}`);
-      console.log(`[NearbyRequests DEBUG] cLng: ${cLng}, cLat: ${cLat}`);
-
-      if (cLng === 0 && cLat === 0) {
-        console.warn(`[NearbyRequests] Customer location coordinates missing/null for request ${reqItem._id}`);
-        coordsMissing = true;
-      } else {
-        distanceKm = parseFloat(calculateHaversineDistance(mLat, mLng, cLat, cLng).toFixed(1));
-        console.log(`[NearbyRequests DEBUG] Calculated distanceKm: ${distanceKm}`);
-      }
+      console.log(`[NearbyRequests DEBUG] mLng: ${mLng}, mLat: ${mLat}, cLng: ${cLng}, cLat: ${cLat}, distanceKm: ${distanceKm}, coordsMissing: ${coordsMissing}`);
 
       // Determine active search radius (mechanic serviceRadius or default 50km)
       const serviceRadius = mechanic.serviceRadius || 50;

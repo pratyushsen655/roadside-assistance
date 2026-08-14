@@ -30,6 +30,21 @@ const IncomingRequestScreen = ({ route, navigation }) => {
   const effectiveNotes = requestData?.specialInstructions || requestData?.issueDescription || requestData?.description || 'Roadside breakdown assistance needed.';
   const effectivePrice = requestData?.current_price || requestData?.totalPrice || requestData?.amount || requestData?.pricing?.totalAmount || requestData?.price || requestData?.estimatedFare || 350;
 
+  const formatRelativeTime = (dateString) => {
+    if (!dateString) return 'Just now';
+    const created = new Date(dateString);
+    if (isNaN(created.getTime())) return 'Just now';
+    const diffSecs = Math.floor((Date.now() - created.getTime()) / 1000);
+    if (diffSecs < 60) return 'Just now';
+    const diffMins = Math.floor(diffSecs / 60);
+    if (diffMins < 60) return `${diffMins} min ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours} hr ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays < 7) return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
+    return created.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  };
+
   const formattedService = effectiveService ? String(effectiveService).replace(/_/g, ' ') : 'Flat/Puncture Repair';
   const formattedCustomer = effectiveCustomerName;
   const formattedPhone = effectiveCustomerPhone || '';
@@ -37,7 +52,10 @@ const IncomingRequestScreen = ({ route, navigation }) => {
   const formattedNotes = effectiveNotes;
   const formattedPrice = effectivePrice;
   const formattedAddress = effectiveAddress;
-  const formattedDistance = effectiveDistance !== null ? `${parseFloat(effectiveDistance).toFixed(1)} km away` : 'Nearby';
+  const formattedTimeAgo = formatRelativeTime(requestData?.createdAt || requestData?.timestamp);
+  const formattedDistance = (effectiveDistance !== null && effectiveDistance !== undefined && !isNaN(effectiveDistance) && effectiveDistance <= 100 && !requestData?.coordsMissing)
+    ? (effectiveDistance < 1 ? `${Math.round(effectiveDistance * 1000)} m away` : `${parseFloat(effectiveDistance).toFixed(1)} km away`)
+    : 'Location pending';
 
   console.log('[DIAG Mechanic IncomingRequestScreen]', JSON.stringify({
     jobId: effectiveRequestId,
@@ -299,7 +317,7 @@ const IncomingRequestScreen = ({ route, navigation }) => {
           <View style={styles.newRequestBadge}>
             <Text style={styles.newRequestText}>New Request</Text>
           </View>
-          <Text style={styles.timeAgoText}>2 min ago</Text>
+          <Text style={styles.timeAgoText}>{formattedTimeAgo}</Text>
         </View>
 
         {/* SERVICE TITLE & PRICE */}
