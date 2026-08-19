@@ -23,8 +23,8 @@ router.post('/send-otp', otpRateLimiter, async (req, res, next) => {
   try {
     const { phone } = req.body;
 
-    if (!phone) {
-      return res.status(400).json({ success: false, message: 'Phone number is required' });
+    if (typeof phone !== 'string' || !phone.trim()) {
+      return res.status(400).json({ success: false, message: 'Phone number must be a valid string' });
     }
 
     const normalizedPhone = normalizePhone(phone);
@@ -105,8 +105,8 @@ router.post('/verify-otp', async (req, res, next) => {
   try {
     const { phone, otp } = req.body;
 
-    if (!phone || !otp) {
-      return res.status(400).json({ success: false, message: 'Phone and OTP are required' });
+    if (typeof phone !== 'string' || !phone.trim() || (typeof otp !== 'string' && typeof otp !== 'number') || !String(otp).trim()) {
+      return res.status(400).json({ success: false, message: 'Phone and OTP must be valid non-empty string values' });
     }
 
     const normalizedPhone = normalizePhone(phone);

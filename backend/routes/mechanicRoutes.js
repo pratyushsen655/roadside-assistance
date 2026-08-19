@@ -83,7 +83,15 @@ router.get('/requests/pending', authMiddleware, async (req, res) => {
         coordsMissing = true;
         distanceKm = null;
       } else {
-        const rawDist = parseFloat(calculateHaversineDistance(mLat, mLng, cLat, cLng).toFixed(1));
+        let realMLat = mLat, realMLng = mLng, realCLat = cLat, realCLng = cLng;
+        if (realMLat >= 60 && realMLat <= 100 && realMLng >= 5 && realMLng <= 40) {
+          realMLat = mLng; realMLng = mLat;
+        }
+        if (realCLat >= 60 && realCLat <= 100 && realCLng >= 5 && realCLng <= 40) {
+          realCLat = cLng; realCLng = cLat;
+        }
+
+        const rawDist = parseFloat(calculateHaversineDistance(realMLat, realMLng, realCLat, realCLng).toFixed(1));
         if (rawDist > 100) {
           coordsMissing = true;
           distanceKm = null;
@@ -676,11 +684,13 @@ router.post('/kyc/upload', authMiddleware, (req, res) => {
 router.put('/profile', authMiddleware, async (req, res) => {
   try {
     const Mechanic = require('../models/Mechanic');
-    const { name, phone, bio, shopName, shopAddress, city, email, vehicleSpecializations, documents, preferences } = req.body;
+    const { name, phone, bio, shopName, shopAddress, city, email, vehicleSpecializations, documents, preferences, bankDetails } = req.body;
     const updateData = {};
     if (name !== undefined) updateData.name = name;
     if (phone !== undefined) updateData.phone = phone;
-    if (bio !== undefined) updateData.bio = bio;
+    if (bio !== undefined) {
+      updateData.bio = typeof bio === 'string' ? bio.replace(/<[^>]*>?/gm, '').trim() : bio;
+    }
     if (shopName !== undefined) updateData.shopName = shopName;
     if (shopAddress !== undefined) updateData.shopAddress = shopAddress;
     if (city !== undefined) updateData.city = city;
@@ -688,6 +698,7 @@ router.put('/profile', authMiddleware, async (req, res) => {
     if (vehicleSpecializations !== undefined) updateData.vehicleSpecializations = vehicleSpecializations;
     if (documents !== undefined) updateData.documents = documents;
     if (preferences !== undefined) updateData.preferences = preferences;
+    if (bankDetails !== undefined) updateData.bankDetails = bankDetails;
 
     const mechanic = await Mechanic.findOneAndUpdate(
       { $or: [{ _id: req.user.id }, { userId: req.user.id }] },
@@ -807,6 +818,7 @@ const updateBankDetails = async (req, res) => {
 
 router.patch('/bank-details', authMiddleware, updateBankDetails);
 router.put('/bank-details', authMiddleware, updateBankDetails);
+router.post('/bank-details', authMiddleware, updateBankDetails);
 
 // PUT /api/mechanic/jobs/:id/status
 router.put('/jobs/:id/status', authMiddleware, async (req, res) => {
@@ -818,6 +830,13 @@ router.put('/jobs/:id/status', authMiddleware, async (req, res) => {
     const request = await ServiceRequest.findById(req.params.id);
     if (!request) {
       return res.status(404).json({ success: false, message: 'Job not found' });
+    }
+
+    const mechanic = await Mechanic.findOne({ $or: [{ _id: req.user.id }, { userId: req.user.id }] });
+    const mechanicIdStr = mechanic ? mechanic._id.toString() : req.user.id.toString();
+
+    if (!request.mechanic || request.mechanic.toString() !== mechanicIdStr) {
+      return res.status(403).json({ success: false, message: 'Not authorized to update status for this job' });
     }
 
     request.status = status;
@@ -1033,15 +1052,23 @@ router.patch('/notifications/read-all', authMiddleware, async (req, res) => {
 router.patch('/notifications/:id/read', authMiddleware, async (req, res) => {
   try {
     const Notification = require('../models/Notification');
-    const notif = await Notification.findByIdAndUpdate(
-      req.params.id,
-      { $set: { isRead: true } },
-      { new: true }
-    );
+    const Mechanic = require('../models/Mechanic');
 
+    const notif = await Notification.findById(req.params.id);
     if (!notif) {
       return res.status(404).json({ success: false, message: 'Notification not found' });
     }
+
+    const mechanic = await Mechanic.findOne({ $or: [{ _id: req.user.id }, { userId: req.user.id }] });
+    const mechanicIdStr = mechanic ? mechanic._id.toString() : req.user.id.toString();
+    const recipientIdStr = (notif.mechanicId || notif.userId || notif.recipient)?.toString();
+
+    if (recipientIdStr && recipientIdStr !== mechanicIdStr && recipientIdStr !== req.user.id.toString()) {
+      return res.status(403).json({ success: false, message: 'Not authorized to update this notification' });
+    }
+
+    notif.isRead = true;
+    await notif.save();
 
     res.status(200).json({
       success: true,

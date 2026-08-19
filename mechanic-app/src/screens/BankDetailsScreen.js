@@ -49,11 +49,34 @@ const BankDetailsScreen = ({ navigation }) => {
       }
 
       try {
-        const response = await fetch(`${API_URL}/api/mechanic/bank-details?edit=true`, {
+        let response = await fetch(`${API_URL}/api/mechanic/bank-details?edit=true`, {
           headers: {
             Authorization: `Bearer ${mechanicToken}`
           }
         });
+
+        if (response.status === 404) {
+          // Fallback to GET /api/mechanic/profile
+          response = await fetch(`${API_URL}/api/mechanic/profile`, {
+            headers: {
+              Authorization: `Bearer ${mechanicToken}`
+            }
+          });
+          const data = await response.json();
+          if (data.success && data.mechanic && data.mechanic.bankDetails) {
+            const bd = data.mechanic.bankDetails;
+            setAccountHolderName(bd.accountHolderName || bd.accountHolder || '');
+            const accNo = bd.accountNumber || '';
+            setAccountNumber(accNo);
+            setConfirmAccountNumber(accNo);
+            setIfscCode(bd.ifscCode || '');
+            setBankName(bd.bankName || '');
+            setBranchName(bd.branchName || '');
+            setAccountType(bd.accountType || 'savings');
+          }
+          return;
+        }
+
         const data = await response.json();
 
         if (data.success && data.bankDetails) {
@@ -151,24 +174,41 @@ const BankDetailsScreen = ({ navigation }) => {
     }
 
     setSubmitting(true);
+    const payload = {
+      accountHolderName: accountHolderName.trim(),
+      accountNumber: accountNumber.trim(),
+      ifscCode: ifscCode.trim().toUpperCase(),
+      bankName: bankName.trim(),
+      branchName: branchName.trim(),
+      accountType: accountType
+    };
+
     try {
-      const response = await fetch(`${API_URL}/api/mechanic/bank-details`, {
-        method: 'PATCH',
+      let response = await fetch(`${API_URL}/api/mechanic/bank-details`, {
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${mechanicToken}`
         },
-        body: JSON.stringify({
-          accountHolderName: accountHolderName.trim(),
-          accountNumber: accountNumber.trim(),
-          ifscCode: ifscCode.trim().toUpperCase(),
-          bankName: bankName.trim(),
-          branchName: branchName.trim(),
-          accountType: accountType
-        })
+        body: JSON.stringify(payload)
       });
 
-      const data = await response.json();
+      let data = await response.json();
+
+      // If dedicated bank-details endpoint returns 404 (e.g. on deployed Railway server),
+      // fallback seamlessly to PUT /api/mechanic/profile
+      if (response.status === 404) {
+        console.log('[BankDetailsScreen] /api/mechanic/bank-details returned 404. Falling back to PUT /api/mechanic/profile...');
+        response = await fetch(`${API_URL}/api/mechanic/profile`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${mechanicToken}`
+          },
+          body: JSON.stringify({ bankDetails: payload })
+        });
+        data = await response.json();
+      }
 
       if (response.ok && data.success) {
         Alert.alert('Success', 'Bank payout details saved successfully!', [

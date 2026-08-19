@@ -17,20 +17,33 @@ try {
       const price = data.price ? `₹${data.price}` : '';
       const vehicleType = data.vehicleType || 'Breakdown';
 
+      // Trigger audio playback for incoming call alert in background
+      try {
+        const { playIncomingRequestSound } = require('./src/services/soundService');
+        await playIncomingRequestSound();
+      } catch (soundErr) {
+        console.log('[FCM Background] soundService play error:', soundErr?.message);
+      }
+
       // Create high-importance CALL notification channel with custom raw alert sound
-      let channelId = 'incoming_job_channel_v2';
+      let channelId = 'incoming_job_channel_v3';
       try {
         channelId = await notifee.createChannel({
-          id: 'incoming_job_channel_v2',
+          id: 'incoming_job_channel_v3',
           name: 'Incoming Job Requests',
           importance: AndroidImportance.HIGH,
           visibility: AndroidVisibility.PUBLIC,
           sound: 'incoming_request_alert',
           vibration: true,
+          vibrationPattern: [300, 500, 300, 500],
+          lights: true,
+          lightColor: '#FF6B00',
+          bypassDnd: true,
         });
         console.log('[Notifee Background] Channel created/verified:', channelId);
       } catch (channelErr) {
         console.error('[Notifee Background Error] Failed to create channel:', channelErr);
+        channelId = 'incoming_job_channel_v2';
       }
 
       const notificationPayload = {
@@ -46,9 +59,10 @@ try {
         },
       };
 
-      // Attempt 1: Full-Screen Action Notification (Lock-screen / auto-launch)
+      // Attempt 1: Full-Screen Action Notification with Screen Wake (Lock-screen / call launch)
       try {
-        console.log('[Notifee Background] Attempting displayNotification with fullScreenAction...');
+        console.log('[NOTIFEE_TRACE] [Attempt 1] About to call displayNotification with fullScreenAction & wakeScreen...');
+        console.log('[NOTIFEE_TRACE] [Attempt 1] Payload:', JSON.stringify(notificationPayload));
         const notifId = await notifee.displayNotification({
           id: jobId,
           ...notificationPayload,
@@ -64,20 +78,23 @@ try {
               id: 'default',
               launchActivity: 'default',
             },
+            wakeScreen: true, // Wakes up locked / dark screen
             ongoing: true,
             autoCancel: false,
             loopSound: true,
             sound: 'incoming_request_alert',
+            vibrationPattern: [300, 500, 300, 500],
             timeoutAfter: 35000, // 35 seconds auto-timeout
           },
         });
-        console.log('[Notifee Background SUCCESS] Notification with fullScreenAction displayed, ID:', notifId);
+        console.log('[NOTIFEE_TRACE] [Attempt 1 SUCCESS] displayNotification resolved, ID:', notifId);
       } catch (primaryErr) {
-        console.error('[Notifee Background ERROR] Primary displayNotification with fullScreenAction failed:', primaryErr?.message || primaryErr, primaryErr);
+        console.error('[NOTIFEE_TRACE] [Attempt 1 FAILED] Message:', primaryErr?.message || String(primaryErr));
+        console.error('[NOTIFEE_TRACE] [Attempt 1 FAILED] Stack:', primaryErr?.stack);
         
-        // Attempt 2: Fallback Heads-Up Banner Notification without fullScreenAction
+        // Attempt 2: Fallback Heads-Up Banner Notification with wakeScreen
         try {
-          console.log('[Notifee Background] Attempting FALLBACK displayNotification without fullScreenAction...');
+          console.log('[NOTIFEE_TRACE] [Attempt 2] About to call FALLBACK displayNotification...');
           const fallbackId = await notifee.displayNotification({
             id: jobId,
             ...notificationPayload,
@@ -89,16 +106,19 @@ try {
                 id: 'default',
                 launchActivity: 'default',
               },
+              wakeScreen: true, // Wakes up locked / dark screen
               ongoing: true,
               autoCancel: false,
               loopSound: true,
               sound: 'incoming_request_alert',
+              vibrationPattern: [300, 500, 300, 500],
               timeoutAfter: 35000,
             },
           });
-          console.log('[Notifee Background FALLBACK SUCCESS] Fallback heads-up notification displayed, ID:', fallbackId);
+          console.log('[NOTIFEE_TRACE] [Attempt 2 SUCCESS] Fallback displayNotification resolved, ID:', fallbackId);
         } catch (fallbackErr) {
-          console.error('[Notifee Background CRITICAL ERROR] Fallback notification display also failed:', fallbackErr?.message || fallbackErr, fallbackErr);
+          console.error('[NOTIFEE_TRACE] [Attempt 2 FAILED] Message:', fallbackErr?.message || String(fallbackErr));
+          console.error('[NOTIFEE_TRACE] [Attempt 2 FAILED] Stack:', fallbackErr?.stack);
         }
       }
     }
@@ -107,7 +127,11 @@ try {
   notifee.onBackgroundEvent(async ({ type, detail }) => {
     const { EventType } = require('@notifee/react-native');
     console.log('[Notifee Background Event]', type, detail);
-    if (type === EventType.PRESS || type === EventType.ACTION_PRESS) {
+    if (type === EventType.PRESS || type === EventType.ACTION_PRESS || type === EventType.DISMISSED) {
+      try {
+        const { stopIncomingRequestSound } = require('./src/services/soundService');
+        await stopIncomingRequestSound();
+      } catch (e) {}
       if (detail.notification?.id) {
         await notifee.cancelNotification(detail.notification.id);
       }

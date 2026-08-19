@@ -7,6 +7,9 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { AuthContext } from '../context/AuthContext';
 import { getSocket } from '../config/socket';
 
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Platform } from 'react-native';
+
 // Inline API URL fallback
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://roadside-assistance-production-ddaf.up.railway.app';
 
@@ -110,6 +113,8 @@ const OTPDisplay = ({ otp }) => {
 };
 
 export default function RequestAcceptedScreen() {
+  const insets = useSafeAreaInsets();
+  const topInset = Platform.OS === 'android' ? Math.max(insets.top, 24) : insets.top;
   const navigation = useNavigation();
   const route = useRoute();
   const { requestId } = route.params || {};
@@ -449,7 +454,7 @@ export default function RequestAcceptedScreen() {
   return (
     <View style={styles.container}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: topInset + 10 }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerIconBtn}>
           <Ionicons name="chevron-back" size={24} color="#1F2937" />
         </TouchableOpacity>

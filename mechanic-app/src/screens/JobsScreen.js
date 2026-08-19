@@ -61,17 +61,30 @@ const JobsScreen = ({ navigation }) => {
     }
   }, [mechanicToken]);
 
-  const getTimeAgo = (dateString) => {
-    if (!dateString) return 'Just now';
-    const created = new Date(dateString);
-    if (isNaN(created.getTime())) return 'Just now';
-    const diffMins = Math.floor((Date.now() - created.getTime()) / 60000);
-    
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins} min ago`;
+  const getTimeAgo = (dateInput) => {
+    if (!dateInput) {
+      return new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+    }
+    const dateObj = new Date(dateInput);
+    if (isNaN(dateObj.getTime())) {
+      return new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+    }
+
+    const timeStr = dateObj.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+    const diffSecs = Math.max(0, Math.floor((Date.now() - dateObj.getTime()) / 1000));
+
+    if (diffSecs < 60) {
+      return `${timeStr} (${diffSecs}s ago)`;
+    }
+    const diffMins = Math.floor(diffSecs / 60);
+    if (diffMins < 60) {
+      return `${timeStr} (${diffMins}m ago)`;
+    }
     const diffHours = Math.floor(diffMins / 60);
-    if (diffHours < 24) return `${diffHours} hr ago`;
-    return created.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    if (diffHours < 24) {
+      return `${timeStr} (${diffHours}h ago)`;
+    }
+    return dateObj.toLocaleDateString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
   };
 
   const combinedNewList = React.useMemo(() => {
@@ -166,7 +179,7 @@ const JobsScreen = ({ navigation }) => {
                   <View style={styles.jobContentCol}>
                     <View style={styles.jobRowTop}>
                       <Text style={styles.jobItemTitle}>{job.serviceType || job.issueType || 'Job Request'}</Text>
-                      <Text style={styles.jobTimeText}>{getTimeAgo(job.createdAt)}</Text>
+                      <Text style={styles.jobTimeText}>{getTimeAgo(job.createdAt || job.created_at || job.timestamp || job.time || job.date)}</Text>
                     </View>
 
                     <View style={styles.jobRowBottom}>

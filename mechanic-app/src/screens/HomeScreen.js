@@ -633,38 +633,69 @@ export default function HomeScreen() {
     };
   }, [isOnline, mechanicToken]);
 
-  const getTimeAgo = (dateString) => {
-    if (!dateString) return 'Just now';
-    const created = new Date(dateString);
-    if (isNaN(created.getTime())) return 'Just now';
-    const diffSecs = Math.floor((Date.now() - created.getTime()) / 1000);
-    if (diffSecs < 60) return 'Just now';
+  const getTimeAgo = (dateInput) => {
+    if (!dateInput) {
+      return new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+    }
+    const dateObj = new Date(dateInput);
+    if (isNaN(dateObj.getTime())) {
+      return new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+    }
+
+    const timeStr = dateObj.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+    const diffSecs = Math.max(0, Math.floor((Date.now() - dateObj.getTime()) / 1000));
+
+    if (diffSecs < 60) {
+      return `${timeStr} (${diffSecs}s ago)`;
+    }
     const diffMins = Math.floor(diffSecs / 60);
-    if (diffMins < 60) return `${diffMins} min ago`;
+    if (diffMins < 60) {
+      return `${timeStr} (${diffMins}m ago)`;
+    }
     const diffHours = Math.floor(diffMins / 60);
-    if (diffHours < 24) return `${diffHours} hr ago`;
-    const diffDays = Math.floor(diffHours / 24);
-    if (diffDays < 7) return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
-    return created.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    if (diffHours < 24) {
+      return `${timeStr} (${diffHours}h ago)`;
+    }
+    return dateObj.toLocaleDateString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
   };
 
   const formatDistance = (req) => {
-    if (!req) return 'Distance unavailable';
+    if (!req) return 'Location provided';
     
-    if (req.coordsMissing || req.distanceKm === null || req.distanceKm === undefined || isNaN(req.distanceKm) || req.distanceKm > 100) {
-      return 'Location pending';
+    // Live Haversine calculation if mechanicLocation and customer location exist
+    let liveDist = null;
+    let rawCoords = req.customerLocation?.coordinates || req.location?.coordinates;
+    if (mechanicLocation?.latitude && mechanicLocation?.longitude && Array.isArray(rawCoords) && rawCoords.length >= 2) {
+      let c0 = Number(rawCoords[0]);
+      let c1 = Number(rawCoords[1]);
+      let cLat = c1, cLng = c0;
+      if (c0 >= 5 && c0 <= 40 && c1 >= 60 && c1 <= 100) {
+        cLat = c0; cLng = c1; // swapped
+      }
+      const R = 6371;
+      const dLat = (cLat - mechanicLocation.latitude) * Math.PI / 180;
+      const dLon = (cLng - mechanicLocation.longitude) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(mechanicLocation.latitude * Math.PI / 180) * Math.cos(cLat * Math.PI / 180) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      const dist = R * c;
+      if (!isNaN(dist) && dist <= 100) {
+        liveDist = dist;
+      }
     }
 
-    if (!locationPermissionGranted || !mechanicLocation) {
-      return 'Enable location to see distance';
+    const distToUse = liveDist !== null ? liveDist : (req.distanceKm !== null && req.distanceKm !== undefined && !isNaN(req.distanceKm) && Number(req.distanceKm) <= 100 ? Number(req.distanceKm) : null);
+
+    if (distToUse === null) {
+      return 'Location provided';
     }
 
-    const distanceKm = req.distanceKm;
-    if (distanceKm < 1) {
-      const meters = Math.round(distanceKm * 1000);
+    if (distToUse < 1) {
+      const meters = Math.round(distToUse * 1000);
       return `${meters} m away`;
     }
-    return `${distanceKm.toFixed(1)} km away`;
+    return `${distToUse.toFixed(1)} km away`;
   };
 
   const handleRequestLocationPermission = async () => {
@@ -707,6 +738,23 @@ export default function HomeScreen() {
       return;
     }
     acceptInProgress.current[id] = true;
+
+    // Immediately stop ringing audio, vibration & cancel notifications
+    try {
+      const { stopIncomingRequestSound } = require('../services/soundService');
+      await stopIncomingRequestSound();
+    } catch (e) {}
+    try {
+      const { Vibration } = require('react-native');
+      Vibration.cancel();
+    } catch (e) {}
+    try {
+      const notifee = require('@notifee/react-native').default;
+      if (notifee && typeof notifee.cancelAllNotifications === 'function') {
+        await notifee.cancelAllNotifications();
+      }
+    } catch (e) {}
+
     if (isMounted.current) {
       setAcceptLoading(prev => ({ ...prev, [id]: true }));
     }
@@ -782,6 +830,22 @@ export default function HomeScreen() {
   };
 
   const handleRejectRequest = async (id) => {
+    // Immediately stop ringing audio, vibration & cancel notifications
+    try {
+      const { stopIncomingRequestSound } = require('../services/soundService');
+      await stopIncomingRequestSound();
+    } catch (e) {}
+    try {
+      const { Vibration } = require('react-native');
+      Vibration.cancel();
+    } catch (e) {}
+    try {
+      const notifee = require('@notifee/react-native').default;
+      if (notifee && typeof notifee.cancelAllNotifications === 'function') {
+        await notifee.cancelAllNotifications();
+      }
+    } catch (e) {}
+
     try {
       const response = await fetch(`${API_URL}/api/mechanic/requests/${id}/reject`, {
         method: 'PUT',
@@ -930,7 +994,7 @@ export default function HomeScreen() {
                   <View style={styles.newBadge}>
                     <Text style={styles.newBadgeText}>INCOMING REQUEST</Text>
                   </View>
-                  <Text style={styles.jobTimeText}>{getTimeAgo(req.createdAt || req.timestamp)}</Text>
+                  <Text style={styles.jobTimeText}>{getTimeAgo(req.createdAt || req.created_at || req.timestamp || req.time || req.date)}</Text>
                 </View>
 
                 <Text style={styles.jobTitle}>{String(formattedService).replace(/_/g, ' ')}</Text>

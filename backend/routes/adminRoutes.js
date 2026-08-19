@@ -320,29 +320,36 @@ router.get('/mechanics', async (req, res) => {
         };
       });
 
-      return {
-        _id: mech._id.toString(),
-        name: mech.name || 'Mechanic',
-        phone: mech.phone,
-        rating: mech.rating || mech.averageRating || 5.0,
-        totalJobs: jobCount,
-        earnings: mech.earnings || 0,
-        isOnline: mech.isOnline || false,
-        isVerified: mech.isVerified || false,
-        isBlocked: mech.isBlocked || false,
-        bio: mech.bio || '',
-        experience: mech.experience || 0,
-        vehicleSpecializations: mech.vehicleSpecializations || [],
-        documents: mech.documents || {},
-        kyc: {
-          status: mech.kyc?.status || (mech.kyc?.docUrl || mech.documents?.identityProof || mech.documents?.licenseImage ? 'pending' : 'unsubmitted'),
-          docType: mech.kyc?.docType || (mech.documents?.identityProof ? 'Identity Proof' : mech.documents?.licenseImage ? 'Driving License' : ''),
-          docUrl: mech.kyc?.docUrl || mech.documents?.identityProof || mech.documents?.licenseImage || (mech.documents?.certificationImages && mech.documents.certificationImages[0]) || '',
-          rejectionReason: mech.kyc?.rejectionReason || '',
-        },
-        history: mappedHistory
-      };
-    }));
+        const idProofUrl = typeof mech.documents?.identityProof === 'object' ? (mech.documents?.identityProof?.url || '') : (mech.documents?.identityProof || '');
+        const licenseUrl = typeof mech.documents?.licenseImage === 'object' ? (mech.documents?.licenseImage?.url || '') : (mech.documents?.licenseImage || '');
+        const certUrl = Array.isArray(mech.documents?.certificationImages) && mech.documents.certificationImages.length > 0
+          ? (typeof mech.documents.certificationImages[0] === 'object' ? (mech.documents.certificationImages[0]?.url || '') : mech.documents.certificationImages[0])
+          : '';
+        const legacyDocUrl = idProofUrl || licenseUrl || certUrl || '';
+
+        return {
+          _id: mech._id.toString(),
+          name: mech.name || 'Mechanic',
+          phone: mech.phone,
+          rating: mech.rating || mech.averageRating || 5.0,
+          totalJobs: jobCount,
+          earnings: mech.earnings || 0,
+          isOnline: mech.isOnline || false,
+          isVerified: mech.isVerified || false,
+          isBlocked: mech.isBlocked || false,
+          bio: mech.bio || '',
+          experience: mech.experience || 0,
+          vehicleSpecializations: mech.vehicleSpecializations || [],
+          documents: mech.documents || {},
+          kyc: {
+            status: mech.kyc?.status || (mech.kyc?.docUrl || legacyDocUrl ? 'pending' : 'unsubmitted'),
+            docType: mech.kyc?.docType || (idProofUrl ? 'Identity Proof' : licenseUrl ? 'Driving License' : legacyDocUrl ? 'Registration Document' : ''),
+            docUrl: mech.kyc?.docUrl || legacyDocUrl,
+            rejectionReason: mech.kyc?.rejectionReason || '',
+          },
+          history: mappedHistory
+        };
+      }));
 
     res.status(200).json({ success: true, mechanics: mechanicsWithJobs });
   } catch (error) {

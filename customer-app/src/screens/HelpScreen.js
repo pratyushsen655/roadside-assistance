@@ -9,15 +9,20 @@ import { theme } from '../constants/theme';
 import { useTranslation } from 'react-i18next';
 import GlobalBottomNav from '../components/GlobalBottomNav';
 
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Platform } from 'react-native';
+
 const { width } = Dimensions.get('window');
 
 export default function HelpScreen({ navigation }) {
   const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
+  const topInset = Platform.OS === 'android' ? Math.max(insets.top, 24) : insets.top;
 
   return (
     <View style={styles.container}>
       {/* 1. White Top Header Section */}
-      <View style={styles.topSection}>
+      <View style={[styles.topSection, { paddingTop: topInset + 10 }]}>
         <Animated.Text entering={FadeInUp.delay(100).duration(400)} style={styles.pageTitle}>
           {t('screens.help', 'Help & Support')}
         </Animated.Text>

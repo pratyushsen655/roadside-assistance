@@ -5,6 +5,7 @@ import { getSocket } from '../config/socket';
 import API_URL from '../config/api';
 import { Ionicons } from '@expo/vector-icons';
 import { playIncomingRequestSound, stopIncomingRequestSound } from '../services/soundService';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
 
 console.log('[BUILD CHECK] IncomingRequestScreen fix v2 loaded | Timestamp:', new Date().toISOString());
@@ -12,37 +13,94 @@ console.log('[BUILD CHECK] IncomingRequestScreen fix v2 loaded | Timestamp:', ne
 const { RingingModule } = NativeModules;
 
 const IncomingRequestScreen = ({ route, navigation }) => {
+  const insets = useSafeAreaInsets();
+  const topInset = Platform.OS === 'android' ? Math.max(insets.top, 24) : insets.top;
+  const bottomInset = Platform.OS === 'android' ? Math.max(insets.bottom, 20) : insets.bottom;
   const { theme, isDark } = useTheme();
-  const { mechanicToken, mechanic, pendingRequests, removePendingRequest } = useContext(AuthContext);
-  const requestData = route.params?.requestData || (pendingRequests && pendingRequests.length > 0 ? pendingRequests[0] : null);
+  const { mechanicToken, mechanic, mechanicLocation, pendingRequests, removePendingRequest } = useContext(AuthContext);
+  const requestData = route.params?.requestData || route.params;
+  const [fetchedRequest, setFetchedRequest] = useState(null);
+  const activeData = fetchedRequest || requestData;
 
   const [timeLeft, setTimeLeft] = useState(20);
   const timerRef = useRef(null);
   const actionTakenRef = useRef(false);
 
-  const effectiveRequestId = requestData?.requestId || requestData?._id || route.params?.requestId;
-  const effectiveCustomerName = requestData?.customerName || requestData?.customer?.name || 'Customer';
-  const effectiveCustomerPhone = requestData?.customerPhone || requestData?.customer?.phone || '';
-  const effectiveAddress = requestData?.customerAddress || requestData?.location || 'Customer Location';
-  const effectiveDistance = requestData?.distanceKm !== undefined ? requestData.distanceKm : null;
-  const effectiveService = requestData?.serviceType || requestData?.issueType || requestData?.issueDescription || 'Breakdown Assistance';
-  const effectiveVehicle = requestData?.vehicleModel || requestData?.vehicleType || 'Vehicle';
-  const effectiveNotes = requestData?.specialInstructions || requestData?.issueDescription || requestData?.description || 'Roadside breakdown assistance needed.';
-  const effectivePrice = requestData?.current_price || requestData?.totalPrice || requestData?.amount || requestData?.pricing?.totalAmount || requestData?.price || requestData?.estimatedFare || 350;
+  const effectiveRequestId = activeData?.requestId || activeData?._id || route.params?.requestId;
+  const effectiveCustomerName = activeData?.customerName || activeData?.customer?.name || 'Customer';
+  const effectiveCustomerPhone = activeData?.customerPhone || activeData?.customer?.phone || '';
+  const effectiveAddress = activeData?.customerAddress || activeData?.location || 'Customer Location';
+  const effectiveDistance = activeData?.distanceKm !== undefined ? activeData.distanceKm : null;
+  const effectiveService = activeData?.serviceType || activeData?.issueType || activeData?.issueDescription || 'Breakdown Assistance';
+  const effectiveVehicle = activeData?.vehicleModel || activeData?.vehicleType || 'Vehicle';
+  const effectiveNotes = activeData?.specialInstructions || activeData?.issueDescription || activeData?.description || 'Roadside breakdown assistance needed.';
+  const effectivePrice = activeData?.current_price || activeData?.totalPrice || activeData?.amount || activeData?.pricing?.totalAmount || activeData?.price || activeData?.estimatedFare || 350;
 
-  const formatRelativeTime = (dateString) => {
-    if (!dateString) return 'Just now';
-    const created = new Date(dateString);
-    if (isNaN(created.getTime())) return 'Just now';
-    const diffSecs = Math.floor((Date.now() - created.getTime()) / 1000);
-    if (diffSecs < 60) return 'Just now';
+  const calculateHaversineDistance = (lat1, lon1, lat2, lon2) => {
+    if (lat1 == null || lon1 == null || lat2 == null || lon2 == null || isNaN(lat1) || isNaN(lon1) || isNaN(lat2) || isNaN(lon2)) return null;
+    const R = 6371; // Earth radius in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
+
+  const getCustomerCoords = (data) => {
+    if (!data) return null;
+    let rawCoords = data.customerLocation?.coordinates || data.location?.coordinates;
+    if (Array.isArray(rawCoords) && rawCoords.length >= 2) {
+      let c0 = Number(rawCoords[0]);
+      let c1 = Number(rawCoords[1]);
+      if (!isNaN(c0) && !isNaN(c1)) {
+        if (c1 >= -90 && c1 <= 90 && c0 >= -180 && c0 <= 180) {
+          // If c0 looks like India Latitude (8..37) and c1 looks like Longitude (68..97), swap them
+          if (c0 >= 5 && c0 <= 40 && c1 >= 60 && c1 <= 100) {
+            return { latitude: c0, longitude: c1 };
+          }
+          return { latitude: c1, longitude: c0 };
+        }
+      }
+    }
+    if (data.customerLocation?.latitude && data.customerLocation?.longitude) {
+      return { latitude: Number(data.customerLocation.latitude), longitude: Number(data.customerLocation.longitude) };
+    }
+    if (data.lat !== undefined && data.lng !== undefined) {
+      return { latitude: Number(data.lat), longitude: Number(data.lng) };
+    }
+    if (data.latitude !== undefined && data.longitude !== undefined) {
+      return { latitude: Number(data.latitude), longitude: Number(data.longitude) };
+    }
+    return null;
+  };
+
+  const formatRelativeTime = (dateInput) => {
+    if (!dateInput) {
+      return new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+    }
+    const dateObj = new Date(dateInput);
+    if (isNaN(dateObj.getTime())) {
+      return new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+    }
+
+    const timeStr = dateObj.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+    const diffSecs = Math.max(0, Math.floor((Date.now() - dateObj.getTime()) / 1000));
+
+    if (diffSecs < 60) {
+      return `${timeStr} (${diffSecs}s ago)`;
+    }
     const diffMins = Math.floor(diffSecs / 60);
-    if (diffMins < 60) return `${diffMins} min ago`;
+    if (diffMins < 60) {
+      return `${timeStr} (${diffMins}m ago)`;
+    }
     const diffHours = Math.floor(diffMins / 60);
-    if (diffHours < 24) return `${diffHours} hr ago`;
-    const diffDays = Math.floor(diffHours / 24);
-    if (diffDays < 7) return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
-    return created.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    if (diffHours < 24) {
+      return `${timeStr} (${diffHours}h ago)`;
+    }
+    return dateObj.toLocaleDateString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
   };
 
   const formattedService = effectiveService ? String(effectiveService).replace(/_/g, ' ') : 'Flat/Puncture Repair';
@@ -52,10 +110,30 @@ const IncomingRequestScreen = ({ route, navigation }) => {
   const formattedNotes = effectiveNotes;
   const formattedPrice = effectivePrice;
   const formattedAddress = effectiveAddress;
-  const formattedTimeAgo = formatRelativeTime(requestData?.createdAt || requestData?.timestamp);
-  const formattedDistance = (effectiveDistance !== null && effectiveDistance !== undefined && !isNaN(effectiveDistance) && effectiveDistance <= 100 && !requestData?.coordsMissing)
-    ? (effectiveDistance < 1 ? `${Math.round(effectiveDistance * 1000)} m away` : `${parseFloat(effectiveDistance).toFixed(1)} km away`)
-    : 'Location pending';
+  const formattedTimeAgo = formatRelativeTime(requestData?.createdAt || requestData?.created_at || requestData?.timestamp || activeData?.createdAt || activeData?.created_at || activeData?.timestamp);
+
+  const custCoords = getCustomerCoords(activeData) || getCustomerCoords(requestData);
+  let liveDistanceKm = null;
+  if (mechanicLocation?.latitude && mechanicLocation?.longitude && custCoords?.latitude && custCoords?.longitude) {
+    const rawHaversine = calculateHaversineDistance(
+      mechanicLocation.latitude,
+      mechanicLocation.longitude,
+      custCoords.latitude,
+      custCoords.longitude
+    );
+    if (rawHaversine !== null && !isNaN(rawHaversine) && rawHaversine <= 100) {
+      liveDistanceKm = rawHaversine;
+    }
+  }
+
+  const parsedEffDist = (effectiveDistance !== null && effectiveDistance !== undefined && !isNaN(effectiveDistance) && Number(effectiveDistance) <= 100)
+    ? Number(effectiveDistance)
+    : null;
+  const finalDistVal = liveDistanceKm !== null ? liveDistanceKm : parsedEffDist;
+
+  const formattedDistance = (finalDistVal !== null && finalDistVal !== undefined && !isNaN(finalDistVal) && finalDistVal <= 100)
+    ? (finalDistVal < 1 ? `${Math.round(finalDistVal * 1000)} m away` : `${parseFloat(finalDistVal).toFixed(1)} km away`)
+    : 'Location provided';
 
   console.log('[DIAG Mechanic IncomingRequestScreen]', JSON.stringify({
     jobId: effectiveRequestId,
@@ -75,10 +153,12 @@ const IncomingRequestScreen = ({ route, navigation }) => {
     }
 
     try {
+      Vibration.cancel();
+    } catch (e) {}
+
+    try {
       if (Platform.OS === 'android' && RingingModule && typeof RingingModule.stopRinging === 'function') {
         RingingModule.stopRinging();
-      } else {
-        Vibration.cancel();
       }
     } catch (e) {
       console.log('[IncomingRequestScreen] RingingModule stop error:', e.message);
@@ -93,11 +173,33 @@ const IncomingRequestScreen = ({ route, navigation }) => {
         if (typeof notifee.cancelAllNotifications === 'function') {
           await notifee.cancelAllNotifications();
         }
+        if (typeof notifee.stopForegroundService === 'function') {
+          await notifee.stopForegroundService();
+        }
       }
     } catch (e) {
       console.log('[IncomingRequestScreen] Notifee cancel error:', e.message);
     }
   };
+
+  useEffect(() => {
+    if (!effectiveRequestId || !mechanicToken) return;
+    const fetchDetails = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/requests/${effectiveRequestId}`, {
+          headers: { Authorization: `Bearer ${mechanicToken}` }
+        });
+        const data = await res.json();
+        if (data.success && data.request) {
+          console.log('[IncomingRequestScreen] Fetched full request details from API:', data.request._id);
+          setFetchedRequest(data.request);
+        }
+      } catch (err) {
+        console.log('[IncomingRequestScreen] Error fetching details:', err.message);
+      }
+    };
+    fetchDetails();
+  }, [effectiveRequestId, mechanicToken]);
 
   useEffect(() => {
     if (!mechanicToken || !effectiveRequestId) {
@@ -303,7 +405,7 @@ const IncomingRequestScreen = ({ route, navigation }) => {
     return (
       <View style={[styles.container, { backgroundColor: theme.background }]}>
         {/* 1. DEEP INDIGO HEADER */}
-        <View style={[styles.header, { backgroundColor: theme.headerBg }]}>
+        <View style={[styles.header, { backgroundColor: theme.headerBg, paddingTop: topInset + 8 }]}>
           <TouchableOpacity style={styles.backBtn} onPress={handleDecline}>
             <Ionicons name="arrow-back" size={22} color="#FFFFFF" />
           </TouchableOpacity>
@@ -311,7 +413,7 @@ const IncomingRequestScreen = ({ route, navigation }) => {
           <View style={{ width: 36 }} />
         </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: bottomInset + 110 }]} showsVerticalScrollIndicator={false}>
         {/* BADGE & TIME */}
         <View style={styles.badgeRow}>
           <View style={styles.newRequestBadge}>
@@ -399,7 +501,7 @@ const IncomingRequestScreen = ({ route, navigation }) => {
       </ScrollView>
 
       {/* BOTTOM ACTION BAR */}
-      <View style={styles.bottomBar}>
+      <View style={[styles.bottomBar, { paddingBottom: Math.max(bottomInset + 8, 16) }]}>
         <View style={styles.buttonRow}>
           <TouchableOpacity style={styles.rejectBtn} onPress={handleDecline}>
             <Text style={styles.rejectBtnText}>Reject</Text>

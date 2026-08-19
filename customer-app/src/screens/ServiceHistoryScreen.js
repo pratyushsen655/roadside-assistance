@@ -126,6 +126,23 @@ export default function ServiceHistoryScreen({ navigation }) {
           </View>
         ) : (
           <View style={styles.actionButtonsContainer}>
+            {isCompleted && !isPaid && (
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.payUpiBtn]}
+                onPress={(e) => {
+                  e?.stopPropagation?.();
+                  navigation.navigate('Payment', {
+                    jobId: item.id,
+                    mechanicName: item.mechanicName,
+                    serviceType: item.serviceType,
+                    amount: item.amount
+                  });
+                }}
+              >
+                <Text style={styles.payUpiBtnText}>📲 Pay via UPI</Text>
+              </TouchableOpacity>
+            )}
+
             {isCompleted && isPaid && (
               <TouchableOpacity
                 style={[styles.actionBtn, styles.invoiceBtn]}
@@ -355,6 +372,16 @@ const styles = StyleSheet.create({
     marginBottom: 5,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  payUpiBtn: {
+    backgroundColor: '#FEE2E2',
+    borderWidth: 1,
+    borderColor: '#E8192C',
+  },
+  payUpiBtnText: {
+    color: '#E8192C',
+    fontWeight: 'bold',
+    fontSize: 13,
   },
   invoiceBtn: {
     backgroundColor: '#E0F2F1',

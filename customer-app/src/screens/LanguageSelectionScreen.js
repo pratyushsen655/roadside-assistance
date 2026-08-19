@@ -14,6 +14,9 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useLanguage, SUPPORTED_LANGUAGES } from '../context/LanguageContext';
 
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Platform } from 'react-native';
+
 const { width, height } = Dimensions.get('window');
 
 // ─── Sparkle Icon Component ────────────────────────────────────────────────
@@ -123,6 +126,9 @@ const DecorativeBubbles = () => {
 
 // ─── Main Screen ───────────────────────────────────────────────────────────
 export default function LanguageSelectionScreen({ navigation, route }) {
+  const insets = useSafeAreaInsets();
+  const topInset = Platform.OS === 'android' ? Math.max(insets.top, 24) : insets.top;
+  const bottomInset = Platform.OS === 'android' ? Math.max(insets.bottom, 20) : insets.bottom;
   const { setLanguage, language: currentLanguage } = useLanguage();
   const [selectedCode, setSelectedCode] = useState(currentLanguage || null);
   const fromSettings = route?.params?.fromSettings === true;
@@ -198,7 +204,7 @@ export default function LanguageSelectionScreen({ navigation, route }) {
 
         {/* Help Pill */}
         <TouchableOpacity
-          style={styles.helpPill}
+          style={[styles.helpPill, { top: topInset + 12 }]}
           onPress={handleHelp}
           activeOpacity={0.8}
           accessibilityLabel="Help"
@@ -250,7 +256,7 @@ export default function LanguageSelectionScreen({ navigation, route }) {
         </ScrollView>
 
         {/* Confirm Button */}
-        <View style={styles.confirmContainer}>
+        <View style={[styles.confirmContainer, { paddingBottom: Math.max(bottomInset + 16, 24) }]}>
           <TouchableOpacity
             style={[
               styles.confirmBtn,

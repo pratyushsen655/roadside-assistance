@@ -17,6 +17,8 @@ import Constants from 'expo-constants';
 import ErrorBoundary from './src/components/ErrorBoundary';
 import OfflineBanner from './src/components/OfflineBanner';
 
+import { checkAndStoreInitialNotification, startPollingForReadyNavigation, navigatePendingInitialTarget } from './src/utils/initialNotificationHandler';
+
 export const navigationRef = createNavigationContainerRef();
 
 // Detect if running inside Expo Go (SDK 53+ removed push notification support from Expo Go)
@@ -73,11 +75,15 @@ export default function App() {
     try {
       const notifee = require('@notifee/react-native').default;
       const { EventType, AndroidImportance, AndroidVisibility } = require('@notifee/react-native');
+      const { Platform } = require('react-native');
+
+      console.log('[DEVICE_DIAG] Platform OS:', Platform.OS, '| API Level (Version):', Platform.Version, '| Constants:', JSON.stringify(Platform.constants || {}));
 
       // Explicitly request notification permissions (required for Android 13+ / API 33+)
       notifee.requestPermission()
         .then(settings => {
           console.log('[Notifee Startup] Authorization status:', settings.authorizationStatus);
+          console.log('[Notifee Startup FULL SETTINGS]:', JSON.stringify(settings));
         })
         .catch(err => {
           console.log('[Notifee Startup Error] Request permission failed:', err?.message);
@@ -98,35 +104,33 @@ export default function App() {
       // Query detailed settings
       notifee.getNotificationSettings()
         .then(settings => {
-          console.log('[Notifee Startup] Current Notification Settings:', JSON.stringify(settings));
+          console.log('[NOTIFEE_SETTINGS_FULL]', JSON.stringify(settings, null, 2));
         })
         .catch(err => {
           console.log('[Notifee Startup Error] Get notification settings failed:', err?.message);
         });
 
-      // Create notification channel once on startup
+      // Create notification channel once on startup & inspect OS status
       notifee.createChannel({
-        id: 'incoming_job_channel_v2',
-        name: 'Incoming Job Requests',
+        id: 'incoming_job_channel_v3',
+        name: 'Incoming Job Requests v3',
         importance: AndroidImportance.HIGH,
         visibility: AndroidVisibility.PUBLIC,
         sound: 'incoming_request_alert',
         vibration: true,
+      }).then(() => {
+        notifee.getChannel('incoming_job_channel_v3').then(ch => {
+          console.log('[NOTIFEE_CHANNEL_INSPECT v3]:', JSON.stringify(ch));
+        });
+        notifee.getChannel('incoming_job_channel_v2').then(ch => {
+          console.log('[NOTIFEE_CHANNEL_INSPECT v2]:', JSON.stringify(ch));
+        });
       });
 
-      notifee.getInitialNotification().then(initialNotification => {
-        if (initialNotification) {
-          console.log('[Notifee Launch App]', initialNotification);
-          const data = initialNotification.notification?.data;
-          const notificationId = initialNotification.notification?.id || data?.notificationId || data?.jobId || data?.requestId;
-          const jobId = data?.jobId || data?.requestId;
-          if (jobId) {
-            setTimeout(() => {
-              if (navigationRef.isReady()) {
-                navigationRef.navigate('IncomingRequest', { requestId: jobId, requestData: data, notificationId });
-              }
-            }, 500);
-          }
+      checkAndStoreInitialNotification().then(target => {
+        if (target) {
+          console.log('[App] Cold start incoming request target detected:', target);
+          startPollingForReadyNavigation(navigationRef, 6000);
         }
       });
 

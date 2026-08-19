@@ -1,4 +1,4 @@
-const express = require('express');
+  const express = require('express');
 const http = require('http');
 const { Server: SocketServer } = require('socket.io');
 const cors = require('cors');
@@ -73,21 +73,19 @@ app.use(cors({
   credentials: true
 }));
 
+// Body parsers with size limit
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+const paginationValidation = require('./middleware/paginationValidation');
+
 // Security middlewares
 app.use(securityHeaders);
 app.use(rateLimiter);
 app.use(mongoSanitize());
 app.use(xssClean());
 app.use(apiKeyRotation);
-
-app.use((req, res, next) => {
-  /** @type {any} */ (req).io = io;
-  next();
-});
-
-// Body parsers with size limit
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
+app.use(paginationValidation);
 
 // Serve static uploads directory
 const path = require('path');

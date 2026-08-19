@@ -40,7 +40,12 @@ function KycBadge({ status }) {
 function KycPanel({ mech, onUpdate }) {
   const kyc = mech.kyc || {};
   const docs = mech.documents || {};
-  const legacyDoc = docs.identityProof || docs.licenseImage || (docs.certificationImages && docs.certificationImages[0]) || '';
+  const idProofUrl = typeof docs.identityProof === 'object' ? docs.identityProof?.url : (typeof docs.identityProof === 'string' ? docs.identityProof : '');
+  const licenseUrl = typeof docs.licenseImage === 'object' ? docs.licenseImage?.url : (typeof docs.licenseImage === 'string' ? docs.licenseImage : '');
+  const certUrl = Array.isArray(docs.certificationImages) && docs.certificationImages.length > 0
+    ? (typeof docs.certificationImages[0] === 'object' ? docs.certificationImages[0]?.url : docs.certificationImages[0])
+    : '';
+  const legacyDoc = idProofUrl || licenseUrl || certUrl || '';
 
   const [rejectionReason, setRejectionReason] = useState(kyc.rejectionReason || '');
   const [showRejectBox, setShowRejectBox] = useState(false);
@@ -48,8 +53,9 @@ function KycPanel({ mech, onUpdate }) {
   const [imgError, setImgError] = useState(false);
   const [imgLoaded, setImgLoaded] = useState(false);
 
-  const docUrl = kyc.docUrl || legacyDoc || '';
-  const docType = kyc.docType || (docs.identityProof ? 'Identity Proof' : docs.licenseImage ? 'Driving License' : legacyDoc ? 'Registration Document' : '');
+  const rawDocUrl = kyc.docUrl || legacyDoc || '';
+  const docUrl = typeof rawDocUrl === 'object' ? (rawDocUrl.url || '') : String(rawDocUrl || '');
+  const docType = kyc.docType || (idProofUrl ? 'Identity Proof' : licenseUrl ? 'Driving License' : legacyDoc ? 'Registration Document' : '');
   const kycStatus = kyc.status || (docUrl ? 'pending' : 'unsubmitted');
 
   // Detect problems with the stored document URL

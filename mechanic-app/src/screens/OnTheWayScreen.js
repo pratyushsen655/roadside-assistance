@@ -83,7 +83,31 @@ const OnTheWayScreen = () => {
   const { mechanicToken } = useContext(AuthContext);
 
   const isMounted = useRef(true);
-  useEffect(() => () => { isMounted.current = false; }, []);
+  useEffect(() => {
+    isMounted.current = true;
+
+    // Immediately stop any alert sounds, vibrations, or incoming call notifications when accepted screen loads
+    (async () => {
+      try {
+        const { stopIncomingRequestSound } = require('../services/soundService');
+        await stopIncomingRequestSound();
+      } catch (e) {}
+      try {
+        const { Vibration } = require('react-native');
+        Vibration.cancel();
+      } catch (e) {}
+      try {
+        const notifee = require('@notifee/react-native').default;
+        if (notifee) {
+          if (typeof notifee.cancelAllNotifications === 'function') {
+            await notifee.cancelAllNotifications();
+          }
+        }
+      } catch (e) {}
+    })();
+
+    return () => { isMounted.current = false; };
+  }, []);
 
   const [loading, setLoading]               = useState(true);
   const [request, setRequest]               = useState(null);

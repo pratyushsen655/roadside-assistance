@@ -61,9 +61,37 @@ const register = async (req, res, next) => {
 const login = async (req, res, next) => {
   try {
     const { email, phone, password } = req.body;
+
+    if (email !== undefined && typeof email !== 'string') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid email parameter: must be a string',
+        errors: [],
+        statusCode: 400,
+      });
+    }
+
+    if (phone !== undefined && typeof phone !== 'string') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid phone parameter: must be a string',
+        errors: [],
+        statusCode: 400,
+      });
+    }
+
+    if (typeof password !== 'string' || !password.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid password parameter: must be a non-empty string',
+        errors: [],
+        statusCode: 400,
+      });
+    }
+
     const identifier = email || phone;
 
-    if (!identifier || !password) {
+    if (!identifier || (typeof identifier === 'string' && !identifier.trim())) {
       return res.status(400).json({
         success: false,
         message: 'Please provide email/phone and password',

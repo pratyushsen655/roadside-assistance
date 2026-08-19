@@ -290,6 +290,17 @@ export default function TrackingScreen({ route, navigation }) {
       }
     };
 
+    const arrivalOtpHandler = (data) => {
+      try {
+        console.log('[Socket] TrackingScreen - Arrival OTP received:', data);
+        if (data && data.arrivalOtp && isMounted.current) {
+          setArrivalOtp(data.arrivalOtp);
+        }
+      } catch (err) {
+        console.error('[Socket] Error handling arrival_otp:', err);
+      }
+    };
+
     socket.on('job:accepted:notify', jobAcceptedHandler);
     socket.on('arrival_otp', arrivalOtpHandler);
 
@@ -536,7 +547,9 @@ export default function TrackingScreen({ route, navigation }) {
             <Text style={styles.cancelBtnText}>Cancel Request</Text>
           </TouchableOpacity>
         )}
-      </View>
+          </View>
+        );
+      })()}
     </View>
   );
 }

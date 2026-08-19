@@ -33,7 +33,8 @@ exports.createRequest = async (req, res, next) => {
     scheduledTime
   } = req.body;
 
-  const finalIssueDescription = issueDescription || description || req.body.serviceType || 'Roadside assistance requested';
+  const rawIssueDescription = issueDescription || description || req.body.serviceType || 'Roadside assistance requested';
+  const finalIssueDescription = typeof rawIssueDescription === 'string' ? rawIssueDescription.replace(/<[^>]*>?/gm, '').trim() : 'Roadside assistance requested';
   let finalLat = latitude;
   let finalLng = longitude;
 

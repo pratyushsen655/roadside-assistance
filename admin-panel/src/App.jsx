@@ -127,7 +127,7 @@ export default function App() {
     try {
       const res = await axios.get(`${API_URL}/admin/mechanics`);
       if (res.data.success) {
-        setMechanicsList(res.data.data);
+        setMechanicsList(res.data.mechanics || res.data.data || []);
       }
     } catch (err) {
       console.error('Failed listing mechanics:', err.message);
@@ -174,13 +174,13 @@ export default function App() {
   const handleVerifyKYC = async (id, status) => {
     setLoading(true);
     try {
-      const res = await axios.post(`${API_URL}/admin/mechanics/${id}/kyc`, { status });
+      const res = await axios.put(`${API_URL}/admin/mechanics/${id}/kyc`, { action: status });
       if (res.data.success) {
         alert(`Mechanic KYC updated: ${status}`);
         fetchMechanics();
       }
     } catch (err) {
-      alert('Failed to update KYC status.');
+      alert(err.response?.data?.message || 'Failed to update KYC status.');
     } finally {
       setLoading(false);
     }
@@ -408,7 +408,9 @@ export default function App() {
                     </tr>
                   ) : (
                     mechanicsList.filter(m => (m.kyc?.status === 'pending' || (!m.kyc?.status && (m.kyc?.docUrl || m.documents?.identityProof || m.documents?.licenseImage)))).map(m => {
-                      const docUrl = m.kyc?.docUrl || m.documents?.identityProof || m.documents?.licenseImage || '';
+                      const docUrl = typeof m.kyc?.docUrl === 'string' && m.kyc.docUrl
+                        ? m.kyc.docUrl
+                        : (typeof m.documents?.identityProof === 'object' ? m.documents?.identityProof?.url : (typeof m.documents?.identityProof === 'string' ? m.documents.identityProof : (typeof m.documents?.licenseImage === 'object' ? m.documents?.licenseImage?.url : (typeof m.documents?.licenseImage === 'string' ? m.documents.licenseImage : ''))));
                       return (
                         <tr key={m._id}>
                           <td><strong>{m.name}</strong></td>

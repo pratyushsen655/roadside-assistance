@@ -20,15 +20,21 @@ router.get('/:jobId/messages', async (req, res) => {
 router.post('/:jobId/messages', async (req, res) => {
   try {
     const { message, senderType } = req.body;
-    if (!message) {
-      return res.status(400).json({ success: false, message: 'Message is required' });
+    if (!message || typeof message !== 'string') {
+      return res.status(400).json({ success: false, message: 'Valid text message is required' });
+    }
+
+    // Strip potential script tags / HTML markup from chat messages
+    const sanitizedMessage = message.replace(/<[^>]*>?/gm, '').trim();
+    if (!sanitizedMessage) {
+      return res.status(400).json({ success: false, message: 'Message content is invalid after sanitization' });
     }
 
     const newMessage = await Message.create({
       jobId: req.params.jobId,
       senderId: req.user.id,
       senderType: senderType || (req.user.role === 'mechanic' ? 'mechanic' : 'customer'),
-      message
+      message: sanitizedMessage
     });
 
     res.status(201).json({

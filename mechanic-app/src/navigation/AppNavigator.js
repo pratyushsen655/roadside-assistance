@@ -28,6 +28,7 @@ import NotificationHistoryScreen from '../screens/NotificationHistoryScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import { useLanguage } from '../context/LanguageContext';
 import { getSocket, joinMechanicRoom } from '../config/socket';
+import { checkAndStoreInitialNotification, navigatePendingInitialTarget } from '../utils/initialNotificationHandler';
 import { playIncomingRequestSound, stopIncomingRequestSound } from '../services/soundService';
 
 const { RingingModule } = NativeModules;
@@ -258,8 +259,22 @@ const AppNavigator = ({ navigationRef }) => {
   return (
     <NavigationContainer
       ref={navigationRef}
-      onReady={() => {
+      onReady={async () => {
         console.log('[NavigationContainer] Navigation is ready');
+
+        // 1. Process any pending target captured during app initialization
+        const handled = navigatePendingInitialTarget(navigationRef);
+        if (handled) return;
+
+        // 2. Double check multi-source initial notification if not yet captured
+        const initialTarget = await checkAndStoreInitialNotification();
+        if (initialTarget) {
+          console.log('[NavigationContainer onReady] Captured initial target:', initialTarget);
+          navigatePendingInitialTarget(navigationRef);
+          return;
+        }
+
+        // 3. Fallback check for RingingModule
         if (Platform.OS === 'android' && RingingModule && typeof RingingModule.getInitialRingingData === 'function' && mechanicToken) {
           RingingModule.getInitialRingingData().then((data) => {
             if (data) {

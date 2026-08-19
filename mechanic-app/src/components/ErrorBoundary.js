@@ -13,7 +13,9 @@ export default class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, errorInfo) {
-    console.error('ErrorBoundary caught an error:', error, errorInfo);
+    console.error('[ErrorBoundary CRASH] Message:', error?.message || String(error));
+    console.error('[ErrorBoundary CRASH] Stack:', error?.stack);
+    console.error('[ErrorBoundary CRASH] Info:', errorInfo?.componentStack);
   }
 
   handleReset = () => {
@@ -32,10 +34,10 @@ export default class ErrorBoundary extends React.Component {
                 We encountered an unexpected error. Please try again or restart the application.
               </Text>
 
-              {__DEV__ && this.state.error && (
+              {this.state.error && (
                 <View style={styles.debugContainer}>
-                  <Text style={styles.debugTitle}>Debug Info (Dev Mode):</Text>
-                  <Text style={styles.debugText}>{this.state.error.toString()}</Text>
+                  <Text style={styles.debugTitle}>Error Details:</Text>
+                  <Text style={styles.debugText}>{this.state.error.message || this.state.error.toString()}</Text>
                 </View>
               )}
 
